@@ -256,16 +256,3 @@ Agar tidak terjadi Merge Conflict:
 
 6. **Code Review**: Minimal 1 reviewer sebelum merge
 
-## Environment Variables
-
-Copy `.env.example` ke `.env` dan isi sesuai konfigurasi:
-
-```bash
-# Frontend (.env di apps/web/)
-NEXT_PUBLIC_API_URL=http://localhost:3001
-
-# Backend (.env di apps/api/)
-DATABASE_URL="postgresql://user:password@localhost:5432/project4b"
-JWT_SECRET=your-secret-key
-PORT=3001
-```

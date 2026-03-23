@@ -32,6 +32,9 @@ apps/api/.nestjs
 # Prisma
 apps/api/prisma/migrations
 
+# Supabase (local development files)
+apps/api/supabase/
+
 # misc
 .DS_Store
 *.pem
