@@ -1,26 +1,23 @@
 {
   "name": "project-4b",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "description": "PT Mayora Enterprise System - Monorepo",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "dev": "concurrently \"pnpm --filter web dev\" \"pnpm --filter api start:dev\"",
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "pnpm --filter api start:dev",
+    "build": "pnpm --filter web build && pnpm --filter api build",
+    "build:web": "pnpm --filter web build",
+    "build:api": "pnpm --filter api build",
+    "start": "concurrently \"pnpm --filter web start\" \"pnpm --filter api start\"",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules",
+    "lint": "pnpm --filter web lint && pnpm --filter api lint"
   },
-  "dependencies": {
-    "next": "16.1.7",
-    "react": "19.2.3",
-    "react-dom": "19.2.3"
-  },
+  "keywords": ["monorepo", "nextjs", "nestjs", "enterprise"],
+  "author": "PT Mayora Team",
+  "license": "MIT",
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.1.7",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "concurrently": "^8.2.2"
   }
 }

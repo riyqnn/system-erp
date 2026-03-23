@@ -9,16 +9,28 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+apps/*/node_modules
+packages/*/node_modules
 
 # testing
 /coverage
+apps/api/coverage
 
 # next.js
 /.next/
 /out/
+apps/web/.next/
+apps/web/out/
 
 # production
 /build
+apps/api/dist
+
+# NestJS
+apps/api/.nestjs
+
+# Prisma
+apps/api/prisma/migrations
 
 # misc
 .DS_Store
