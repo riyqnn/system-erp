@@ -1,6 +1,9 @@
 import { AppSwitcher } from '@/components/layout/AppSwitcher'
 import { getCurrentUser } from '@/lib/actions/auth'
 
+// Force dynamic rendering for this page since it uses cookies
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardPage() {
   const user = await getCurrentUser()
 

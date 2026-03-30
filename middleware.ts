@@ -1,3 +1,4 @@
+import { createServerClient } from '@supabase/ssr'
 import { type NextRequest, NextResponse } from 'next/server'
 
 export async function middleware(request: NextRequest) {
@@ -12,8 +13,33 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Check authentication by calling NestJS API
-  const isAuthenticated = await checkAuth(request)
+  // Create a Supabase client for middleware
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value)
+            NextResponse.next({
+              request: { headers: request.headers },
+            }).cookies.set(name, value, options)
+          })
+        },
+      },
+    }
+  )
+
+  // Check authentication status using Supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const isAuthenticated = !!user
 
   // Protected routes - redirect to login if not authenticated
   const protectedPaths = ['/dashboard', '/apps']
@@ -37,47 +63,6 @@ export async function middleware(request: NextRequest) {
   // This allows logged-in users to see "access denied" UI instead of being redirected to login
 
   return NextResponse.next()
-}
-
-/**
- * Check if user is authenticated by calling NestJS API
- */
-async function checkAuth(request: NextRequest): Promise<boolean> {
-  try {
-    // Extract access token from cookies using Next.js 15+ API
-    const accessToken = request.cookies.get('access_token')?.value
-
-    // Debug: log if no token found
-    if (!accessToken) {
-      console.log('[Middleware] No access_token found in cookies')
-      console.log('[Middleware] Available cookies:', Array.from(request.cookies.getAll()).map(c => c.name))
-      return false
-    }
-
-    console.log('[Middleware] Found access_token, calling API...')
-
-    const response = await fetch('http://localhost:3001/api/auth/me', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        // Pass access token via Authorization header for server-side calls
-        Authorization: `Bearer ${accessToken}`,
-      },
-      cache: 'no-store',
-    })
-
-    console.log('[Middleware] API response status:', response.status, response.statusText)
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.log('[Middleware] API error response:', errorText)
-    }
-
-    return response.ok
-  } catch (error) {
-    console.log('[Middleware] Auth check error:', error)
-    return false
-  }
 }
 
 export const config = {
