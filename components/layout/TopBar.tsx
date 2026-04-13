@@ -169,7 +169,7 @@ export function TopBar({ title, breadcrumbs = [], onMenuClick, moduleName }: Top
                     {user?.full_name || 'User'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {user?.role || 'Role'}
+                    {user?.role?.name || 'Role'}
                   </p>
                   <p className="text-xs text-slate-400 truncate">
                     {user?.email || 'email@example.com'}

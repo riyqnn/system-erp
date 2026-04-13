@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 
-interface ModuleLayoutProps {
+export interface ModuleLayoutProps {
   children: React.ReactNode
   breadcrumbs?: { label: string; href?: string }[]
   activeModule: string

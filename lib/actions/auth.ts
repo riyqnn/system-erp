@@ -1,34 +1,69 @@
 'use server'
 
-import { cookies } from 'next/headers'
+import { createRouteHandlerClient } from '@/lib/supabase/server'
+import type { UserWithRole } from '@/lib/auth/rbac'
 
 /**
- * Get current user from NestJS API
- * Server-side calls the backend directly and passes cookies as headers
+ * Get current user from Supabase
+ * Server-side function that fetches the authenticated user with their role
  */
-export async function getCurrentUser() {
+export async function getCurrentUser(): Promise<UserWithRole | null> {
   try {
-    const cookieStore = await cookies()
+    const supabase = await createRouteHandlerClient()
 
-    // Extract cookies and forward to backend
-    const accessToken = cookieStore.get('access_token')?.value
+    // Get the authenticated user from Supabase
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    const response = await fetch('http://localhost:3001/api/auth/me', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        // Pass access token via Authorization header for server-side calls
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      },
-      cache: 'no-store',
-    })
-
-    if (!response.ok) {
+    if (authError || !user) {
       return null
     }
 
-    const data = await response.json()
-    return data.user
+    // Fetch user profile with role from database
+    const { data, error } = await supabase
+      .from('users')
+      .select(
+        `
+        id,
+        email,
+        full_name,
+        role_id,
+        is_active,
+        is_pending,
+        created_at,
+        updated_at,
+        roles (
+          id,
+          name,
+          description
+        )
+      `
+      )
+      .eq('id', user.id)
+      .single()
+
+    if (error || !data) {
+      return null
+    }
+
+    if (!data.is_active) {
+      return null
+    }
+
+    if (data.is_pending) {
+      return null
+    }
+
+    return {
+      id: data.id,
+      email: data.email,
+      full_name: data.full_name,
+      role_id: data.role_id,
+      is_active: data.is_active,
+      is_pending: data.is_pending,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+      role: (data as any).roles,
+    }
   } catch (error) {
     console.error('Error fetching user:', error)
     return null

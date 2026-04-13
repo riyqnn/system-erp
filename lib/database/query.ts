@@ -8,6 +8,7 @@ export type Products = Tables['products']['Row']
 
 export type UserWithRole = Users & {
   roles?: Roles
+  is_pending?: boolean
 }
 
 /**
@@ -25,6 +26,7 @@ export async function getUserProfile(userId: string): Promise<UserWithRole | nul
       full_name,
       role_id,
       is_active,
+      is_pending,
       created_at,
       updated_at,
       roles (
@@ -216,6 +218,7 @@ export async function getAllUsers(): Promise<UserWithRole[]> {
       full_name,
       role_id,
       is_active,
+      is_pending,
       created_at,
       updated_at,
       roles (

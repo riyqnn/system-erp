@@ -42,7 +42,7 @@ export async function middleware(request: NextRequest) {
   const isAuthenticated = !!user
 
   // Protected routes - redirect to login if not authenticated
-  const protectedPaths = ['/dashboard', '/apps']
+  const protectedPaths = ['/dashboard', '/apps', '/admin']
   const isProtectedPath = protectedPaths.some(path => pathname.startsWith(path))
 
   if (!isAuthenticated && isProtectedPath) {
@@ -51,9 +51,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Auth routes - redirect to dashboard if already authenticated
+  // Auth routes - redirect to appropriate dashboard if already authenticated
   if (isAuthenticated && (pathname === '/login' || pathname === '/')) {
     const url = request.nextUrl.clone()
+    // For now, redirect to dashboard which will handle role-based routing
+    // The dashboard page will check the user role and redirect accordingly
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
   }

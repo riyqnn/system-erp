@@ -39,6 +39,7 @@ export interface Database {
           full_name: string | null
           role_id: string | null
           is_active: boolean
+          is_pending: boolean
           created_at: string
           updated_at: string
         }
@@ -48,6 +49,7 @@ export interface Database {
           full_name?: string | null
           role_id?: string | null
           is_active?: boolean
+          is_pending?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -57,6 +59,7 @@ export interface Database {
           full_name?: string | null
           role_id?: string | null
           is_active?: boolean
+          is_pending?: boolean
           created_at?: string
           updated_at?: string
         }

@@ -1,5 +1,5 @@
-import { AppSwitcher } from '@/components/layout/AppSwitcher'
 import { getCurrentUser } from '@/lib/actions/auth'
+import { redirect } from 'next/navigation'
 
 // Force dynamic rendering for this page since it uses cookies
 export const dynamic = 'force-dynamic'
@@ -9,11 +9,27 @@ export default async function DashboardPage() {
 
   if (!user) {
     // This shouldn't happen due to middleware, but just in case
-    throw new Error('User not found')
+    redirect('/login')
   }
 
-  // user already includes role from the backend response
-  const userRole = user.role
+  // Redirect based on user role
+  const userRole = user?.role?.name?.toUpperCase()
 
-  return <AppSwitcher userRole={userRole} />
+  if (userRole === 'ADMIN') {
+    // Admins go to admin dashboard
+    redirect('/admin')
+  } else {
+    // Other roles go to their respective modules
+    const roleRedirects: Record<string, string> = {
+      'INVENTORY': '/apps/inventory',
+      'FINANCE': '/apps/finance',
+      'PURCHASING': '/apps/purchasing',
+      'PRODUCTION': '/apps/production',
+      'SNM': '/apps/snm',
+      'SALES': '/apps/snm',
+    }
+
+    const redirectPath = roleRedirects[userRole || ''] || '/login'
+    redirect(redirectPath)
+  }
 }

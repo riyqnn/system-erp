@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
   Package,
@@ -9,6 +10,13 @@ import {
   TrendUp,
   MagnifyingGlass,
   User,
+  CaretDown,
+  Bell,
+  ChatCircle,
+  SignOut,
+  Gear,
+  SquaresFour,
+  Users,
 } from '@phosphor-icons/react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -24,6 +32,7 @@ const MODULES = [
     description: 'Manage products, stock, and warehouse',
     icon: Package,
     href: '/apps/inventory',
+    roles: ['INVENTORY', 'ADMIN'],
   },
   {
     id: 'finance',
@@ -31,6 +40,7 @@ const MODULES = [
     description: 'Invoices, payments, and accounting',
     icon: CurrencyDollar,
     href: '/apps/finance',
+    roles: ['FINANCE', 'ADMIN'],
   },
   {
     id: 'production',
@@ -38,6 +48,7 @@ const MODULES = [
     description: 'Manufacturing and production planning',
     icon: Factory,
     href: '/apps/production',
+    roles: ['PRODUCTION', 'ADMIN'],
   },
   {
     id: 'purchasing',
@@ -45,6 +56,7 @@ const MODULES = [
     description: 'Purchase orders and vendor management',
     icon: ShoppingCart,
     href: '/apps/purchasing',
+    roles: ['PURCHASING', 'ADMIN'],
   },
   {
     id: 'snm',
@@ -52,6 +64,21 @@ const MODULES = [
     description: 'Sales, marketing, and customer management',
     icon: TrendUp,
     href: '/apps/snm',
+    roles: ['SNM', 'SALES', 'ADMIN'],
+  },
+]
+
+/**
+ * Admin modules - only visible to ADMIN role
+ */
+const ADMIN_MODULES = [
+  {
+    id: 'admin',
+    name: 'User Management',
+    description: 'Manage users and approve registrations',
+    icon: Users,
+    href: '/admin/pending-users',
+    roles: ['ADMIN'],
   },
 ]
 
@@ -64,9 +91,33 @@ interface AppSwitcherProps {
  * Odoo-style dashboard with top navbar and module grid
  */
 export function AppSwitcher({ userRole }: AppSwitcherProps) {
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [notifMenuOpen, setNotifMenuOpen] = useState(false)
+  const [user, setUser] = useState<any>(null)
+
+  // Fetch user data
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(res => res.json())
+      .then(({ user: userData }) => setUser(userData))
+      .catch(() => setUser(null))
+  }, [])
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+      window.location.href = '/login'
+    } catch (err) {
+      window.location.href = '/login'
+    }
+  }
+
   // Filter modules based on user role (admin sees all)
-  const accessibleModules = MODULES.filter(module => {
-    // For now, all modules are accessible
+  const accessibleModules = [...ADMIN_MODULES, ...MODULES].filter(module => {
+    if (module.roles && module.roles.length > 0) {
+      const userRole = user?.role?.name?.toUpperCase()
+      return module.roles.includes(userRole || '')
+    }
     return true
   })
 
@@ -98,14 +149,111 @@ export function AppSwitcher({ userRole }: AppSwitcherProps) {
               </div>
             </div>
 
-            {/* Right: User Profile */}
-            <div className="flex items-center gap-3">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-medium text-slate-900">Administrator</p>
-                <p className="text-xs text-slate-500">admin@mayora.id</p>
+            {/* Right: Notifications, Messages, Profile */}
+            <div className="flex items-center gap-2">
+              {/* Notifications */}
+              <div className="relative">
+                <button
+                  onClick={() => setNotifMenuOpen(!notifMenuOpen)}
+                  className="p-2 hover:bg-slate-100 rounded-md transition-colors relative"
+                  aria-label="Notifications"
+                >
+                  <Bell weight="bold" className="w-5 h-5 text-slate-600" />
+                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                </button>
+
+                {/* Notification Dropdown */}
+                {notifMenuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setNotifMenuOpen(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-lg shadow-sm border border-slate-200 z-20">
+                      <div className="p-4 border-b border-slate-100">
+                        <h3 className="text-sm font-semibold text-slate-900">Notifications</h3>
+                      </div>
+                      <div className="p-4">
+                        <p className="text-sm text-slate-500 text-center">No new notifications</p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
-              <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
-                <User weight="bold" className="w-4 h-4 text-slate-600" />
+
+              {/* Messages */}
+              <button
+                className="p-2 hover:bg-slate-100 rounded-md transition-colors relative"
+                aria-label="Messages"
+              >
+                <ChatCircle weight="bold" className="w-5 h-5 text-slate-600" />
+                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+              </button>
+
+              {/* Profile Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center gap-2 p-1.5 hover:bg-slate-100 rounded-md transition-colors"
+                  aria-label="User menu"
+                >
+                  <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center">
+                    <User weight="bold" className="w-4 h-4 text-slate-600" />
+                  </div>
+                  <CaretDown weight="bold" className="w-3 h-3 text-slate-500 hidden sm:block" />
+                </button>
+
+                {/* Dropdown Menu */}
+                {userMenuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setUserMenuOpen(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-sm border border-slate-200 z-20">
+                      <div className="p-4 border-b border-slate-100">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {user?.full_name || 'User'}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {user?.role?.name || 'Role'}
+                        </p>
+                        <p className="text-xs text-slate-400 truncate">
+                          {user?.email || 'email@example.com'}
+                        </p>
+                      </div>
+
+                      <div className="p-2">
+                        <Link
+                          href="/dashboard"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded-md transition-colors"
+                        >
+                          <SquaresFour weight="regular" className="w-5 h-5 text-slate-500" />
+                          Dashboard
+                        </Link>
+                        <Link
+                          href="/settings"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded-md transition-colors"
+                        >
+                          <Gear weight="regular" className="w-5 h-5 text-slate-500" />
+                          Settings
+                        </Link>
+                      </div>
+
+                      <hr className="my-1 border-slate-100" />
+
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-3 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors text-left"
+                      >
+                        <SignOut weight="regular" className="w-5 h-5" />
+                        Logout
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

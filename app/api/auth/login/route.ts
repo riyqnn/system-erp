@@ -37,6 +37,9 @@ export async function POST(request: NextRequest) {
         full_name,
         role_id,
         is_active,
+        is_pending,
+        created_at,
+        updated_at,
         roles (
           id,
           name,
@@ -61,6 +64,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (userData.is_pending) {
+      return NextResponse.json(
+        { error: 'Account pending admin approval' },
+        { status: 403 }
+      )
+    }
+
     // Return user data (tokens are already set in cookies by Supabase)
     return NextResponse.json(
       {
@@ -68,7 +78,12 @@ export async function POST(request: NextRequest) {
           id: userData.id,
           email: userData.email,
           full_name: userData.full_name,
-          role: (userData as any).roles?.name || 'USER',
+          role_id: userData.role_id,
+          is_active: userData.is_active,
+          is_pending: userData.is_pending,
+          created_at: userData.created_at,
+          updated_at: userData.updated_at,
+          role: (userData as any).roles, // Full role object
         },
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token,

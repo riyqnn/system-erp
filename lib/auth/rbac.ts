@@ -7,6 +7,7 @@ export interface UserProfile {
   full_name: string
   role_id: string
   is_active: boolean
+  is_pending: boolean
   created_at: string
   updated_at: string
 }
@@ -118,6 +119,7 @@ export async function getUserFromRequest(
       full_name,
       role_id,
       is_active,
+      is_pending,
       created_at,
       updated_at,
       roles (
@@ -138,12 +140,17 @@ export async function getUserFromRequest(
     throw new AuthError('User account is inactive', 403)
   }
 
+  if (data.is_pending) {
+    throw new AuthError('Account pending admin approval', 403)
+  }
+
   return {
     id: data.id,
     email: data.email,
     full_name: data.full_name,
     role_id: data.role_id,
     is_active: data.is_active,
+    is_pending: data.is_pending,
     created_at: data.created_at,
     updated_at: data.updated_at,
     role: (data as any).roles,

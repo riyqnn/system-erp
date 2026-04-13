@@ -12,6 +12,9 @@ import {
   ShoppingCart,
   Factory,
   TrendUp,
+  ChartLineUp,
+  Users,
+  Gear,
 } from '@phosphor-icons/react'
 
 interface MenuItem {
@@ -33,6 +36,33 @@ interface SidebarProps {
  */
 const getModuleNavigation = (activeModule?: string): MenuItem[] => {
   const moduleMenus: Record<string, MenuItem[]> = {
+    admin: [
+      {
+        label: 'Dashboard',
+        href: '/admin',
+        icon: SquaresFour,
+      },
+      {
+        label: 'Statistics',
+        href: '/admin/statistics',
+        icon: ChartLineUp,
+      },
+      {
+        label: 'Module Statistics',
+        href: '/admin/module-statistics',
+        icon: ChartLineUp,
+      },
+      {
+        label: 'User Management',
+        href: '/admin/pending-users',
+        icon: Users,
+      },
+      {
+        label: 'Settings',
+        href: '/admin/settings',
+        icon: Gear,
+      },
+    ],
     inventory: [
       { label: 'Overview', href: '/apps/inventory', icon: SquaresFour },
       { label: 'Products', href: '/apps/inventory/products', icon: Package },
