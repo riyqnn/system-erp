@@ -12,8 +12,7 @@ import {
   Factory,
   ShoppingCart,
   ChartLine,
-  Plus,
-} from '@phosphor-icons/react'
+  } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
@@ -27,6 +26,7 @@ export function AdminDashboardClient() {
   useEffect(() => {
     setMounted(true)
     fetchDashboardData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchDashboardData = async () => {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Shield, User as UserIcon, Mail, Lock, Briefcase, CheckCircle2 } from 'lucide-react'
+import { Shield, User as UserIcon, CheckCircle2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { AdminFormCard, AdminFormSection, AdminFormField, AdminToggle, AdminButton } from './AdminFormCard'
 

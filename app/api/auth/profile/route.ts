@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth/rbac'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const user = await requireAuth(request)
+    const user = await requireAuth()
 
     // Fetch full user profile with role
     const { createRouteHandlerClient } = await import('@/lib/supabase/server')

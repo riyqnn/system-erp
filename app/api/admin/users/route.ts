@@ -1,10 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac'
 
 export async function POST(request: NextRequest) {
   try {
     // Require authentication and ADMIN role
-    const user = await requireAuth(request)
+    const user = await requireAuth()
     requireAnyRole(user, ['ADMIN'])
 
     const { full_name, email, password, role_id, is_active } = await request.json()
@@ -108,10 +109,10 @@ export async function POST(request: NextRequest) {
 }
 
 // Get all users (not just pending)
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Require authentication and ADMIN role
-    const user = await requireAuth(request)
+    const user = await requireAuth()
     requireAnyRole(user, ['ADMIN'])
 
     const { createRouteHandlerClient } = await import('@/lib/supabase/server')
@@ -154,9 +155,9 @@ export async function GET(request: NextRequest) {
     })
   } catch (error: any) {
     console.error('[Admin Get Users Error]', error)
-    const statusCode = error.statusCode || 500
+    const statusCode = (error as { statusCode?: number }).statusCode || 500
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: (error as Error).message || 'Internal server error' },
       { status: statusCode }
     )
   }

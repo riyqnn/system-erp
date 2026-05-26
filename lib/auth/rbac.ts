@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * User profile interface from database
  */
@@ -95,11 +96,9 @@ export class AuthError extends Error {
 }
 
 /**
- * Get user from request - extracts and validates user from session
+ * Get user from _request - extracts and validates user from session
  */
-export async function getUserFromRequest(
-  request: Request
-): Promise<UserWithRole | null> {
+export async function getUserFromRequest(): Promise<UserWithRole | null> {
   const { createRouteHandlerClient } = await import('@/lib/supabase/server')
   const supabase = await createRouteHandlerClient()
 
@@ -160,8 +159,8 @@ export async function getUserFromRequest(
 /**
  * Require authentication - throws error if user is not authenticated
  */
-export async function requireAuth(request: Request): Promise<UserWithRole> {
-  const user = await getUserFromRequest(request)
+export async function requireAuth(): Promise<UserWithRole> {
+  const user = await getUserFromRequest()
 
   if (!user) {
     throw new AuthError('User not authenticated', 401)

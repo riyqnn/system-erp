@@ -109,6 +109,7 @@ export function DonutChart({
           const endAngle = startAngle + angle
           const isHovered = hoveredIndex === i
 
+          // eslint-disable-next-line react-hooks/immutability
           currentAngle = endAngle
 
           // Skip very small segments

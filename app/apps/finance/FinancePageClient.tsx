@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { CurrencyDollar, Receipt, Wallet, ChartBar, ArrowRight } from '@phosphor-icons/react'
+import { Receipt, Wallet, ChartBar, ArrowRight } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'

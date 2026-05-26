@@ -3,24 +3,16 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  Package,
   TrendingUp,
   AlertTriangle,
   ClipboardList,
   ArrowRight,
   ArrowUpRight,
   ArrowDownRight,
-  Clock,
-  ShoppingCart,
   Truck,
   PackageCheck,
   Activity,
-  CheckCircle2,
-  Receipt,
-  MoreVertical,
   Warehouse,
-  BarChart3,
-  PieChart,
   Layers,
   RefreshCw,
   Filter,
@@ -28,7 +20,7 @@ import {
   Zap,
   MousePointer2,
 } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AreaChart, MultiBarChart, DonutChart } from "@/components/shared/charts";
 
@@ -79,12 +71,6 @@ function useNumberRoll(finalValue: number, duration = 1500) {
   return displayValue;
 }
 
-function formatCurrency(value: number): string {
-  if (value >= 1_000_000_000) return `Rp ${(value / 1_000_000_000).toFixed(1)}B`;
-  if (value >= 1_000_000) return `Rp ${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `Rp ${(value / 1_000).toFixed(1)}K`;
-  return `Rp ${value.toLocaleString()}`;
-}
 
 function formatNumber(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -457,7 +443,7 @@ const activityTypeConfig = {
   adjustment: { icon: ClipboardList, color: "orange", bg: "bg-orange-50", iconColor: "text-orange-600", sign: "±" },
 };
 
-function ActivityFeedItem({ timestamp, type, itemCode, itemName, quantity, uom, reference, performer, index = 0 }: ActivityFeedItemProps) {
+function ActivityFeedItem({ timestamp, type, itemCode, itemName, quantity, uom, reference, performer }: ActivityFeedItemProps) {
   const config = activityTypeConfig[type];
   const Icon = config.icon;
 
@@ -512,10 +498,10 @@ function ActivityFeedItem({ timestamp, type, itemCode, itemName, quantity, uom, 
 
 export default function InventoryDashboardPage() {
   const [mounted, setMounted] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<"day" | "week" | "month" | "quarter">("month");
-
+  
   useEffect(() => {
-    setMounted(true);
+    const t = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(t);
   }, []);
 
   if (!mounted) {
@@ -648,12 +634,7 @@ export default function InventoryDashboardPage() {
     { timestamp: "11:15", type: "transfer" as const, itemCode: "RM-045", itemName: "Sugar Refinery", quantity: 1000, uom: "kg", reference: "TRF-2023-089", performer: "Dewi K." },
     { timestamp: "10:00", type: "receipt" as const, itemCode: "PKG-023", itemName: "Wrapper Film", quantity: 500, uom: "roll", reference: "GR-2023-11A", performer: "Andi P." },
   ];
-  const QUICK_ACTIONS = [
-    { label: "Penerimaan Barang", icon: PackageCheck, href: "/inventory/goods-receipt", desc: "Proses Goods Receipt", count: 12 },
-    { label: "Purchase Requisition", icon: ShoppingCart, href: "/inventory/purchase-requisition", desc: "Buat PR untuk stok", count: 8 },
-    { label: "Konfirmasi Pengiriman", icon: Truck, href: "/inventory/shipping", desc: "Verifikasi DO outbound", count: 33 },
-    { label: "Verifikasi Invoice", icon: Receipt, href: "/inventory/invoice-verification", desc: "3-way match PO/GR/Inv", count: 5 },
-  ];
+  
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">

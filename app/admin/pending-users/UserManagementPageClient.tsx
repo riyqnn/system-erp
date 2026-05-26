@@ -3,14 +3,11 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  User,
   Check,
   X,
   Plus,
-  XCircle,
   MagnifyingGlass,
   Download,
-  ArrowCounterClockwise,
   Users,
   CheckCircle,
   Clock,
@@ -98,6 +95,7 @@ export function UserManagementPageClient() {
   useEffect(() => {
     fetchPendingUsers()
     fetchRoles()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleApprove = async (userId: string) => {

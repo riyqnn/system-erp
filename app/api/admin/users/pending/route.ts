@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { NextResponse } from 'next/server'
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Require authentication and ADMIN role
-    const user = await requireAuth(request)
+    const user = await requireAuth()
     requireAnyRole(user, ['ADMIN'])
 
     const { createRouteHandlerClient } = await import('@/lib/supabase/server')

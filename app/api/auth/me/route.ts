@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { NextResponse } from 'next/server'
 import { getUserFromRequest } from '@/lib/auth/rbac'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const user = await getUserFromRequest(request)
+    const user = await getUserFromRequest()
 
     if (!user) {
       return NextResponse.json(

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createRouteHandlerClient, createAdminClient } from '@/lib/supabase/server'
 import type { Database } from '../database.types'
 

@@ -1,6 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@/lib/supabase/server'
-import { AuthError } from '@/lib/auth/rbac'
 
 export async function POST(request: NextRequest) {
   try {

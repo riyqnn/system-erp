@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -24,7 +25,7 @@ interface TopBarProps {
 /**
  * Top Bar Component with Navigation, Search, Notifications, Messages, and Profile Dropdown
  */
-export function TopBar({ title, breadcrumbs = [], onMenuClick, moduleName }: TopBarProps) {
+export function TopBar({ onMenuClick, moduleName }: TopBarProps) {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [notifMenuOpen, setNotifMenuOpen] = useState(false)
   const [user, setUser] = useState<any>(null)
@@ -41,7 +42,7 @@ export function TopBar({ title, breadcrumbs = [], onMenuClick, moduleName }: Top
     try {
       await fetch('/api/auth/logout', { method: 'POST' })
       router.push('/login')
-    } catch (err) {
+    } catch {
       router.push('/login')
     }
   }

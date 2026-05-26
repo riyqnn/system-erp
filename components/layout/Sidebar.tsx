@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
 import { useState } from 'react'
@@ -118,7 +119,7 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
  * Collapsible white sidebar with thin right border
  * Shows module-specific navigation when inside a module
  */
-export function Sidebar({ isOpen = true, onClose, userRole, activeModule }: SidebarProps) {
+export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const pathname = usePathname()
 

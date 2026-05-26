@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import {
   Search,
   Plus,
-  Filter,
   Edit,
   Trash2,
   Package,

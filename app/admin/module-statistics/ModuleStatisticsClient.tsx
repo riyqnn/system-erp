@@ -4,7 +4,6 @@ import { useSearchParams } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import {
-  ChartLine,
   CurrencyDollar,
   Package,
   Factory,
@@ -78,8 +77,8 @@ const moduleConfig = {
 
 export function ModuleStatisticsClient() {
   const searchParams = useSearchParams()
-  const module = searchParams.get('module') || 'finance'
-  const config = moduleConfig[module as keyof typeof moduleConfig] || moduleConfig.finance
+  const modItem = searchParams.get('module') || 'finance'
+  const config = moduleConfig[modItem as keyof typeof moduleConfig] || moduleConfig.finance
 
   return (
     <ModuleLayout
@@ -149,11 +148,11 @@ export function ModuleStatisticsClient() {
                   key={key}
                   onClick={() => window.history.pushState({}, '', `/admin/module-statistics?module=${key}`)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    module === key
+                    modItem === key
                       ? 'text-white'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
-                  style={module === key ? { backgroundColor: '#dc2626' } : {}}
+                  style={modItem === key ? { backgroundColor: '#dc2626' } : {}}
                 >
                   {value.name}
                 </button>

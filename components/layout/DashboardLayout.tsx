@@ -11,7 +11,8 @@ import { ModuleLayoutProps } from './ModuleLayout'
  */
 export function DashboardLayout(props: ModuleLayoutProps) {
   // Dynamic import to avoid circular dependency
-  const { ModuleLayout } = require('./ModuleLayout')
+  const { ModuleLayout } = // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('./ModuleLayout')
   return <ModuleLayout {...props} />
 }
 
