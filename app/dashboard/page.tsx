@@ -21,7 +21,7 @@ export default async function DashboardPage() {
   } else {
     // Other roles go to their respective modules
     const roleRedirects: Record<string, string> = {
-      'INVENTORY': '/apps/inventory',
+      'INVENTORY': '/inventory',
       'FINANCE': '/apps/finance',
       'PURCHASING': '/apps/purchasing',
       'PRODUCTION': '/apps/production',

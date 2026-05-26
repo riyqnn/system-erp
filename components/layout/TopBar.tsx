@@ -4,14 +4,14 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  CaretDown,
   MagnifyingGlass,
   Bell,
   ChatCircle,
   User,
   SignOut,
   Gear,
-  SquaresFour,
+  GridFour,
+  CaretDown,
 } from '@phosphor-icons/react'
 
 interface TopBarProps {
@@ -56,37 +56,14 @@ export function TopBar({ title, breadcrumbs = [], onMenuClick, moduleName }: Top
           className="p-2 hover:bg-slate-100 rounded-md transition-colors lg:hidden"
           aria-label="Toggle menu"
         >
-          <SquaresFour weight="bold" className="w-5 h-5 text-slate-700" />
+          <GridFour weight="bold" className="w-5 h-5 text-slate-700" />
         </button>
 
-        {/* Module Name with Dropdown */}
-        <div className="relative group">
-          <button className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 rounded-md transition-colors">
-            <h1 className="text-lg font-semibold text-slate-900">
-              {moduleName || 'Dashboard'}
-            </h1>
-            <CaretDown weight="bold" className="w-4 h-4 text-slate-500" />
-          </button>
-
-          {/* Dropdown Menu */}
-          <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-slate-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-            <div className="p-2">
-              <Link
-                href="/dashboard"
-                className="flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded-md transition-colors"
-              >
-                <SquaresFour weight="regular" className="w-5 h-5 text-slate-500" />
-                App Switcher
-              </Link>
-              <Link
-                href="/settings"
-                className="flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded-md transition-colors"
-              >
-                <Gear weight="regular" className="w-5 h-5 text-slate-500" />
-                Settings
-              </Link>
-            </div>
-          </div>
+        {/* Module Name */}
+        <div className="px-3">
+          <h1 className="text-lg font-semibold text-slate-900">
+            {moduleName || 'Dashboard'}
+          </h1>
         </div>
       </div>
 
@@ -177,14 +154,6 @@ export function TopBar({ title, breadcrumbs = [], onMenuClick, moduleName }: Top
                 </div>
 
                 <div className="p-2">
-                  <Link
-                    href="/dashboard"
-                    onClick={() => setUserMenuOpen(false)}
-                    className="flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded-md transition-colors"
-                  >
-                    <SquaresFour weight="regular" className="w-5 h-5 text-slate-500" />
-                    App Switcher
-                  </Link>
                   <Link
                     href="/settings"
                     onClick={() => setUserMenuOpen(false)}

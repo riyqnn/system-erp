@@ -6,7 +6,7 @@ import { redirect } from 'next/navigation'
  * Maps each role to their allowed module path
  */
 const ROLE_MODULE_MAP: Record<string, string> = {
-  'INVENTORY': '/apps/inventory',
+  'INVENTORY': '/inventory',
   'FINANCE': '/apps/finance',
   'PURCHASING': '/apps/purchasing',
   'PRODUCTION': '/apps/production',
