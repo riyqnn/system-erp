@@ -17,7 +17,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
-import { MetricCard, MiniChart, DonutChart, BarChart } from '@/components/shared/charts'
+import { MetricCard, MiniChart, ProgressChart, BarChart } from '@/components/shared/charts'
 
 export function AdminDashboardClient() {
   const router = useRouter()
@@ -214,7 +214,7 @@ export function AdminDashboardClient() {
               <p className="text-sm text-slate-500 mb-6">Overall progress</p>
 
               <div className="flex justify-center mb-6">
-                <DonutChart
+                <ProgressChart
                   value={87}
                   size={200}
                   strokeWidth={16}

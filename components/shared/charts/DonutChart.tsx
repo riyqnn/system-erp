@@ -1,33 +1,36 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { cn } from '@/lib/utils'
+
+interface Segment {
+  label: string
+  value: number
+  color: string
+}
 
 interface DonutChartProps {
-  value: number
-  max?: number
+  segments: Segment[]
   size?: number
   strokeWidth?: number
-  color?: string
-  backgroundColor?: string
-  showLabel?: boolean
-  label?: string
-  className?: string
+  innerRadius?: number
+  showLabels?: boolean
+  showCenterText?: boolean
+  centerText?: string
+  centerSubtext?: string
 }
 
 export function DonutChart({
-  value,
-  max = 100,
-  size = 120,
-  strokeWidth = 12,
-  color = '#dc2626',
-  backgroundColor = '#f1f5f9',
-  showLabel = true,
-  label,
-  className,
+  segments,
+  size = 200,
+  strokeWidth = 32,
+  innerRadius,
+  showLabels = true,
+  showCenterText = true,
+  centerText,
+  centerSubtext,
 }: DonutChartProps) {
   const [isVisible, setIsVisible] = useState(false)
-  const [animatedValue, setAnimatedValue] = useState(0)
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const chartRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -47,68 +50,149 @@ export function DonutChart({
     return () => observer.disconnect()
   }, [])
 
-  useEffect(() => {
-    if (isVisible) {
-      const duration = 1000
-      const steps = 60
-      const increment = value / steps
-      let current = 0
+  const total = segments.reduce((sum, s) => sum + s.value, 0)
+  const actualInnerRadius = innerRadius || (size - strokeWidth) / 2 - 10
+  const outerRadius = size / 2
+  const centerX = size / 2
+  const centerY = size / 2
 
-      const timer = setInterval(() => {
-        current += increment
-        if (current >= value) {
-          setAnimatedValue(value)
-          clearInterval(timer)
-        } else {
-          setAnimatedValue(current)
-        }
-      }, duration / steps)
+  let currentAngle = -Math.PI / 2 // Start from top
 
-      return () => clearInterval(timer)
+  const getSegmentPath = (startAngle: number, endAngle: number, isHovered: boolean) => {
+    const r = isHovered ? outerRadius + 4 : outerRadius
+    const x1 = centerX + r * Math.cos(startAngle)
+    const y1 = centerY + r * Math.sin(startAngle)
+    const x2 = centerX + r * Math.cos(endAngle)
+    const y2 = centerY + r * Math.sin(endAngle)
+    const x3 = centerX + actualInnerRadius * Math.cos(endAngle)
+    const y3 = centerY + actualInnerRadius * Math.sin(endAngle)
+    const x4 = centerX + actualInnerRadius * Math.cos(startAngle)
+    const y4 = centerY + actualInnerRadius * Math.sin(startAngle)
+
+    const largeArcFlag = endAngle - startAngle > Math.PI ? 1 : 0
+
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${largeArcFlag} 1 ${x2} ${y2} L ${x3} ${y3} A ${actualInnerRadius} ${actualInnerRadius} 0 ${largeArcFlag} 0 ${x4} ${y4} Z`
+  }
+
+  const getLabelPosition = (startAngle: number, endAngle: number) => {
+    const midAngle = (startAngle + endAngle) / 2
+    const labelRadius = outerRadius + 25
+    return {
+      x: centerX + labelRadius * Math.cos(midAngle),
+      y: centerY + labelRadius * Math.sin(midAngle),
     }
-  }, [isVisible, value])
-
-  const percentage = (animatedValue / max) * 100
-  const radius = (size - strokeWidth) / 2
-  const circumference = 2 * Math.PI * radius
-  const strokeDashoffset = circumference - (percentage / 100) * circumference
+  }
 
   return (
-    <div
-      ref={chartRef}
-      className={cn('relative inline-flex', className)}
-      style={{ width: size, height: size }}
-    >
-      <svg width={size} height={size} className="transform -rotate-90">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={backgroundColor}
-          strokeWidth={strokeWidth}
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          className="transition-all duration-1000 ease-out"
-        />
+    <div ref={chartRef} className="relative" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="overflow-visible">
+        <defs>
+          {/* Glow filter */}
+          <filter id="segment-glow">
+            <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+
+          {/* Shadow */}
+          <filter id="drop-shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.15" />
+          </filter>
+        </defs>
+
+        {segments.map((segment, i) => {
+          const percentage = segment.value / total
+          const angle = percentage * 2 * Math.PI
+          const startAngle = currentAngle
+          const endAngle = startAngle + angle
+          const isHovered = hoveredIndex === i
+
+          currentAngle = endAngle
+
+          // Skip very small segments
+          if (percentage < 0.02) return null
+
+          const path = getSegmentPath(startAngle, endAngle, isHovered)
+          const labelPos = getLabelPosition(startAngle, endAngle)
+
+          return (
+            <g key={i}>
+              {/* Segment */}
+              <path
+                d={path}
+                fill={segment.color}
+                filter={isHovered ? 'url(#segment-glow)' : 'url(#drop-shadow)'}
+                className={`transition-all duration-300 ease-out cursor-pointer ${isVisible ? 'opacity-100' : 'opacity-0 scale-90'}`}
+                style={{
+                  transformOrigin: `${centerX}px ${centerY}px`,
+                  transform: isVisible ? 'scale(1)' : 'scale(0.9)',
+                }}
+                onMouseEnter={() => setHoveredIndex(i)}
+                onMouseLeave={() => setHoveredIndex(null)}
+              />
+
+              {/* Label */}
+              {showLabels && percentage > 0.05 && (
+                <text
+                  x={labelPos.x}
+                  y={labelPos.y}
+                  textAnchor={labelPos.x > centerX ? 'start' : 'end'}
+                  dominantBaseline="middle"
+                  className={`text-[10px] font-bold transition-all duration-300 ${isHovered ? 'fill-slate-900 scale-110' : 'fill-slate-500'}`}
+                  style={{ transformOrigin: `${labelPos.x}px ${labelPos.y}px` }}
+                >
+                  {segment.label}
+                </text>
+              )}
+
+              {/* Percentage label on segment */}
+              {percentage > 0.1 && (
+                <text
+                  x={centerX + ((outerRadius + actualInnerRadius) / 2) * Math.cos((startAngle + endAngle) / 2)}
+                  y={centerY + ((outerRadius + actualInnerRadius) / 2) * Math.sin((startAngle + endAngle) / 2)}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  className={`text-[11px] font-bold fill-white transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-80'}`}
+                >
+                  {Math.round(percentage * 100)}%
+                </text>
+              )}
+            </g>
+          )
+        })}
+
+        {/* Center text */}
+        {showCenterText && (
+          <g className="text-center">
+            <text
+              x={centerX}
+              y={centerY - 5}
+              textAnchor="middle"
+              className="text-2xl font-bold fill-slate-900"
+            >
+              {centerText || total.toLocaleString()}
+            </text>
+            <text
+              x={centerX}
+              y={centerY + 15}
+              textAnchor="middle"
+              className="text-[10px] fill-slate-400 uppercase tracking-wider"
+            >
+              {centerSubtext || 'Total'}
+            </text>
+          </g>
+        )}
       </svg>
-      {showLabel && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-bold text-black">
-            {Math.round(animatedValue)}
-          </span>
-          {label && (
-            <span className="text-xs text-slate-500 mt-1">{label}</span>
-          )}
+
+      {/* Tooltip */}
+      {hoveredIndex !== null && (
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-2 px-3 py-2 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-slate-100 animate-in fade-in slide-in-from-top-2 duration-200">
+          <p className="text-sm font-semibold text-slate-900">{segments[hoveredIndex].label}</p>
+          <p className="text-xs text-slate-500">
+            {segments[hoveredIndex].value.toLocaleString()} ({Math.round((segments[hoveredIndex].value / total) * 100)}%)
+          </p>
         </div>
       )}
     </div>

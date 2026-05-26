@@ -2,7 +2,7 @@
 
 import { Card, CardContent } from '@/components/ui/card'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
-import { MetricCard, DonutChart, BarChart } from '@/components/shared/charts'
+import { MetricCard, ProgressChart, BarChart } from '@/components/shared/charts'
 import {
   Users,
   UserCheck,
@@ -92,7 +92,7 @@ export function StatisticsClient() {
             <CardContent className="p-6">
               <h3 className="text-lg font-semibold text-black mb-6">User Distribution</h3>
               <div className="flex justify-center mb-6">
-                <DonutChart
+                <ProgressChart
                   value={91}
                   size={200}
                   strokeWidth={16}

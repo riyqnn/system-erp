@@ -1,4 +1,7 @@
 export { MiniChart } from './MiniChart'
-export { DonutChart } from './DonutChart'
+export { ProgressChart } from './ProgressChart'
 export { BarChart } from './BarChart'
 export { MetricCard } from './MetricCard'
+export { AreaChart } from './AreaChart'
+export { MultiBarChart } from './MultiBarChart'
+export { DonutChart } from './DonutChart'
