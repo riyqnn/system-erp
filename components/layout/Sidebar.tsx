@@ -22,6 +22,10 @@ import {
   ArrowsLeftRight,
   CheckSquare,
   ClipboardText,
+  Coins,
+  Book,
+  Calculator,
+  CreditCard,
 } from '@phosphor-icons/react'
 
 interface MenuItem {
@@ -86,10 +90,12 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
       { label: 'Laporan Inventory', href: '/inventory/ledger', icon: ClipboardText },
     ],
     finance: [
-      { label: 'Overview', href: '/apps/finance', icon: GridFour },
-      { label: 'Invoices', href: '/apps/finance/invoices', icon: CurrencyDollar },
-      { label: 'Payments', href: '/apps/finance/payments', icon: CurrencyDollar },
-      { label: 'Reports', href: '/apps/finance/reports', icon: CurrencyDollar },
+      { label: 'Dashboard', href: '/finance/dashboard', icon: GridFour },
+      { label: 'Account Receivable', href: '/finance/account-receivable', icon: Receipt },
+      { label: 'Account Payable', href: '/finance/account-payable', icon: CreditCard },
+      { label: 'Treasury', href: '/finance/treasury', icon: Coins },
+      { label: 'General Ledger', href: '/finance/general-ledger', icon: Book },
+      { label: 'Cost Accounting', href: '/finance/cost-accounting', icon: Calculator },
     ],
     purchasing: [
       { label: 'Overview', href: '/apps/purchasing', icon: GridFour },

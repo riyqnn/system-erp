@@ -22,11 +22,11 @@ export default async function DashboardPage() {
     // Other roles go to their respective modules
     const roleRedirects: Record<string, string> = {
       'INVENTORY': '/inventory',
-      'FINANCE': '/apps/finance',
-      'PURCHASING': '/apps/purchasing',
-      'PRODUCTION': '/apps/production',
-      'SNM': '/apps/snm',
-      'SALES': '/apps/snm',
+      'FINANCE': '/finance',
+      'PURCHASING': '/purchasing',
+      'PRODUCTION': '/production',
+      'SNM': '/snm',
+      'SALES': '/snm',
     }
 
     const redirectPath = roleRedirects[userRole || ''] || '/login'
