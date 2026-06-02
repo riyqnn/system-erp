@@ -141,13 +141,17 @@ pnpm lint
 
 Ikuti langkah super sederhana ini agar kode tidak berantakan:
 
-### 1. Buat Branch (CUKUP SEKALI saat mulai fitur baru)
-Aturan penamaan branch **bukan** `apps/modul`, tapi langsung **`modul/fitur`**. 
-Contoh kalau kamu di tim inventory dan mau bikin fitur tambah barang, ketik ini:
+### 1. Buat Branch (CUKUP SEKALI di Awal Saja)
+Pilih salah satu branch sesuai tugas/modul kamu, lalu ketik ini (contoh untuk tim inventory):
 ```bash
-git checkout -b inventory/tambah-barang
+git checkout -b inventory
 ```
-*(Contoh lain: `finance/laporan-kas`, `purchasing/buat-po`, `snm/diskon`, dll)*
+*(Pilihan branch: `inventory`, `finance`, `purchasing`, `production`, `snm`)*
+
+> **Penting**: Perintah pakai `-b` itu untuk **bikin branch baru**. Kalau branch-nya udah ada dan kamu cuma mau **pindah/switch** (misal mau pindah ke main), hapus `-b` nya:
+> ```bash
+> git checkout main
+> ```
 
 ### 2. Simpan Kerjaan Kamu (Setiap Selesai Ngoding)
 Kalau sudah selesai bikin fitur/halaman, simpan dengan urutan perintah ini:
