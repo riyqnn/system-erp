@@ -48,20 +48,25 @@ project-4b/
 │   └── snm/                    # (MODUL) Halaman Sales & Marketing
 │
 ├── components/                 # 👉 Tempat bikin Komponen (Tombol, Tabel, Card, dll)
-│   ├── ui/                     # Komponen umum (bisa dipakai di mana aja)
+│   ├── ui/                     # Komponen umum (bisa dipakai di mana aja, misal Button, Input)
 │   ├── layout/                 # Komponen kerangka (Sidebar, Header)
-│   ├── shared/                 # Komponen yang dipakai gabungan beberapa modul
+│   ├── shared/                 # Komponen yang dipakai barengan lintas modul
 │   ├── admin/                  # Komponen khusus halaman admin
 │   └── modules/                # Komponen khusus untuk masing-masing modul bisnis
 │
-├── lib/                        # 👉 Kode bantuan teknis (Konfigurasi Supabase, Auth)
-├── services/                   # 👉 Tempat naruh fungsi untuk panggil API / Fetch data
-├── hooks/                      # 👉 Fungsi React buatan sendiri (Custom Hooks)
-├── types/                      # 👉 Kumpulan tipe data TypeScript biar kode lebih aman
-├── public/                     # 👉 Tempat naruh aset statis kayak gambar, ikon, logo
+├── lib/                        # 👉 Kode bantuan teknis (Konfigurasi & Utility)
+│   ├── actions/                # Tempat bikin Server Actions (fungsi khusus untuk edit/kirim data)
+│   ├── api/                    # Kumpulan fungsi fetch API eksternal
+│   ├── auth/                   # Fungsi untuk validasi akses & hak pengguna (RBAC/Roles)
+│   ├── database/               # Kumpulan fungsi query database (bantu mempermudah panggil data)
+│   └── supabase/               # Konfigurasi koneksi Supabase untuk Server & Client
 │
-├── middleware.ts               # Skrip otomatis (contoh: ngecek user udah login apa belum)
-└── package.json                # Daftar library/aplikasi yang kita install
+├── hooks/                      # 👉 Tempat nyimpen fungsi React (Custom Hooks)
+├── types/                      # 👉 Kumpulan definisi tipe data TypeScript biar aman dari error
+├── public/                     # 👉 Tempat naruh aset statis kayak gambar, ikon, atau logo
+│
+├── middleware.ts               # Skrip otomatis (contoh: jaga gawang biar belum login nggak bisa masuk)
+└── package.json                # Daftar library/aplikasi yang terinstall di proyek ini
 ```
 
 ## 5 Modul Bisnis
