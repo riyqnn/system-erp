@@ -35,47 +35,33 @@ Sistem Informasi Manajemen terintegrasi, dibangun menggunakan **Next.js 14+** de
 
 ## Struktur Folder
 
-```
+```text
 project-4b/
-├── app/                        # Next.js App Router
-│   ├── api/                    # API Routes (server actions)
-│   ├── inventory/              # Halaman & routing Inventory
-│   ├── finance/                # Halaman & routing Finance
-│   ├── purchasing/             # Halaman & routing Purchasing
-│   ├── production/             # Halaman & routing Production
-│   ├── snm/                    # Halaman & routing Sales & Marketing
-│   ├── dashboard/              # Dashboard utama
-│   ├── login/                  # Halaman login
-│   ├── globals.css             # Global styles
-│   └── layout.tsx              # Root layout
+├── app/                        # 👉 Tempat bikin Halaman (Routing Next.js)
+│   ├── admin/                  # Halaman khusus Admin
+│   ├── dashboard/              # Halaman Utama setelah login
+│   ├── login/                  # Halaman Login
+│   ├── inventory/              # (MODUL) Halaman Gudang & Stok
+│   ├── finance/                # (MODUL) Halaman Keuangan
+│   ├── purchasing/             # (MODUL) Halaman Pembelian
+│   ├── production/             # (MODUL) Halaman Produksi
+│   └── snm/                    # (MODUL) Halaman Sales & Marketing
 │
-├── components/
-│   ├── ui/                     # Reusable UI components
-│   └── modules/                # Komponen spesifik per modul
-│       ├── inventory/
-│       ├── finance/
-│       ├── purchasing/
-│       ├── production/
-│       └── snm/
+├── components/                 # 👉 Tempat bikin Komponen (Tombol, Tabel, Card, dll)
+│   ├── ui/                     # Komponen umum (bisa dipakai di mana aja)
+│   ├── layout/                 # Komponen kerangka (Sidebar, Header)
+│   ├── shared/                 # Komponen yang dipakai gabungan beberapa modul
+│   ├── admin/                  # Komponen khusus halaman admin
+│   └── modules/                # Komponen khusus untuk masing-masing modul bisnis
 │
-├── lib/                        # Utility functions & Supabase client
-│   ├── supabase/               # Supabase configuration
-│   ├── auth/                   # Authentication helpers
-│   └── database/               # Database queries & types
+├── lib/                        # 👉 Kode bantuan teknis (Konfigurasi Supabase, Auth)
+├── services/                   # 👉 Tempat naruh fungsi untuk panggil API / Fetch data
+├── hooks/                      # 👉 Fungsi React buatan sendiri (Custom Hooks)
+├── types/                      # 👉 Kumpulan tipe data TypeScript biar kode lebih aman
+├── public/                     # 👉 Tempat naruh aset statis kayak gambar, ikon, logo
 │
-├── services/                   # API client calls
-├── hooks/                      # Custom React hooks
-├── types/                      # TypeScript types
-├── public/                     # Static assets
-│
-├── .env                        # Environment variables
-├── .env.example
-├── .gitignore
-├── next.config.ts              # Next.js configuration
-├── tailwind.config.ts          # Tailwind configuration
-├── tsconfig.json               # TypeScript configuration
-├── package.json                # Dependencies & scripts
-└── README.md
+├── middleware.ts               # Skrip otomatis (contoh: ngecek user udah login apa belum)
+└── package.json                # Daftar library/aplikasi yang kita install
 ```
 
 ## 5 Modul Bisnis
@@ -83,32 +69,32 @@ project-4b/
 Sistem ini terdiri dari 5 modul bisnis utama. Setiap modul memiliki folder terpisah:
 
 ### 1. Inventory (Manajemen Stok & Gudang)
-- **Frontend**: `app/inventory/`
+- **Route**: `/inventory/[nama-fitur]/`
 - **Fungsi**: Kelola stok barang, masuk/keluar, transfer antar gudang
 
 ### 2. Finance (Akuntansi & Laporan Keuangan)
-- **Frontend**: `app/finance/`
+- **Route**: `/finance/[nama-fitur]/`
 - **Fungsi**: Jurnal umum, neraca, laba rugi, arus kas
 
 ### 3. Purchasing (Pengadaan Bahan Baku)
-- **Frontend**: `app/purchasing/`
+- **Route**: `/purchasing/[nama-fitur]/`
 - **Fungsi**: Purchase Order, penerimaan barang, supplier management
 
 ### 4. Production (Alur Produksi Barang)
-- **Frontend**: `app/production/`
+- **Route**: `/production/[nama-fitur]/`
 - **Fungsi**: Bill of Materials, production planning, job order
 
 ### 5. SNM (Sales & Marketing)
-- **Frontend**: `app/snm/`
+- **Route**: `/snm/[nama-fitur]/`
 - **Fungsi**: Sales Order, customer management, marketing campaigns
 
 ## Panduan Kontribusi
 
 ### Workflow Pengembangan
-1. **Routing**: Buat halaman di `app/[nama-modul]/`
+1. **Routing**: Buat halaman dengan format `/[nama-modul]/[nama-fitur]/` (Jangan pakai folder `apps/`)
 2. **Components**:
    - Cek `components/ui/` dulu untuk komponen umum
-   - Buat komponen spesifik modul di `components/modules/[nama-modul]/`
+   - Buat komponen spesifik modul di `components/modules/[nama-modul]/[nama-fitur]/`
 3. **API Calls**: Gunakan Supabase client di `lib/supabase/` atau buat di `app/api/`
 4. **Data Fetching**: Gunakan hooks di `hooks/` atau TanStack Query
 
@@ -148,30 +134,37 @@ pnpm lint
 
 ## Alur Kerja Git (PENTING!)
 
-Agar tidak terjadi Merge Conflict:
+Ikuti langkah super sederhana ini agar kode tidak berantakan:
 
-1. **Update Lokal**: Selalu `git pull origin main` sebelum mulai ngoding
+### 1. Buat Branch (CUKUP SEKALI saat mulai fitur baru)
+Aturan penamaan branch **bukan** `apps/modul`, tapi langsung **`modul/fitur`**. 
+Contoh kalau kamu di tim inventory dan mau bikin fitur tambah barang, ketik ini:
+```bash
+git checkout -b inventory/tambah-barang
+```
+*(Contoh lain: `finance/laporan-kas`, `purchasing/buat-po`, `snm/diskon`, dll)*
 
-2. **Buat Branch per Modul**:
-   ```bash
-   git checkout -b inventory     # Tim Inventory
-   git checkout -b finance       # Tim Finance
-   git checkout -b purchasing    # Tim Purchasing
-   git checkout -b production    # Tim Production
-   git checkout -b snm           # Tim Sales & Marketing
-   ```
+### 2. Simpan Kerjaan Kamu (Setiap Selesai Ngoding)
+Kalau sudah selesai bikin fitur/halaman, simpan dengan urutan perintah ini:
+```bash
+git add .
+git commit -m "pesan tentang apa yang kamu kerjakan"
+git push origin inventory
+```
+*(Catatan: Ganti `inventory` dengan nama branch kamu di perintah push)*
 
-3. **Commit dengan Pesan Jelas**:
-   ```bash
-   git commit -m "feat(inventory): tambah tabel stok barang"
-   git commit -m "fix(auth): perbaiki bug di login"
-   ```
+### 3. Cara Dapat Update Terbaru dari Main
+Biar kodemu selalu sinkron dengan update terbaru (lakukan secara berkala):
+```bash
+# Pastikan kamu sedang berada di branch kamu, lalu ketik ini:
+git pull origin main
+```
+*(Perintah ini otomatis menarik kode terbaru dari main dan menggabungkannya ke branch kamu)*
 
-4. **Push ke Branch Modul**:
-   ```bash
-   git push origin inventory
-   ```
+### 4. Cara Menggabungkan Kode ke Main (Pull Request)
+> **⚠️ PERINGATAN PENTING: Jangan langsung push ke main!**
 
-5. **Pull Request**: Buat PR dari branch modul ke `main`. Jangan langsung push ke main!
-
-6. **Code Review**: Minimal 1 reviewer sebelum merge
+Karena branch `main` dilindungi, semua kode baru harus lewat Pull Request:
+1. Lakukan Langkah 2 di atas (`git push origin <nama-branch>`).
+2. Buka GitHub, lalu klik tombol **Compare & pull request**.
+3. Admin akan mereview kodemu dan menggabungkannya (merge) ke `main`.
