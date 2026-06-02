@@ -9,7 +9,6 @@ import {
   CaretRight,
   GridFour,
   Package,
-  CurrencyDollar,
   ShoppingCart,
   Factory,
   TrendUp,
