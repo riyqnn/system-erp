@@ -46,7 +46,7 @@ export default function LoginPage() {
       const roleName = user?.role?.name?.toUpperCase() || 'USER'
       const roleRedirects: Record<string, string> = {
         'INVENTORY': '/inventory',
-        'FINANCE': '/apps/finance',
+        'FINANCE': '/finance',
         'PURCHASING': '/apps/purchasing',
         'PRODUCTION': '/apps/production',
         'SNM': '/apps/snm',
