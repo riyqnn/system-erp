@@ -62,12 +62,14 @@ const emptyForm: FormState = {
   is_active: true,
 }
 
-export function CustomersClient() {
+export function CustomersClient({ initialCategory }: { initialCategory?: string }) {
   const supabase = useMemo(() => createClient(), [])
   const [rows, setRows] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [catFilter, setCatFilter] = useState<string>('All')
+  const [catFilter, setCatFilter] = useState<string>(
+    initialCategory && CATEGORIES.includes(initialCategory as never) ? initialCategory : 'All'
+  )
   const [error, setError] = useState<string | null>(null)
 
   const [detail, setDetail] = useState<Customer | null>(null)

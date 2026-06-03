@@ -3,7 +3,12 @@ import { SalesClient } from './SalesClient'
 
 export const dynamic = 'force-dynamic'
 
-export default async function SnmSalesPage() {
+export default async function SnmSalesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string }>
+}) {
   await requireRole(['SNM', 'SALES', 'ADMIN'])
-  return <SalesClient />
+  const sp = await searchParams
+  return <SalesClient initialStatus={sp.status} />
 }

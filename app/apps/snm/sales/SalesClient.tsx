@@ -75,14 +75,18 @@ const DO_BADGE: Record<string, string> = {
 
 type Line = { product_id: string; qty: string }
 
-export function SalesClient() {
+const VALID_STATUS = ['WAITING_APPROVAL', 'APPROVED', 'REJECTED_CREDIT', 'CANCELLED']
+
+export function SalesClient({ initialStatus }: { initialStatus?: string }) {
   const supabase = useMemo(() => createClient(), [])
   const [orders, setOrders] = useState<SalesOrder[]>([])
   const [dos, setDos] = useState<DeliveryOrder[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<string>('ALL')
+  const [tab, setTab] = useState<string>(
+    initialStatus && VALID_STATUS.includes(initialStatus) ? initialStatus : 'ALL'
+  )
 
   const [customers, setCustomers] = useState<CustomerLite[]>([])
   const [products, setProducts] = useState<ProductLite[]>([])
@@ -126,6 +130,15 @@ export function SalesClient() {
     loadAll(); loadRefs()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Kirim notifikasi ke dashboard SNM (UC-SLS-09). Diam saja kalau tabel belum ada.
+  async function notify(type: string, title: string, message: string) {
+    try {
+      await supabase.from('notifications').insert({
+        recipient_role: 'SNM', type, title, message, link: '/apps/snm/sales',
+      })
+    } catch { /* ignore */ }
+  }
 
   const doBySo = useMemo(() => Object.fromEntries(dos.map((d) => [d.so_id, d])), [dos])
   const invBySo = useMemo(() => Object.fromEntries(invoices.map((i) => [i.so_id, i])), [invoices])
@@ -188,6 +201,11 @@ export function SalesClient() {
     setSaving(false)
     if (itErr) { setFormError(itErr.message); return }
 
+    await notify(
+      status === 'WAITING_APPROVAL' ? 'SO_APPROVAL' : 'INFO',
+      status === 'WAITING_APPROVAL' ? 'Sales Order menunggu approval' : 'Sales Order baru dibuat',
+      `${cust.cust_name} — ${rupiah(grandTotal)}${status === 'WAITING_APPROVAL' ? ' (perlu persetujuan manager)' : ' (auto-approved)'}`,
+    )
     setShowForm(false)
     resetForm()
     await loadAll()
@@ -218,6 +236,7 @@ export function SalesClient() {
       .eq('id', o.id)
     setBusy(false)
     if (error) { alert(error.message); return }
+    await notify('SO_APPROVED', 'Sales Order disetujui', `${o.so_number} telah disetujui Sales Manager.`)
     await refreshDetail(o.id)
   }
   // UC-SLS-08 alt: Reject
@@ -230,6 +249,7 @@ export function SalesClient() {
       .eq('id', o.id)
     setBusy(false)
     if (error) { alert(error.message); return }
+    await notify('SO_REJECTED', 'Sales Order ditolak', `${o.so_number}: ${reason.trim()}`)
     await refreshDetail(o.id)
   }
   // UC-SLS-07: Cancel
@@ -257,6 +277,7 @@ export function SalesClient() {
     })
     setBusy(false)
     if (error) { alert(error.message); return }
+    await notify('DELIVERY', 'Delivery Order diterbitkan', `${o.so_number} siap diproses pengirimannya oleh gudang.`)
     await refreshDetail(o.id)
   }
   // Update status DO (normalnya oleh Staf Gudang / modul Inventory)
@@ -267,6 +288,7 @@ export function SalesClient() {
     const { error } = await supabase.from('delivery_orders').update(patch).eq('id', d.id)
     setBusy(false)
     if (error) { alert(error.message); return }
+    if (status === 'DELIVERED') await notify('DELIVERY', 'Barang telah diterima customer', `${d.do_number} berstatus Delivered — invoice siap diterbitkan.`)
     await refreshDetail(d.so_id)
   }
   // UC-SLS-12 (+UC-SLS-13 transmisi ke Finance otomatis)
@@ -290,6 +312,7 @@ export function SalesClient() {
     })
     setBusy(false)
     if (error) { alert(error.message); return }
+    await notify('INVOICE', 'Sales Invoice diterbitkan', `${o.so_number}: ${rupiah(o.grand_total)} ditransmisikan ke Finance.`)
     await refreshDetail(o.id)
   }
 

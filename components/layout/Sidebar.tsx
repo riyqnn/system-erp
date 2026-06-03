@@ -3,15 +3,15 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import {
   CaretLeft,
   CaretRight,
+  CaretDown,
   GridFour,
   Package,
   ShoppingCart,
   Factory,
-  TrendUp,
   ChartLineUp,
   Users,
   Gear,
@@ -25,13 +25,20 @@ import {
   Book,
   Calculator,
   CreditCard,
+  Megaphone,
 } from '@phosphor-icons/react'
+
+interface SubItem {
+  label: string
+  href: string
+}
 
 interface MenuItem {
   label: string
   href: string
   icon: any
   roles?: string[]
+  children?: SubItem[]
 }
 
 interface SidebarProps {
@@ -47,31 +54,11 @@ interface SidebarProps {
 const getModuleNavigation = (activeModule?: string): MenuItem[] => {
   const moduleMenus: Record<string, MenuItem[]> = {
     admin: [
-      {
-        label: 'Dashboard',
-        href: '/admin',
-        icon: GridFour,
-      },
-      {
-        label: 'Statistics',
-        href: '/admin/statistics',
-        icon: ChartLineUp,
-      },
-      {
-        label: 'Module Statistics',
-        href: '/admin/module-statistics',
-        icon: ChartLineUp,
-      },
-      {
-        label: 'User Management',
-        href: '/admin/pending-users',
-        icon: Users,
-      },
-      {
-        label: 'Settings',
-        href: '/admin/settings',
-        icon: Gear,
-      },
+      { label: 'Dashboard', href: '/admin', icon: GridFour },
+      { label: 'Statistics', href: '/admin/statistics', icon: ChartLineUp },
+      { label: 'Module Statistics', href: '/admin/module-statistics', icon: ChartLineUp },
+      { label: 'User Management', href: '/admin/pending-users', icon: Users },
+      { label: 'Settings', href: '/admin/settings', icon: Gear },
     ],
     inventory: [
       { label: 'Dashboard', href: '/inventory/dashboard', icon: GridFour },
@@ -110,9 +97,38 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
     ],
     snm: [
       { label: 'Overview', href: '/apps/snm', icon: GridFour },
-      { label: 'Sales Orders', href: '/apps/snm/sales', icon: TrendUp },
-      { label: 'Customers', href: '/apps/snm/customers', icon: TrendUp },
-      { label: 'Marketing', href: '/apps/snm/marketing', icon: TrendUp },
+      {
+        label: 'Sales Orders',
+        href: '/apps/snm/sales',
+        icon: ClipboardText,
+        children: [
+          { label: 'Semua SO', href: '/apps/snm/sales' },
+          { label: 'Menunggu Approval', href: '/apps/snm/sales?status=WAITING_APPROVAL' },
+          { label: 'Disetujui', href: '/apps/snm/sales?status=APPROVED' },
+          { label: 'Ditolak', href: '/apps/snm/sales?status=REJECTED_CREDIT' },
+        ],
+      },
+      {
+        label: 'Customers',
+        href: '/apps/snm/customers',
+        icon: Users,
+        children: [
+          { label: 'Semua Customer', href: '/apps/snm/customers' },
+          { label: 'Modern Trade', href: '/apps/snm/customers?category=MODERN_TRADE' },
+          { label: 'General Trade', href: '/apps/snm/customers?category=GENERAL_TRADE' },
+          { label: 'Agen Distributor', href: '/apps/snm/customers?category=AGEN_DISTRIBUTOR' },
+        ],
+      },
+      {
+        label: 'Marketing',
+        href: '/apps/snm/marketing',
+        icon: Megaphone,
+        children: [
+          { label: 'Ringkasan', href: '/apps/snm/marketing' },
+          { label: 'Sales Forecast', href: '/apps/snm/marketing/forecast' },
+          { label: 'Realisasi vs Target', href: '/apps/snm/marketing/monitoring' },
+        ],
+      },
     ],
   }
 
@@ -121,24 +137,44 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
 
 /**
  * Sidebar Component
- * Collapsible white sidebar with thin right border
- * Shows module-specific navigation when inside a module
+ * Collapsible white sidebar with thin right border.
+ * Supports expandable submenus (dropdown) per menu item.
  */
 export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const pathname = usePathname()
+  const searchParams = useSearchParams()
 
-  // Get module-specific menu items or empty array
   const menuItems = getModuleNavigation(activeModule)
+
+  // Parent is "active" when current path is under its base route.
+  const isParentActive = (item: MenuItem) =>
+    pathname === item.href || pathname?.startsWith(item.href + '/') || false
+
+  // Manual expand/collapse state per parent href.
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  const toggle = (href: string) => setOpen((s) => ({ ...s, [href]: !s[href] }))
+
+  // Exact-match active (used for the module root, e.g. "Overview").
+  const isExactActive = (href: string) => pathname === href
+
+  // Child active: match pathname + relevant query param.
+  const isChildActive = (childHref: string) => {
+    const [path, query] = childHref.split('?')
+    if (pathname !== path) return false
+    if (!query) {
+      // "Semua / Ringkasan" child is active only when no filter query is present.
+      return !searchParams?.get('status') && !searchParams?.get('category')
+    }
+    const [key, value] = query.split('=')
+    return searchParams?.get(key) === value
+  }
 
   return (
     <>
       {/* Mobile Backdrop */}
       {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-20 lg:hidden"
-          onClick={onClose}
-        />
+        <div className="fixed inset-0 bg-black/50 z-20 lg:hidden" onClick={onClose} />
       )}
 
       {/* Sidebar */}
@@ -176,32 +212,71 @@ export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) 
         <nav className="p-2 space-y-0.5 overflow-y-auto h-[calc(100vh-3.5rem)]">
           {menuItems.map((item) => {
             const Icon = item.icon
-            const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
+            const hasChildren = !!item.children?.length
+
+            // For parents with children, highlight via prefix; for leaf root items
+            // (e.g. "Overview") use exact match so it isn't highlighted on sub-tabs.
+            const active = hasChildren ? isParentActive(item) : isExactActive(item.href)
+            const expanded = !collapsed && hasChildren && (open[item.href] ?? isParentActive(item))
 
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                title={collapsed ? item.label : undefined}
-                className={`
-                  flex items-center gap-3 px-3 py-2 rounded-md text-sm
-                  transition-colors duration-150
-                  ${isActive
-                    ? 'bg-slate-100 text-slate-900 font-medium'
-                    : 'text-slate-600 hover:bg-slate-50'
-                  }
-                  ${collapsed ? 'justify-center' : ''}
-                `}
-              >
-                <Icon
-                  weight={isActive ? 'fill' : 'regular'}
-                  className="w-5 h-5 flex-shrink-0"
-                  style={{ color: isActive ? '#dc2626' : '#64748b' }}
-                />
-                {!collapsed && (
-                  <span className="truncate">{item.label}</span>
+              <div key={item.href}>
+                <div
+                  className={`
+                    flex items-center rounded-md text-sm transition-colors duration-150
+                    ${active ? 'bg-slate-100 text-slate-900 font-medium' : 'text-slate-600 hover:bg-slate-50'}
+                  `}
+                >
+                  <Link
+                    href={item.href}
+                    title={collapsed ? item.label : undefined}
+                    className={`flex items-center gap-3 px-3 py-2 flex-1 min-w-0 ${collapsed ? 'justify-center' : ''}`}
+                  >
+                    <Icon
+                      weight={active ? 'fill' : 'regular'}
+                      className="w-5 h-5 flex-shrink-0"
+                      style={{ color: active ? '#dc2626' : '#64748b' }}
+                    />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </Link>
+                  {hasChildren && !collapsed && (
+                    <button
+                      onClick={() => toggle(item.href)}
+                      className="p-2 text-slate-400 hover:text-slate-700"
+                      aria-label={`Toggle ${item.label}`}
+                    >
+                      <CaretDown
+                        weight="bold"
+                        className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                  )}
+                </div>
+
+                {/* Submenu */}
+                {expanded && (
+                  <div className="mt-0.5 ml-4 pl-3 border-l border-slate-100 space-y-0.5">
+                    {item.children!.map((child) => {
+                      const childActive = isChildActive(child.href)
+                      return (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          className={`
+                            block px-3 py-1.5 rounded-md text-[13px] transition-colors
+                            ${childActive
+                              ? 'bg-red-50 text-[#dc2626] font-medium'
+                              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                            }
+                          `}
+                        >
+                          {child.label}
+                        </Link>
+                      )
+                    })}
+                  </div>
                 )}
-              </Link>
+              </div>
             )
           })}
         </nav>
