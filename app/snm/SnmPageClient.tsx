@@ -91,17 +91,17 @@ export function SnmPageClient() {
 
   const cards = [
     {
-      label: 'Sales Orders', href: '/apps/snm/sales', icon: ClipboardText,
+      label: 'Sales Orders', href: '/snm/sales', icon: ClipboardText,
       count: orders.length.toLocaleString('id-ID'), description: 'Total pesanan customer',
       trend: trendPct(soMonthly), chartData: soMonthly,
     },
     {
-      label: 'Customers', href: '/apps/snm/customers', icon: Users,
+      label: 'Customers', href: '/snm/customers', icon: Users,
       count: custDates.length.toLocaleString('id-ID'), description: 'Database pelanggan B2B',
       trend: trendPct(monthlyCounts(custDates)), chartData: custMonthly.length ? custMonthly : [0],
     },
     {
-      label: 'Forecast', href: '/apps/snm/marketing', icon: Megaphone,
+      label: 'Forecast', href: '/snm/marketing', icon: Megaphone,
       count: forecastDates.length.toLocaleString('id-ID'), description: 'Target forecast aktif',
       trend: trendPct(fcMonthly), chartData: fcMonthly,
     },
@@ -172,7 +172,7 @@ export function SnmPageClient() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-black flex items-center gap-2"><Receipt weight="bold" size={18} style={{ color: '#dc2626' }} /> Sales Order Terbaru</h3>
-                <Link href="/apps/snm/sales" className="text-xs font-medium text-[#dc2626]">Lihat semua</Link>
+                <Link href="/snm/sales" className="text-xs font-medium text-[#dc2626]">Lihat semua</Link>
               </div>
               <div className="divide-y divide-slate-50">
                 {recent.length === 0 ? (

@@ -37,12 +37,12 @@ export function MarketingClient() {
 
   const cards = [
     {
-      href: '/apps/snm/marketing/forecast', icon: Target,
+      href: '/snm/marketing/forecast', icon: Target,
       title: 'Sales Forecast', desc: 'Input & kelola target penjualan per item, wilayah, dan periode (UC-SLS-03).',
       stat: forecastCount === null ? '…' : `${forecastCount} target periode ini`,
     },
     {
-      href: '/apps/snm/marketing/monitoring', icon: ChartLineUp,
+      href: '/snm/marketing/monitoring', icon: ChartLineUp,
       title: 'Realisasi vs Target', desc: 'Bandingkan realisasi aktual terhadap target forecast (UC-SLS-04).',
       stat: avgAchievement === null ? '…' : `Rata-rata pencapaian ${avgAchievement}%`,
     },
@@ -54,7 +54,7 @@ export function MarketingClient() {
       moduleTitle="Sales & Marketing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Sales & Marketing', href: '/apps/snm' },
+        { label: 'Sales & Marketing', href: '/snm' },
         { label: 'Marketing' },
       ]}
     >

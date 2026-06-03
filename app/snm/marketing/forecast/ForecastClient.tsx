@@ -114,8 +114,8 @@ export function ForecastClient() {
       moduleTitle="Sales & Marketing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Sales & Marketing', href: '/apps/snm' },
-        { label: 'Marketing', href: '/apps/snm/marketing' },
+        { label: 'Sales & Marketing', href: '/snm' },
+        { label: 'Marketing', href: '/snm/marketing' },
         { label: 'Sales Forecast' },
       ]}
     >

@@ -190,7 +190,7 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
       moduleTitle="Sales & Marketing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Sales & Marketing', href: '/apps/snm' },
+        { label: 'Sales & Marketing', href: '/snm' },
         { label: 'Customers' },
       ]}
     >
