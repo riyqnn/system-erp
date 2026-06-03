@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Archive } from '@phosphor-icons/react'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -66,44 +66,49 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen w-full bg-white overflow-hidden flex items-center justify-center px-4 sm:px-6">
-      {/* GIANT DOME BACKGROUND - Positioned at bottom with massive curve */}
-      <div className="absolute -bottom-[30vh] left-1/2 -translate-x-1/2 w-[200vw] sm:w-[150vw] h-[80vh] bg-slate-100 rounded-[100%] z-0"></div>
+    <div className="flex min-h-screen w-full">
 
-      {/* TRULY TRANSPARENT GLASS CARD */}
-      <div className="z-10 relative bg-transparent rounded-3xl p-6 sm:p-8 w-full max-w-md">
-        {/* 1. Icon */}
-        <div className="flex justify-center mb-3 sm:mb-4">
-         <Archive className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16" />
+      {/* ── LEFT PANEL — Form ── */}
+      <div className="relative flex w-full flex-col justify-center px-8 py-12 sm:px-12 lg:w-1/2 lg:px-16 xl:px-24 bg-white">
+
+        {/* Logo top-left */}
+        <div className="mb-10">
+          <Image
+            src="/logo mayora.png"
+            alt="Mayora Logo"
+            width={160}
+            height={56}
+            className="object-contain"
+            priority
+          />
         </div>
 
-        {/* 2. Title */}
-        <h1 className="text-2xl sm:text-3xl leading-tight text-slate-900 text-center mb-2 font-caveat" style={{ fontFamily: 'Caveat, cursive', fontWeight: 700 }}>
-          Masuk dan{' '}
-          <span className="relative inline-block px-1">
-            <span className="relative z-10 font-bold">level up</span>
-            <span className="absolute -inset-x-2 -inset-y-1 -rotate-6 bg-orange-400/75 rounded-3xl -skew-y-6 transform-gpu blur-[1px]"></span>
-          </span>
-          {' '}produktivitas Anda!
-        </h1>
+        {/* Heading */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+            Selamat datang kembali
+          </h1>
+          <p className="mt-2 text-sm text-slate-400">
+            Masuk ke sistem ERP Mayora Indah
+          </p>
+        </div>
 
-        {/* 3. Subtitle */}
-        <p className="text-xs sm:text-sm text-slate-500 text-center mb-4 sm:mb-6">
-          Sign in with your email
-        </p>
-
-        {/* Error Message */}
+        {/* Error */}
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl">
-            <p className="text-sm text-red-600 text-center">{error}</p>
+          <div className="mb-6 flex items-center gap-3 rounded-2xl bg-red-50 border border-red-100 px-4 py-3">
+            <svg className="h-4 w-4 shrink-0 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
+            </svg>
+            <p className="text-xs text-red-600">{error}</p>
           </div>
         )}
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
-          {/* 5. Email Label + Input */}
-          <div className="space-y-1.5 sm:space-y-2">
-            <Label htmlFor="email" className="text-xs sm:text-sm font-medium text-slate-700">
+        <form onSubmit={handleSubmit} className="space-y-5">
+
+          {/* Email */}
+          <div className="space-y-2">
+            <Label htmlFor="email" className="text-xs font-semibold uppercase tracking-widest text-slate-400">
               Email
             </Label>
             <Input
@@ -111,17 +116,17 @@ export default function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="m@example.com"
+              placeholder="nama@mayora.com"
               required
               disabled={loading}
-              className="h-10 sm:h-11 rounded-2xl bg-white/90 border-slate-200 focus-visible:ring-2 focus-visible:ring-slate-900/20 text-sm"
               autoComplete="email"
+              className="h-12 rounded-xl border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder:text-slate-300 focus-visible:ring-2 focus-visible:ring-red-500/20 focus-visible:border-red-400 transition-all"
             />
           </div>
 
-          {/* 7. Password Label + Input */}
-          <div className="space-y-1.5 sm:space-y-2">
-            <Label htmlFor="password" className="text-xs sm:text-sm font-medium text-slate-700">
+          {/* Password */}
+          <div className="space-y-2">
+            <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-widest text-slate-400">
               Password
             </Label>
             <Input
@@ -131,34 +136,64 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               required
               disabled={loading}
-              className="h-10 sm:h-11 rounded-2xl bg-white/90 border-slate-200 focus-visible:ring-2 focus-visible:ring-slate-900/20 text-sm"
               autoComplete="current-password"
+              className="h-12 rounded-xl border-slate-200 bg-slate-50 text-sm text-slate-800 focus-visible:ring-2 focus-visible:ring-red-500/20 focus-visible:border-red-400 transition-all"
             />
           </div>
 
-          {/* 9. Login Button */}
+          {/* Submit */}
           <Button
+            id="login-submit"
             type="submit"
             disabled={loading}
-            className="w-full h-10 sm:h-11 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-medium shadow-lg shadow-slate-900/20 transition-all duration-200 hover:shadow-xl hover:shadow-slate-900/30 text-sm sm:text-base"
+            className="w-full h-12 rounded-xl bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white text-sm font-semibold shadow-md shadow-red-200 transition-all duration-200 mt-2"
           >
-            {loading ? 'Signing in...' : 'Login'}
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Signing in…
+              </span>
+            ) : 'Masuk'}
           </Button>
         </form>
 
-        {/* Footer Text */}
-        <p className="text-[10px] sm:text-xs text-center text-slate-500 mt-4 sm:mt-6 leading-relaxed px-2">
-          By clicking continue, you agree to our{' '}
-          <a href="#" className="underline hover:text-slate-700 font-medium">
-            Terms of Service
-          </a>
-          {' '}and{' '}
-          <a href="#" className="underline hover:text-slate-700 font-medium">
-            Privacy Policy
+        {/* Footer */}
+        <p className="mt-8 text-[11px] text-slate-400 leading-relaxed">
+          Dengan masuk, Anda menyetujui{' '}
+          <a href="#" className="font-medium text-slate-500 underline hover:text-slate-700 transition-colors">
+            Syarat & Ketentuan
+          </a>{' '}
+          dan{' '}
+          <a href="#" className="font-medium text-slate-500 underline hover:text-slate-700 transition-colors">
+            Kebijakan Privasi
           </a>
           .
         </p>
+
+        {/* Copyright bottom-left */}
+        <p className="absolute bottom-6 left-8 sm:left-12 lg:left-16 xl:left-24 text-[11px] text-slate-300">
+          © {new Date().getFullYear()} PT Mayora Indah Tbk
+        </p>
       </div>
+
+      {/* ── RIGHT PANEL — Image ── */}
+      <div className="relative hidden lg:block lg:w-1/2">
+        <Image
+          src="/mayora1.jpg"
+          alt="Mayora"
+          fill
+          className="object-cover"
+          priority
+        />
+        {/* Subtle dark overlay so image doesn't feel too raw */}
+        <div className="absolute inset-0 bg-gradient-to-br from-red-900/30 via-transparent to-black/20" />
+
+
+      </div>
+
     </div>
   )
 }

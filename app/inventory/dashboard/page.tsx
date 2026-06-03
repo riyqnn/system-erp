@@ -11,7 +11,6 @@ import {
   ArrowDownRight,
   Truck,
   PackageCheck,
-  Activity,
   Warehouse,
   Layers,
   RefreshCw,
@@ -189,7 +188,7 @@ function PremiumKPICard({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      
+
       <div
         className={`absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[${config.accent}] to-transparent opacity-0 transition-opacity duration-500 ${isHovered ? "opacity-60" : ""}`}
       />
@@ -248,7 +247,7 @@ function PremiumKPICard({
           </div>
         )}
 
-        
+
         {trendData && (
           <div className="mt-4 pt-4 border-t border-slate-100/60">
             <svg
@@ -302,122 +301,27 @@ interface StockItemProps {
   index?: number;
 }
 
-function StockItem({ code, name, current, safety, max, category, location, status, trend, index = 0 }: StockItemProps) {
-  const [animatedProgress, setAnimatedProgress] = useState(0);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setAnimatedProgress((current / max) * 100);
-    }, 200 + index * 50);
-    return () => clearTimeout(timer);
-  }, [current, max, index]);
-
-  const statusConfig = {
-    optimal: {
-      bg: "bg-emerald-50/80",
-      dot: "bg-emerald-500",
-      text: "text-emerald-700",
-      border: "border-emerald-100/60",
-      bar: "from-emerald-400 to-emerald-500",
-      label: "Optimal",
-    },
-    low: {
-      bg: "bg-orange-50/80",
-      dot: "bg-orange-500",
-      text: "text-orange-700",
-      border: "border-orange-100/60",
-      bar: "from-orange-400 to-orange-500",
-      label: "Low",
-    },
-    critical: {
-      bg: "bg-red-50/80",
-      dot: "bg-red-500",
-      text: "text-red-700",
-      border: "border-red-100/60",
-      bar: "from-red-400 to-red-500",
-      label: "Critical",
-    },
-    overstock: {
-      bg: "bg-blue-50/80",
-      dot: "bg-blue-500",
-      text: "text-blue-700",
-      border: "border-blue-100/60",
-      bar: "from-blue-400 to-blue-500",
-      label: "Overstock",
-    },
-  };
-
-  const config = statusConfig[status];
-  const safetyPct = (safety / max) * 100;
+function StockItem({ code, name, current, safety, category, status }: StockItemProps) {
+  const isCritical = status === "critical";
+  const isLow = status === "low";
 
   return (
-    <div className="group flex items-center gap-3 px-4 py-3 hover:bg-slate-50/50 transition-all duration-200 border-b border-slate-100/50 last:border-0">
-      
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <div
-          className={`w-1.5 h-1.5 rounded-full ${config.dot} ${status === "critical" ? "animate-pulse" : ""}`}
-        />
-        <span
-          className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${config.bg} ${config.text} ${config.border} border`}
-        >
-          {config.label}
-        </span>
-      </div>
-
-      
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-mono font-semibold text-slate-400">
-            {code}
-          </span>
-          <span className="text-[9px] px-1 py-0.5 rounded-full bg-slate-100/80 text-slate-500 font-medium">
-            {category}
-          </span>
+    <div className="flex items-center justify-between py-3.5 px-6 hover:bg-slate-50/80 border-b border-slate-100/60 last:border-0 transition-colors group">
+      <div className="flex items-center gap-4">
+        <div className={`w-2 h-2 rounded-full shadow-sm ${isCritical ? 'bg-red-500 animate-pulse shadow-red-500/40' : isLow ? 'bg-orange-500 shadow-orange-500/40' : 'bg-emerald-500 shadow-emerald-500/40'}`} />
+        <div>
+          <p className="text-sm font-medium text-slate-800 group-hover:text-slate-900 transition-colors">{name}</p>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[11px] text-slate-500 font-mono bg-slate-100/80 px-1.5 py-0.5 rounded">{code}</span>
+            <span className="text-[11px] text-slate-400">{category}</span>
+          </div>
         </div>
-        <p className="text-xs font-medium text-slate-800 truncate mt-0.5">
-          {name}
+      </div>
+      <div className="text-right">
+        <p className={`text-sm font-bold ${isCritical ? 'text-red-600' : isLow ? 'text-orange-600' : 'text-slate-800'}`}>
+          {current.toLocaleString()}
         </p>
-      </div>
-
-      
-      <div className="flex items-center gap-3 flex-shrink-0">
-        
-        <div className="w-20 flex flex-col items-end gap-1">
-          <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden relative">
-            
-            <div
-              className="absolute top-0 bottom-0 w-px bg-slate-300/70 z-10"
-              style={{ left: `${Math.min(safetyPct, 95)}%` }}
-            />
-            
-            <div
-              className={`h-full rounded-full bg-gradient-to-r ${config.bar} transition-all duration-800 ease-out`}
-              style={{ width: `${animatedProgress}%` }}
-            />
-          </div>
-          <div className="flex items-center gap-2 text-[10px]">
-            <span className="font-semibold text-slate-800 tabular-nums">
-              {current.toLocaleString()}
-            </span>
-            <span className="text-slate-400">
-              / {safety.toLocaleString()}
-            </span>
-          </div>
-        </div>
-
-        
-        <div className="w-6 h-6 rounded-lg bg-slate-50 flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity">
-          {trend === "up" && <ArrowUpRight className="w-3 h-3 text-emerald-500" />}
-          {trend === "down" && <ArrowDownRight className="w-3 h-3 text-red-500" />}
-          {trend === "stable" && <Activity className="w-3 h-3 text-slate-400" />}
-        </div>
-
-        
-        <div className="w-20 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-          <p className="text-[10px] text-slate-500 truncate">
-            {location}
-          </p>
-        </div>
+        <p className="text-[10px] text-slate-400 mt-0.5">Target: {safety.toLocaleString()}</p>
       </div>
     </div>
   );
@@ -443,68 +347,106 @@ const activityTypeConfig = {
   adjustment: { icon: ClipboardList, color: "orange", bg: "bg-orange-50", iconColor: "text-orange-600", sign: "±" },
 };
 
-function ActivityFeedItem({ timestamp, type, itemCode, itemName, quantity, uom, reference, performer }: ActivityFeedItemProps) {
-  const config = activityTypeConfig[type];
+function ActivityFeedItem({ timestamp, type, itemCode, itemName, quantity, uom, reference }: ActivityFeedItemProps) {
+  const config = activityTypeConfig[type] || activityTypeConfig.adjustment;
   const Icon = config.icon;
 
   return (
-    <div className="group flex items-start gap-4 px-5 py-4 hover:bg-slate-50/60 transition-all duration-300 border-b border-slate-100/60 last:border-0">
-      
-      <div
-        className={`
-          w-10 h-10 rounded-2xl ${config.bg} ${config.iconColor}
-          border border-white/50 flex items-center justify-center flex-shrink-0
-          group-hover:scale-105 group-hover:rotate-3 transition-all duration-300
-        `}
-      >
-        <Icon className="w-5 h-5" />
+    <div className="flex items-start gap-4 py-3.5 px-6 hover:bg-slate-50/80 border-b border-slate-100/60 last:border-0 transition-colors group">
+      <div className={`mt-0.5 w-8 h-8 rounded-full ${config.bg} ${config.iconColor} flex items-center justify-center shrink-0 ring-1 ring-inset ring-${config.color}-500/10`}>
+        <Icon className="w-4 h-4" />
       </div>
-
-      
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-[10px] font-mono" style={{ color: BRAND.textMuted }}>
-            {timestamp}
-          </span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500">
-            {type}
+        <div className="flex justify-between items-start mb-1">
+          <p className="text-sm font-medium text-slate-800 truncate pr-4 group-hover:text-slate-900 transition-colors">
+            {itemName}
+          </p>
+          <span className={`text-sm font-bold shrink-0 ${config.iconColor}`}>
+            {config.sign} {quantity.toLocaleString()} <span className="text-[10px] font-medium opacity-70 ml-0.5">{uom}</span>
           </span>
         </div>
-        <p className="text-sm font-medium" style={{ color: BRAND.textPrimary }}>
-          <span className="font-mono text-xs" style={{ color: BRAND.textMuted }}>
-            {itemCode}
-          </span>{" "}
-          - {itemName}
-        </p>
-        <p className="text-[10px]" style={{ color: BRAND.textMuted }}>
-          {reference} · by {performer}
-        </p>
-      </div>
-
-      
-      <div className="text-right flex-shrink-0">
-        <p
-          className={`
-            text-lg font-semibold tabular-nums
-            ${config.color === "emerald" ? "text-emerald-700" : config.color === "red" ? "text-red-700" : config.color === "purple" ? "text-purple-700" : "text-blue-700"}
-          `}
-        >
-          {config.sign} {quantity.toLocaleString()} {uom}
-        </p>
+        <div className="flex items-center justify-between text-[11px] text-slate-500">
+          <div className="flex items-center gap-2">
+            <span className="font-mono bg-slate-100/80 px-1.5 py-0.5 rounded text-slate-600">{itemCode}</span>
+            <span>•</span>
+            <span className="truncate max-w-[120px]" title={reference}>{reference}</span>
+          </div>
+          <p className="font-medium text-slate-400 shrink-0">{timestamp}</p>
+        </div>
       </div>
     </div>
   );
 }
 
+interface KPIItem {
+  title: string;
+  value: string | number;
+  formattedValue: string;
+  change: number;
+  changeLabel: string;
+  color: "red" | "green" | "orange" | "blue" | "purple";
+  href: string;
+  secondaryValue: string;
+}
+
+interface InventoryDistributionItem {
+  label: string;
+  value: number;
+  color: string;
+}
+
+interface CriticalStockItem {
+  code: string;
+  name: string;
+  current: number;
+  safety: number;
+  max: number;
+  category: string;
+  location: string;
+  status: "optimal" | "critical" | "low" | "overstock";
+  trend: "up" | "down" | "stable";
+}
+
+interface RecentActivityItem {
+  timestamp: string;
+  type: "receipt" | "issue" | "adjustment" | "transfer";
+  itemCode: string;
+  itemName: string;
+  quantity: number;
+  uom: string;
+  reference: string;
+  performer: string;
+}
+
+interface DashboardData {
+  kpi: KPIItem[];
+  inventoryDistribution: InventoryDistributionItem[];
+  criticalStock: CriticalStockItem[];
+  recentActivity: RecentActivityItem[];
+}
+
 export default function InventoryDashboardPage() {
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [mounted, setMounted] = useState(false);
-  
+
   useEffect(() => {
-    const t = setTimeout(() => setMounted(true), 0);
-    return () => clearTimeout(t);
+    const fetchDashboard = async () => {
+      try {
+        const res = await fetch('/api/inventory/dashboard');
+        if (res.ok) {
+          const data = await res.json();
+          setDashboardData(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch dashboard data:", err);
+      } finally {
+        setMounted(true);
+      }
+    };
+    fetchDashboard();
   }, []);
 
-  if (!mounted) {
+  if (!mounted || !dashboardData) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="flex flex-col items-center gap-4">
@@ -512,133 +454,73 @@ export default function InventoryDashboardPage() {
             className="w-10 h-10 border-3 border-slate-100 rounded-full animate-spin"
             style={{ borderTopColor: BRAND.primary, borderWidth: "3px" }}
           />
-          <p style={{ color: BRAND.textSecondary }}>Memuat analitik...</p>
+          <p style={{ color: BRAND.textSecondary }}>Loading analytics...</p>
         </div>
       </div>
     );
   }
-  const KPI_DATA = [
-    {
-      title: "Total Nilai Inventori",
-      value: 4200000000,
-      formattedValue: "Rp 4.2B",
-      change: 3.2,
-      changeLabel: "vs bulan lalu",
-      icon: Warehouse,
-      color: "red" as const,
-      href: "/inventory/ledger",
-      secondaryValue: "2,847 SKU",
-      secondaryLabel: "Items",
-      trendData: [3.8, 3.9, 3.85, 4.0, 4.1, 4.05, 4.15, 4.2],
-    },
-    {
-      title: "Turnover Rate",
-      value: 4.8,
-      formattedValue: "4.8x",
-      change: 0.4,
-      changeLabel: "vs Q1 2026",
-      icon: TrendingUp,
-      color: "green" as const,
-      secondaryValue: "76 hari",
-      secondaryLabel: "Days Inventory",
-      trendData: [4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.75, 4.8],
-    },
-    {
-      title: "Items di Bawah Safety Stock",
-      value: 12,
-      formattedValue: "12",
-      change: -2,
-      changeLabel: "dari minggu lalu",
-      icon: AlertTriangle,
-      color: "orange" as const,
-      href: "/inventory/monitoring-stok",
-      secondaryValue: "3 Critical",
-      secondaryLabel: "Prioritas",
-      trendData: [18, 16, 15, 14, 13, 13, 12, 12],
-    },
-    {
-      title: "Tugas Tertunda",
-      value: 45,
-      formattedValue: "45",
-      change: null,
-      changeLabel: "GR: 12 · DO: 33",
-      icon: ClipboardList,
-      color: "blue" as const,
-      href: "/inventory/goods-receipt",
-      secondaryValue: "8 Overdue",
-      secondaryLabel: "SLA Breach",
-      trendData: [30, 35, 32, 40, 38, 42, 44, 45],
-    },
-  ];
+
+  // Mapping icons to KPI data since API cannot return React components
+  const KPI_ICONS = [Warehouse, TrendingUp, AlertTriangle, ClipboardList];
+  const KPI_DATA = dashboardData.kpi.map((item: KPIItem, index: number) => ({
+    ...item,
+    icon: KPI_ICONS[index % KPI_ICONS.length]
+  }));
+
+  const INVENTORY_DISTRIBUTION = dashboardData.inventoryDistribution;
+  const CRITICAL_STOCK = dashboardData.criticalStock || [];
+  const RECENT_ACTIVITY = dashboardData.recentActivity || [];
+
+  // Mock historical data (since DB doesn't have 12 months history yet)
   const STOCK_TREND_DATA = [
     { label: "Jan", value: 4200, secondary: 3800 },
     { label: "Feb", value: 4100, secondary: 3900 },
     { label: "Mar", value: 4350, secondary: 4000 },
     { label: "Apr", value: 4500, secondary: 4100 },
-    { label: "Mei", value: 4400, secondary: 4200 },
+    { label: "May", value: 4400, secondary: 4200 },
     { label: "Jun", value: 4600, secondary: 4300 },
     { label: "Jul", value: 4750, secondary: 4400 },
-    { label: "Ags", value: 4900, secondary: 4500 },
+    { label: "Aug", value: 4900, secondary: 4500 },
     { label: "Sep", value: 4800, secondary: 4600 },
-    { label: "Okt", value: 5000, secondary: 4700 },
+    { label: "Oct", value: 5000, secondary: 4700 },
     { label: "Nov", value: 5100, secondary: 4800 },
-    { label: "Des", value: 5200, secondary: 4900 },
+    { label: "Dec", value: 5200, secondary: 4900 },
   ];
   const CATEGORY_DISTRIBUTION = [
     {
       category: "RM",
       values: [
-        { label: "Bahan Baku", value: 18500, color: CHART_COLORS.primary },
+        { label: "Raw Material", value: 18500, color: CHART_COLORS.primary },
         { label: "Packaging", value: 8200, color: CHART_COLORS.secondary },
       ],
     },
     {
       category: "WIP",
       values: [
-        { label: "Bahan Baku", value: 3200, color: CHART_COLORS.primary },
+        { label: "Raw Material", value: 3200, color: CHART_COLORS.primary },
         { label: "Packaging", value: 1800, color: CHART_COLORS.secondary },
       ],
     },
     {
       category: "FG",
       values: [
-        { label: "Bahan Baku", value: 12500, color: CHART_COLORS.primary },
+        { label: "Raw Material", value: 12500, color: CHART_COLORS.primary },
         { label: "Packaging", value: 6800, color: CHART_COLORS.secondary },
       ],
     },
     {
       category: "SPG",
       values: [
-        { label: "Bahan Baku", value: 4500, color: CHART_COLORS.primary },
+        { label: "Raw Material", value: 4500, color: CHART_COLORS.primary },
         { label: "Packaging", value: 2200, color: CHART_COLORS.secondary },
       ],
     },
   ];
-  const INVENTORY_DISTRIBUTION = [
-    { label: "Raw Material", value: 26700, color: "#EE4444" },
-    { label: "WIP", value: 5000, color: "#3B82F6" },
-    { label: "Finished Goods", value: 19300, color: "#10B981" },
-    { label: "Spare Parts", value: 6700, color: "#F97316" },
-  ];
-  const CRITICAL_STOCK = [
-    { code: "FG-001", name: "Kopiko Blister 100g", current: 1200, safety: 2000, max: 5000, category: "FG", location: "WH-A-01", status: "critical" as const, trend: "down" as const },
-    { code: "FG-005", name: "Beng-Beng ShareIt", current: 850, safety: 1500, max: 3000, category: "FG", location: "WH-A-02", status: "low" as const, trend: "down" as const },
-    { code: "RM-102", name: "Cocoa Powder", current: 300, safety: 500, max: 2000, category: "RM", location: "WH-B-15", status: "low" as const, trend: "stable" as const },
-    { code: "RM-045", name: "Sugar Refinery", current: 4500, safety: 3000, max: 4000, category: "RM", location: "WH-B-03", status: "overstock" as const, trend: "up" as const },
-    { code: "FG-012", name: "Astor Mini Box", current: 800, safety: 1200, max: 2500, category: "FG", location: "WH-A-05", status: "low" as const, trend: "down" as const },
-  ];
-  const RECENT_ACTIVITY = [
-    { timestamp: "14:23", type: "receipt" as const, itemCode: "RM-102", itemName: "Cocoa Powder", quantity: 500, uom: "kg", reference: "GR-2023-11B", performer: "Rini W." },
-    { timestamp: "13:45", type: "production" as const, itemCode: "FG-001", itemName: "Kopiko Blister 100g", quantity: 1000, uom: "pcs", reference: "PRD-2023-441", performer: "Auto" },
-    { timestamp: "12:30", type: "issue" as const, itemCode: "FG-005", itemName: "Beng-Beng ShareIt", quantity: 200, uom: "carton", reference: "DO-2023-1192", performer: "Budi S." },
-    { timestamp: "11:15", type: "transfer" as const, itemCode: "RM-045", itemName: "Sugar Refinery", quantity: 1000, uom: "kg", reference: "TRF-2023-089", performer: "Dewi K." },
-    { timestamp: "10:00", type: "receipt" as const, itemCode: "PKG-023", itemName: "Wrapper Film", quantity: 500, uom: "roll", reference: "GR-2023-11A", performer: "Andi P." },
-  ];
-  
+
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
-      
+
       <div className="flex items-end justify-between pt-2 animate-[fadeInUp_0.5s_ease-out]">
         <div className="space-y-2">
           <div className="flex items-center gap-3">
@@ -648,15 +530,15 @@ export default function InventoryDashboardPage() {
                 className="text-[11px] font-semibold uppercase tracking-[0.25em]"
                 style={{ color: BRAND.primary }}
               >
-                Modul Inventori
+                Inventory Module
               </p>
               <h1 className="text-3xl font-semibold tracking-tight" style={{ color: BRAND.textPrimary }}>
-                Dashboard Analitik
+                Analytics Dashboard
               </h1>
             </div>
           </div>
           <p className="text-sm ml-4" style={{ color: BRAND.textSecondary }}>
-            Overview operasional inventori PT Mayora Indah
+            Operational overview of PT Mayora Indah inventory
           </p>
         </div>
 
@@ -686,35 +568,35 @@ export default function InventoryDashboardPage() {
         </div>
       </div>
 
-      
+
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
         {KPI_DATA.map((kpi, index) => (
           <PremiumKPICard key={kpi.title} {...kpi} index={index} />
         ))}
       </div>
 
-      
+
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
+
         <div className="xl:col-span-2 animate-[fadeInUp_0.5s_ease-out_0.1s_both]">
           <GlassCard>
             <div className="px-6 py-5 border-b border-slate-100/60 flex items-center justify-between">
               <div className="space-y-0.5">
                 <h3 className="text-base font-semibold" style={{ color: BRAND.textPrimary }}>
-                  Trend Nilai Inventori (12 Bulan)
+                  Inventory Value Trend (12 Months)
                 </h3>
                 <p className="text-xs" style={{ color: BRAND.textSecondary }}>
-                  Perbandingan nilai buku vs nilai pasar
+                  Book value vs market value comparison
                 </p>
               </div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: CHART_COLORS.primary }} />
-                  <span className="text-xs" style={{ color: BRAND.textMuted }}>Nilai Buku</span>
+                  <span className="text-xs" style={{ color: BRAND.textMuted }}>Book Value</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: CHART_COLORS.secondary }} />
-                  <span className="text-xs" style={{ color: BRAND.textMuted }}>Nilai Pasar</span>
+                  <span className="text-xs" style={{ color: BRAND.textMuted }}>Market Value</span>
                 </div>
               </div>
             </div>
@@ -733,16 +615,16 @@ export default function InventoryDashboardPage() {
           </GlassCard>
         </div>
 
-        
+
         <div className="animate-[fadeInUp_0.5s_ease-out_0.15s_both]">
           <GlassCard>
             <div className="px-6 py-5 border-b border-slate-100/60">
               <div className="space-y-0.5">
                 <h3 className="text-base font-semibold" style={{ color: BRAND.textPrimary }}>
-                  Distribusi Inventori
+                  Inventory Distribution
                 </h3>
                 <p className="text-xs" style={{ color: BRAND.textSecondary }}>
-                  Berdasarkan tipe material
+                  By material type
                 </p>
               </div>
             </div>
@@ -781,22 +663,22 @@ export default function InventoryDashboardPage() {
         </div>
       </div>
 
-      
+
       <div className="animate-[fadeInUp_0.5s_ease-out_0.2s_both]">
         <GlassCard>
           <div className="px-6 py-5 border-b border-slate-100/60 flex items-center justify-between">
             <div className="space-y-0.5">
               <h3 className="text-base font-semibold" style={{ color: BRAND.textPrimary }}>
-                Analisis Kategori Material
+                Material Category Analysis
               </h3>
               <p className="text-xs" style={{ color: BRAND.textSecondary }}>
-                Distribusi Bahan Baku vs Packaging per tipe inventori
+                Raw Material vs Packaging distribution per inventory type
               </p>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: CHART_COLORS.primary }} />
-                <span className="text-xs" style={{ color: BRAND.textMuted }}>Bahan Baku</span>
+                <span className="text-xs" style={{ color: BRAND.textMuted }}>Raw Material</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: CHART_COLORS.secondary }} />
@@ -817,23 +699,23 @@ export default function InventoryDashboardPage() {
         </GlassCard>
       </div>
 
-      
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        
+
         <div className="animate-[fadeInUp_0.5s_ease-out_0.25s_both]">
           <GlassCard>
             <div className="px-6 py-5 border-b border-slate-100/60 flex items-center justify-between">
               <div className="space-y-0.5">
                 <h3 className="text-base font-semibold" style={{ color: BRAND.textPrimary }}>
-                  Monitoring Stok Kritis
+                  Critical Stock Monitoring
                 </h3>
                 <p className="text-xs" style={{ color: BRAND.textSecondary }}>
-                  Items memerlukan perhatian segera
+                  Items requiring immediate attention
                 </p>
               </div>
               <Link href="/inventory/monitoring-stok">
                 <Button variant="ghost" size="sm" className="h-8 text-xs font-medium">
-                  Lihat Semua
+                  View All
                   <ArrowRight className="w-3.5 h-3.5 ml-1" />
                 </Button>
               </Link>
@@ -847,23 +729,23 @@ export default function InventoryDashboardPage() {
               <Link href="/inventory/permintaan-produksi">
                 <Button className="w-full h-9 text-sm bg-red-500 hover:bg-red-600 text-white font-medium shadow-[0_2px_8px_rgba(239,68,68,0.2)] hover:shadow-[0_4px_16px_rgba(239,68,68,0.3)]">
                   <Zap className="w-4 h-4 mr-2" />
-                  Buat Permintaan Produksi
+                  Create Production Request
                 </Button>
               </Link>
             </div>
           </GlassCard>
         </div>
 
-        
+
         <div className="animate-[fadeInUp_0.5s_ease-out_0.3s_both]">
           <GlassCard>
             <div className="px-6 py-5 border-b border-slate-100/60 flex items-center justify-between">
               <div className="space-y-0.5">
                 <h3 className="text-base font-semibold" style={{ color: BRAND.textPrimary }}>
-                  Aktivitas Real-time
+                  Real-time Activity
                 </h3>
                 <p className="text-xs" style={{ color: BRAND.textSecondary }}>
-                  Transaksi inventori terkini
+                  Latest inventory transactions
                 </p>
               </div>
               <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-50/80 border border-emerald-100/50">
@@ -889,7 +771,7 @@ export default function InventoryDashboardPage() {
                 }}
               >
                 <MousePointer2 className="w-3.5 h-3.5" />
-                Lihat semua transaksi di Ledger
+                View all transactions in Ledger
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
@@ -897,7 +779,7 @@ export default function InventoryDashboardPage() {
         </div>
       </div>
 
-      
+
       <style jsx global>{`
         @keyframes fadeInUp {
           from {

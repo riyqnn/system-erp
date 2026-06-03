@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useSearchParams } from 'next/navigation'
 import {
   CaretLeft,
@@ -13,19 +14,18 @@ import {
   ShoppingCart,
   Factory,
   ChartLineUp,
+  ChartBar,
   Users,
   Gear,
   Truck,
   Receipt,
-  Cube,
-  ArrowsLeftRight,
-  CheckSquare,
   ClipboardText,
   Coins,
   Book,
   Calculator,
   CreditCard,
   Megaphone,
+  Wrench
 } from '@phosphor-icons/react'
 
 interface SubItem {
@@ -62,18 +62,53 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
     ],
     inventory: [
       { label: 'Dashboard', href: '/inventory/dashboard', icon: GridFour },
-      { label: 'Produk', href: '/inventory/produk', icon: Package },
-      { label: 'Monitoring Stok', href: '/inventory/monitoring-stok', icon: GridFour },
-      { label: 'Permintaan Produksi', href: '/inventory/permintaan-produksi', icon: GridFour },
-      { label: 'Verifikasi BOM', href: '/inventory/verifikasi-bom', icon: GridFour },
-      { label: 'Purchase Requisition', href: '/inventory/purchase-requisition', icon: ShoppingCart },
-      { label: 'Penerimaan Barang', href: '/inventory/goods-receipt', icon: Package },
-      { label: 'Serah Terima Bahan', href: '/inventory/material-handover', icon: ArrowsLeftRight },
-      { label: 'Penerimaan Barang Jadi', href: '/inventory/receive-fg', icon: Cube },
-      { label: 'Validasi Sales Order', href: '/inventory/sales-order-validation', icon: CheckSquare },
-      { label: 'Konfirmasi Pengiriman', href: '/inventory/shipping', icon: Truck },
-      { label: 'Verifikasi Invoice', href: '/inventory/invoice-verification', icon: Receipt },
-      { label: 'Laporan Inventory', href: '/inventory/ledger', icon: ClipboardText },
+      { label: 'Products',  href: '/inventory/produk',    icon: Package },
+      {
+        label: 'Procurement',
+        href: '/inventory/purchase-requisition',
+        icon: ShoppingCart,
+        children: [
+          { label: 'Purchase Requisition', href: '/inventory/purchase-requisition' },
+          { label: 'Goods Receipt',        href: '/inventory/goods-receipt' },
+        ],
+      },
+      {
+        label: 'Production',
+        href: '/inventory/permintaan-produksi',
+        icon: Wrench,
+        children: [
+          { label: 'Production Request',     href: '/inventory/permintaan-produksi' },
+          { label: 'BOM Verification',       href: '/inventory/verifikasi-bom' },
+          { label: 'Material Handover',      href: '/inventory/material-handover' },
+          { label: 'Finished Goods Receipt', href: '/inventory/receive-fg' },
+        ],
+      },
+      {
+        label: 'Sales & Outbound',
+        href: '/inventory/sales-order-validation',
+        icon: Truck,
+        children: [
+          { label: 'Sales Order Validation', href: '/inventory/sales-order-validation' },
+          { label: 'Shipment Confirmation',  href: '/inventory/shipping' },
+        ],
+      },
+      {
+        label: 'Finance',
+        href: '/inventory/invoice-verification',
+        icon: Receipt,
+        children: [
+          { label: 'Invoice Verification', href: '/inventory/invoice-verification' },
+        ],
+      },
+      {
+        label: 'Reports',
+        href: '/inventory/monitoring-stok',
+        icon: ChartBar,
+        children: [
+          { label: 'Stock Monitoring', href: '/inventory/monitoring-stok' },
+          { label: 'Inventory Report', href: '/inventory/ledger' },
+        ],
+      },
     ],
     finance: [
       { label: 'Dashboard', href: '/finance/dashboard', icon: GridFour },
@@ -137,8 +172,12 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
 
 /**
  * Sidebar Component
- * Collapsible white sidebar with thin right border.
- * Supports expandable submenus (dropdown) per menu item.
+ *
+ * Fix v2:
+ * - Parent items with children do NOT navigate — they only toggle the submenu.
+ * - useEffect auto-expands the correct parent when navigating via URL.
+ * - Smooth max-height + opacity CSS transition for submenu animation.
+ * - Child clicks are isolated (stopPropagation) so they don't trigger parent toggle.
  */
 export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
@@ -147,28 +186,53 @@ export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) 
 
   const menuItems = getModuleNavigation(activeModule)
 
-  // Parent is "active" when current path is under its base route.
-  const isParentActive = (item: MenuItem) =>
-    pathname === item.href || pathname?.startsWith(item.href + '/') || false
-
-  // Manual expand/collapse state per parent href.
-  const [open, setOpen] = useState<Record<string, boolean>>({})
-  const toggle = (href: string) => setOpen((s) => ({ ...s, [href]: !s[href] }))
-
-  // Exact-match active (used for the module root, e.g. "Overview").
-  const isExactActive = (href: string) => pathname === href
-
-  // Child active: match pathname + relevant query param.
+  // ── Match a child href against current URL + query params ─────────
   const isChildActive = (childHref: string) => {
     const [path, query] = childHref.split('?')
     if (pathname !== path) return false
-    if (!query) {
-      // "Semua / Ringkasan" child is active only when no filter query is present.
-      return !searchParams?.get('status') && !searchParams?.get('category')
-    }
+    if (!query) return !searchParams?.get('status') && !searchParams?.get('category')
     const [key, value] = query.split('=')
     return searchParams?.get(key) === value
   }
+
+  // ── A parent is active if any child matches current URL ───────────
+  const isParentActive = (item: MenuItem): boolean => {
+    if (item.children?.length) {
+      return item.children.some((c) => isChildActive(c.href))
+    }
+    return pathname === item.href || (pathname?.startsWith(item.href + '/') ?? false)
+  }
+
+  const isExactActive = (href: string) => pathname === href
+
+  // ── Open state: undefined = not yet touched by user ───────────────
+  const [open, setOpen] = useState<Record<string, boolean | undefined>>({})
+
+  const toggle = (href: string) =>
+    setOpen((prev) => {
+      const current = prev[href]
+      // If never touched, current is undefined → treat as "was open if active" → close it
+      const wasOpen = current === undefined ? isParentActive(menuItems.find((m) => m.href === href)!) : current
+      return { ...prev, [href]: !wasOpen }
+    })
+
+  // Auto-expand parent whose child matches current path (e.g. on page load or deep link)
+  useEffect(() => {
+    setOpen((prev) => {
+      const next = { ...prev }
+      menuItems.forEach((item) => {
+        if (item.children?.length) {
+          const anyChildActive = item.children.some((c) => isChildActive(c.href))
+          // Only auto-open, never auto-close (user close = explicit false)
+          if (anyChildActive && next[item.href] !== false) {
+            next[item.href] = true
+          }
+        }
+      })
+      return next
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, searchParams])
 
   return (
     <>
@@ -182,22 +246,29 @@ export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) 
         className={`
           fixed lg:sticky top-0 left-0 h-screen z-30
           bg-white border-r border-slate-200
-          transition-all duration-200
+          transition-all duration-200 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full'}
           lg:translate-x-0
           ${collapsed ? 'w-16' : 'w-56'}
         `}
       >
-        {/* Header with collapse toggle */}
+        {/* Header */}
         <div className="h-14 flex items-center justify-between px-3 border-b border-slate-200">
           {!collapsed && (
-            <Link href="/dashboard" className="text-sm font-semibold text-slate-900 truncate">
-              {activeModule ? activeModule.charAt(0).toUpperCase() + activeModule.slice(1) : 'PT Mayora'}
+            <Link href="/dashboard" className="flex items-center">
+              <Image
+                src="/logo mayora.png"
+                alt="PT Mayora"
+                width={110}
+                height={38}
+                className="object-contain"
+                priority
+              />
             </Link>
           )}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="p-1.5 hover:bg-slate-100 rounded-md transition-colors hidden lg:flex items-center justify-center"
+            className="p-1.5 hover:bg-slate-100 rounded-md transition-colors hidden lg:flex items-center justify-center ml-auto"
             aria-label="Toggle sidebar"
           >
             {collapsed ? (
@@ -208,74 +279,107 @@ export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) 
           </button>
         </div>
 
-        {/* Menu Items */}
+        {/* Nav */}
         <nav className="p-2 space-y-0.5 overflow-y-auto h-[calc(100vh-3.5rem)]">
           {menuItems.map((item) => {
             const Icon = item.icon
             const hasChildren = !!item.children?.length
-
-            // For parents with children, highlight via prefix; for leaf root items
-            // (e.g. "Overview") use exact match so it isn't highlighted on sub-tabs.
             const active = hasChildren ? isParentActive(item) : isExactActive(item.href)
-            const expanded = !collapsed && hasChildren && (open[item.href] ?? isParentActive(item))
+
+            // Resolve expanded state
+            const rawOpen = open[item.href]
+            const expanded = !collapsed && hasChildren && (
+              rawOpen === undefined ? isParentActive(item) : rawOpen
+            )
+
+            const rowBase = `
+              flex items-center rounded-lg text-sm select-none
+              transition-colors duration-150
+              ${active
+                ? 'bg-red-50 text-red-700'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}
+            `
 
             return (
               <div key={item.href}>
-                <div
-                  className={`
-                    flex items-center rounded-md text-sm transition-colors duration-150
-                    ${active ? 'bg-slate-100 text-slate-900 font-medium' : 'text-slate-600 hover:bg-slate-50'}
-                  `}
-                >
-                  <Link
-                    href={item.href}
+
+                {/* ── Parent row ── */}
+                {hasChildren ? (
+                  // Parent with children: entire row is a toggle button — no navigation
+                  <button
+                    type="button"
+                    onClick={() => toggle(item.href)}
+                    className={`w-full ${rowBase} ${collapsed ? 'justify-center px-3 py-2.5' : 'px-3 py-2.5'}`}
                     title={collapsed ? item.label : undefined}
-                    className={`flex items-center gap-3 px-3 py-2 flex-1 min-w-0 ${collapsed ? 'justify-center' : ''}`}
                   >
                     <Icon
                       weight={active ? 'fill' : 'regular'}
-                      className="w-5 h-5 flex-shrink-0"
+                      className="w-4 h-4 flex-shrink-0"
                       style={{ color: active ? '#dc2626' : '#64748b' }}
                     />
-                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    {!collapsed && (
+                      <>
+                        <span className="ml-2.5 flex-1 text-left text-[13px] font-medium truncate">
+                          {item.label}
+                        </span>
+                        <CaretDown
+                          weight="bold"
+                          className={`w-3 h-3 flex-shrink-0 transition-transform duration-200 text-slate-400 ${expanded ? 'rotate-180' : ''}`}
+                        />
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  // Leaf: Link navigates
+                  <Link
+                    href={item.href}
+                    title={collapsed ? item.label : undefined}
+                    className={`${rowBase} ${collapsed ? 'justify-center px-3 py-2.5' : 'px-3 py-2.5'}`}
+                  >
+                    <Icon
+                      weight={active ? 'fill' : 'regular'}
+                      className="w-4 h-4 flex-shrink-0"
+                      style={{ color: active ? '#dc2626' : '#64748b' }}
+                    />
+                    {!collapsed && (
+                      <span className="ml-2.5 text-[13px] font-medium truncate">{item.label}</span>
+                    )}
                   </Link>
-                  {hasChildren && !collapsed && (
-                    <button
-                      onClick={() => toggle(item.href)}
-                      className="p-2 text-slate-400 hover:text-slate-700"
-                      aria-label={`Toggle ${item.label}`}
-                    >
-                      <CaretDown
-                        weight="bold"
-                        className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                      />
-                    </button>
-                  )}
-                </div>
+                )}
 
-                {/* Submenu */}
-                {expanded && (
-                  <div className="mt-0.5 ml-4 pl-3 border-l border-slate-100 space-y-0.5">
-                    {item.children!.map((child) => {
-                      const childActive = isChildActive(child.href)
-                      return (
-                        <Link
-                          key={child.href}
-                          href={child.href}
-                          className={`
-                            block px-3 py-1.5 rounded-md text-[13px] transition-colors
-                            ${childActive
-                              ? 'bg-red-50 text-[#dc2626] font-medium'
-                              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-                            }
-                          `}
-                        >
-                          {child.label}
-                        </Link>
-                      )
-                    })}
+                {/* ── Submenu — smooth height + opacity transition ── */}
+                {hasChildren && (
+                  <div
+                    className="overflow-hidden transition-all duration-200 ease-in-out"
+                    style={{
+                      maxHeight: expanded ? `${(item.children?.length ?? 0) * 40}px` : '0px',
+                      opacity: expanded ? 1 : 0,
+                      pointerEvents: expanded ? 'auto' : 'none',
+                    }}
+                  >
+                    <div className="mt-0.5 ml-3 pl-3 border-l-2 border-slate-100 space-y-0.5 pb-1.5">
+                      {item.children?.map((child) => {
+                        const childActive = isChildActive(child.href)
+                        return (
+                          <Link
+                            key={child.href}
+                            href={child.href}
+                            className={`
+                              block px-2.5 py-[7px] rounded-md text-[12.5px]
+                              transition-colors duration-150
+                              ${childActive
+                                ? 'bg-red-50 text-red-600 font-semibold'
+                                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}
+                            `}
+                          >
+                            {child.label}
+                          </Link>
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
+
               </div>
             )
           })}
