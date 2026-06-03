@@ -9,7 +9,7 @@ const ROLE_MODULE_MAP: Record<string, string> = {
   'INVENTORY': '/inventory',
   'FINANCE': '/finance',
   'PURCHASING': '/apps/purchasing',
-  'PRODUCTION': '/apps/production',
+  'PRODUCTION': '/production',
   'SNM': '/snm',
   'SALES': '/snm',
   'ADMIN': '/dashboard',

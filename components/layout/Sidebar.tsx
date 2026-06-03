@@ -125,10 +125,14 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
       { label: 'Requests', href: '/apps/purchasing/requests', icon: ShoppingCart },
     ],
     production: [
-      { label: 'Overview', href: '/apps/production', icon: GridFour },
-      { label: 'Production Orders', href: '/apps/production/orders', icon: Factory },
-      { label: 'Bill of Materials', href: '/apps/production/bom', icon: Factory },
-      { label: 'Planning', href: '/apps/production/planning', icon: Factory },
+      { label: 'Overview', href: '/production', icon: GridFour },
+      { label: 'Production Orders', href: '/production/orders', icon: Factory },
+      { label: 'Bill of Materials', href: '/production/bom', icon: Wrench },
+      { label: 'Planning', href: '/production/planning', icon: ClipboardText },
+      { label: 'Goods Issue', href: '/production/goods-issue', icon: Package },
+      { label: 'Goods Receipt', href: '/production/goods-receipt', icon: Truck },
+      { label: 'Quality Control', href: '/production/quality-control', icon: ChartBar },
+      { label: 'Settlement', href: '/production/settlement', icon: Receipt },
     ],
     snm: [
       { label: 'Overview', href: '/snm', icon: GridFour },
