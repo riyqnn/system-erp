@@ -25,8 +25,8 @@ export default async function DashboardPage() {
       'FINANCE': '/finance',
       'PURCHASING': '/purchasing',
       'PRODUCTION': '/production',
-      'SNM': '/apps/snm',
-      'SALES': '/apps/snm',
+      'SNM': '/snm',
+      'SALES': '/snm',
     }
 
     const redirectPath = roleRedirects[userRole || ''] || '/login'

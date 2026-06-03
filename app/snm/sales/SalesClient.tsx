@@ -135,7 +135,7 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
   async function notify(type: string, title: string, message: string) {
     try {
       await supabase.from('notifications').insert({
-        recipient_role: 'SNM', type, title, message, link: '/apps/snm/sales',
+        recipient_role: 'SNM', type, title, message, link: '/snm/sales',
       })
     } catch { /* ignore */ }
   }
@@ -333,7 +333,7 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
       moduleTitle="Sales & Marketing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Sales & Marketing', href: '/apps/snm' },
+        { label: 'Sales & Marketing', href: '/snm' },
         { label: 'Sales Orders' },
       ]}
     >
