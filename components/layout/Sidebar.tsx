@@ -25,6 +25,10 @@ import {
   Calculator,
   CreditCard,
   Megaphone,
+  FileText,
+  Handshake,
+  CheckCircle,
+  Scales,
   Wrench
 } from '@phosphor-icons/react'
 
@@ -119,10 +123,16 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
       { label: 'Cost Accounting', href: '/finance/cost-accounting', icon: Calculator },
     ],
     purchasing: [
-      { label: 'Overview', href: '/apps/purchasing', icon: GridFour },
-      { label: 'Purchase Orders', href: '/apps/purchasing/orders', icon: ShoppingCart },
-      { label: 'Vendors', href: '/apps/purchasing/vendors', icon: ShoppingCart },
-      { label: 'Requests', href: '/apps/purchasing/requests', icon: ShoppingCart },
+      { label: 'Dashboard', href: '/apps/purchasing', icon: GridFour },
+      { label: 'Suppliers', href: '/apps/purchasing/suppliers', icon: Users },
+      { label: 'Purchase Requisition', href: '/apps/purchasing/purchase-requisition', icon: ClipboardText },
+      { label: 'RFQ / Sourcing', href: '/apps/purchasing/rfq-sourcing', icon: FileText },
+      { label: 'Price Negotiation', href: '/apps/purchasing/negotiation', icon: Handshake },
+      { label: 'Purchase Order', href: '/apps/purchasing/purchase-orders', icon: ShoppingCart },
+      { label: 'Approval PO', href: '/apps/purchasing/approval-po', icon: CheckCircle },
+      { label: 'Monitoring', href: '/apps/purchasing/delivery-monitoring', icon: Truck },
+      { label: 'Goods Receipt', href: '/apps/purchasing/goods-receipt', icon: Package },
+      { label: 'Three-Way Matching', href: '/apps/purchasing/three-way-matching', icon: Scales },
     ],
     production: [
       { label: 'Overview', href: '/apps/production', icon: GridFour },
