@@ -11,9 +11,17 @@ import {
   AlertCircle, 
   CheckCircle,
   HelpCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Download,
+  Filter,
+  Search,
+  X,
+  Check,
+  ArrowUpRight,
+  ArrowDownRight,
+  Link
 } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
+import { CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -53,13 +61,64 @@ interface GoodsReceipt {
   status: 'Accepted' | 'Rejected' | 'Partial';
 }
 
+interface PermintaanPembayaran {
+  id_permintaan: number;
+  no_permintaan: string;
+  hutang_id: number;
+  jumlah_bayar: number;
+  metode_pembayaran: 'TRANSFER' | 'KAS_KECIL' | 'GIRO';
+  keterangan: string;
+  status: 'MENUNGGU_PERSETUJUAN' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI';
+  created_at: string;
+  tr_hutang?: {
+    no_invoice: string;
+    supplier_name: string;
+  };
+}
+
+function GlassCard({
+  children,
+  className = "",
+  hover = false,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  hover?: boolean;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}) {
+  return (
+    <div
+      className={`
+        bg-white/95 backdrop-blur-md
+        border border-slate-100
+        shadow-[0_4px_20px_rgba(0,0,0,0.02),0_1px_2px_rgba(0,0,0,0.01)]
+        rounded-3xl overflow-hidden
+        ${hover ? "hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-0.5" : ""}
+        transition-all duration-300 ease-out
+        ${className}
+      `}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function AccountPayablePage() {
-  const [activeTab, setActiveTab] = useState<'daftar' | 'matching' | 'pengajuan'>('daftar')
-  const [hutangList, setHutangList] = useState<Hutang[]>()
+  const [hutangList, setHutangList] = useState<Hutang[]>([])
   const [poList, setPoList] = useState<PurchaseOrder[]>([])
   const [grList, setGrList] = useState<GoodsReceipt[]>([])
+  const [permintaanList, setPermintaanList] = useState<PermintaanPembayaran[]>([])
   const [loading, setLoading] = useState(false)
   const [notif, setNotif] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  // Modals Toggles
+  const [isMatchingOpen, setIsMatchingOpen] = useState(false)
+  const [isRequestOpen, setIsRequestOpen] = useState(false)
 
   // Matching Form States
   const [noInvoiceInput, setNoInvoiceInput] = useState('')
@@ -93,6 +152,11 @@ export default function AccountPayablePage() {
         setPoList(matchJson.data.poList || [])
         setGrList(matchJson.data.grList || [])
       }
+
+      // Fetch pending requests for approval panel
+      const reqRes = await fetch('/api/finance/treasury')
+      const reqJson = await reqRes.json()
+      if (reqJson.data) setPermintaanList(reqJson.data)
     } catch (e) {
       console.error(e)
       showNotif('error', 'Gagal memuat data dari API. Beralih ke data mock.')
@@ -162,8 +226,8 @@ export default function AccountPayablePage() {
         setSelectedGrCode('')
         setSupplierIdInput(0)
         setJumlahInput(0)
+        setIsMatchingOpen(false)
         loadData()
-        setActiveTab('daftar')
       } else {
         showNotif('error', json.error || 'Gagal memverifikasi Three-Way Matching.')
       }
@@ -206,12 +270,41 @@ export default function AccountPayablePage() {
         setSelectedHutang(null)
         setJumlahBayarPengajuan(0)
         setKeteranganPengajuan('')
+        setIsRequestOpen(false)
         loadData()
       } else {
         showNotif('error', json.error || 'Gagal mengajukan permintaan pembayaran.')
       }
     } catch (e) {
       showNotif('error', 'Koneksi error saat mengirim pengajuan pembayaran.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Approve / Reject Request from Sidebar directly
+  const handleReviewAction = async (pmtId: number, status: 'DISETUJUI' | 'DITOLAK') => {
+    try {
+      setLoading(true)
+      const res = await fetch('/api/finance/treasury?mock_role=MANAGEMENT', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'approve',
+          permintaan_id: pmtId,
+          status,
+          alasan: status === 'DITOLAK' ? 'Ditolak via Dashboard AP' : ''
+        })
+      })
+      const json = await res.json()
+      if (res.ok) {
+        showNotif('success', `Permintaan pembayaran berhasil ${status.toLowerCase()}!`)
+        loadData()
+      } else {
+        showNotif('error', json.error || 'Gagal merespon permintaan.')
+      }
+    } catch (e) {
+      showNotif('error', 'Koneksi error saat merespon pengajuan.')
     } finally {
       setLoading(false)
     }
@@ -228,108 +321,186 @@ export default function AccountPayablePage() {
     h.supplier_name.toLowerCase().includes(searchSup.toLowerCase()) || h.no_invoice.includes(searchSup)
   )
 
+  const pendingReviews = permintaanList.filter(p => p.status === 'MENUNGGU_PERSETUJUAN')
+
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto px-2 pb-12 animate-[fadeIn_0.4s_ease-out]">
-      {/* Header */}
-      <div className="flex items-center justify-between border-2 border-black bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-xl">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-lg bg-orange-100 flex items-center justify-center border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-            <CreditCard className="w-6 h-6 text-orange-600" />
+    <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
+      
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-8 rounded-full bg-red-600" style={{ width: '4px', backgroundColor: '#dc2626' }} />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.25em]" style={{ color: '#dc2626' }}>
+                Finance Module
+              </p>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-800">
+                Accounts Payable Dashboard
+              </h1>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-black uppercase tracking-tight">Account Payable (Hutang)</h1>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">PT. Mayora Indah Tbk · Three-Way Matching & Pengajuan Pembayaran Pemasok</p>
-          </div>
+          <p className="text-sm ml-4 text-slate-500">
+            Manage verifications, payment requests, and approvals.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 self-start md:self-auto">
+          <Button
+            onClick={() => setIsRequestOpen(true)}
+            className="h-9 gap-2 text-xs font-semibold text-white rounded-2xl cursor-pointer bg-red-600 hover:bg-red-700 shadow-[0_2px_10px_rgba(220,38,38,0.2)]"
+          >
+            <Plus className="w-4 h-4" />
+            New Payment Request
+          </Button>
         </div>
       </div>
 
       {/* Notifications */}
       {notif && (
-        <div className={`p-4 rounded-lg border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-center gap-3 transition-all ${notif.type === 'success' ? 'bg-emerald-50 text-emerald-900 border-emerald-500' : 'bg-red-50 text-red-900 border-red-500'}`}>
+        <div className={`p-4 rounded-2xl border flex items-center gap-3 transition-all ${notif.type === 'success' ? 'bg-emerald-50 text-emerald-900 border-emerald-200' : 'bg-red-50 text-red-900 border-red-200'}`}>
           {notif.type === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
           <span className="text-sm font-semibold">{notif.message}</span>
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex border-b-2 border-black bg-slate-100 p-1.5 rounded-xl border-2 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] gap-2">
-        <button 
-          onClick={() => setActiveTab('daftar')}
-          className={`flex-1 py-3 text-sm font-bold uppercase rounded-lg border-2 border-transparent transition-all flex items-center justify-center gap-2 ${activeTab === 'daftar' ? 'bg-white border-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]' : 'text-slate-600 hover:bg-slate-50'}`}
-        >
-          <CreditCard className="w-4 h-4" /> Daftar Hutang
-        </button>
-        <button 
-          onClick={() => setActiveTab('matching')}
-          className={`flex-1 py-3 text-sm font-bold uppercase rounded-lg border-2 border-transparent transition-all flex items-center justify-center gap-2 ${activeTab === 'matching' ? 'bg-white border-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]' : 'text-slate-600 hover:bg-slate-50'}`}
-        >
-          <FileCheck2 className="w-4 h-4" /> Verifikasi Three-Way Matching
-        </button>
+      {/* Summary KPI Cards Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <GlassCard>
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                  <FileCheck2 className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Invoices to Verify (UC-AP-01)</span>
+              </div>
+              <p className="text-3xl font-bold tracking-tight text-slate-800 mt-2">
+                {pendingPO}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">
+              <ArrowUpRight className="w-3 h-3" />
+              +12%
+            </div>
+          </CardContent>
+        </GlassCard>
+
+        <GlassCard>
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <CheckSquare className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Requests for Review (UC-AP-04)</span>
+              </div>
+              <p className="text-3xl font-bold tracking-tight text-slate-800 mt-2">
+                {pendingReviews.length}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700">
+              <ArrowDownRight className="w-3 h-3" />
+              -5%
+            </div>
+          </CardContent>
+        </GlassCard>
+
+        <GlassCard className="relative">
+          {/* Sparkline gradient line background for Outstanding AP card */}
+          <div className="absolute left-0 bottom-0 right-0 h-10 opacity-30">
+            <svg viewBox="0 0 100 20" preserveAspectRatio="none" className="w-full h-full">
+              <path d="M0,15 Q20,2 40,16 T80,10 T100,5" fill="none" stroke="#EE4444" strokeWidth="2" />
+            </svg>
+          </div>
+          <CardContent className="p-6 flex items-center justify-between relative z-10">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                  <CreditCard className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Outstanding AP</span>
+              </div>
+              <p className="text-3xl font-bold tracking-tight text-slate-800 mt-2">
+                Rp {totalHutang.toLocaleString('id-ID')}
+              </p>
+            </div>
+          </CardContent>
+        </GlassCard>
       </div>
 
-      {activeTab === 'daftar' && (
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* List Table */}
-          <div className="xl:col-span-2 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-slate-200">
-              <h2 className="text-lg font-bold uppercase tracking-tight flex items-center gap-2">
-                <CreditCard className="w-5 h-5 text-orange-600" /> Histori Tagihan Hutang Usaha (AP)
-              </h2>
-              <Input 
-                placeholder="Cari Supplier / Invoice..." 
-                value={searchSup}
-                onChange={(e) => setSearchSup(e.target.value)}
-                className="h-8 border-2 border-black font-semibold text-xs max-w-[200px]"
-              />
+      {/* Main Grid Section */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        
+        {/* Left Columns: Invoice Verification Table and Action Card */}
+        <div className="xl:col-span-2 space-y-6">
+          
+          {/* Invoice Verification Table Card */}
+          <GlassCard>
+            <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-800">Invoice Verification (UC-AP-01)</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
+                  <Input 
+                    placeholder="Search Supplier / Inv..." 
+                    value={searchSup}
+                    onChange={(e) => setSearchSup(e.target.value)}
+                    className="pl-8 pr-4 h-8 text-xs font-medium w-[180px] bg-slate-50/50 border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-lg"
+                  />
+                </div>
+                <Button
+                  onClick={() => setIsMatchingOpen(true)}
+                  className="h-8 gap-1.5 text-xs font-bold text-white rounded-lg bg-red-600 hover:bg-red-700 cursor-pointer"
+                >
+                  <FileCheck2 className="w-3.5 h-3.5" /> Match PO/GR
+                </Button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
-              <Table className="border-2 border-black">
-                <TableHeader className="bg-slate-100 border-b-2 border-black">
-                  <TableRow>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-center w-32">No Invoice</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black">Nama Supplier</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-center w-28">Jatuh Tempo</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-right w-36">Total Tagihan</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-right w-36">Sisa Hutang</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-center w-28">Status</TableHead>
-                    <TableHead className="font-bold text-black text-center w-24">Aksi</TableHead>
+              <Table>
+                <TableHeader className="bg-slate-50/50">
+                  <TableRow className="border-b border-slate-100">
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-32">Invoice #</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Supplier</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center">Date</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right">Amount</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-24">Action</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
-                  {!filteredHutang || filteredHutang.length === 0 ? (
+                <TableBody className="text-xs text-slate-700">
+                  {filteredHutang.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 font-bold text-slate-400">
-                        Tidak ada kewajiban hutang terdaftar.
+                      <TableCell colSpan={5} className="text-center py-12 font-semibold text-slate-400">
+                        Tidak ada tagihan hutang terdaftar.
                       </TableCell>
                     </TableRow>
                   ) : (
                     filteredHutang.map((h) => (
-                      <TableRow key={h.id_hutang} className="border-b border-slate-200 hover:bg-slate-50/50">
-                        <TableCell className="font-mono font-bold border-r-2 border-black text-center text-xs">{h.no_invoice}</TableCell>
-                        <TableCell className="font-bold text-black text-xs border-r-2 border-black">{h.supplier_name}</TableCell>
-                        <TableCell className="border-r-2 border-black text-center text-xs font-semibold">
-                          {new Date(h.due_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: '2-digit' })}
+                      <TableRow key={h.id_hutang} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
+                        <TableCell className="font-mono font-bold text-slate-800 px-6 py-4">{h.no_invoice}</TableCell>
+                        <TableCell className="font-bold text-slate-800 px-6 py-4">{h.supplier_name}</TableCell>
+                        <TableCell className="text-center font-medium text-slate-500 px-6 py-4">
+                          {new Date(h.due_date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </TableCell>
-                        <TableCell className="border-r-2 border-black text-right font-mono text-xs font-semibold">Rp {h.jumlah.toLocaleString()}</TableCell>
-                        <TableCell className="border-r-2 border-black text-right font-mono text-xs font-bold text-slate-700">Rp {h.sisa_pembayaran.toLocaleString()}</TableCell>
-                        <TableCell className="border-r-2 border-black text-center">
-                          <span className={`text-[10px] px-2 py-0.5 rounded font-extrabold border uppercase ${h.status === 'LUNAS' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : h.status === 'OVERDUE' ? 'bg-red-50 text-red-700 border-red-200 animate-pulse' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                            {h.status.replace('_', ' ')}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center py-2.5">
-                          {h.status !== 'LUNAS' && (
-                            <Button 
-                              type="button" 
+                        <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp {h.jumlah.toLocaleString()}</TableCell>
+                        <TableCell className="text-center px-6 py-4">
+                          {h.status !== 'LUNAS' ? (
+                            <button
                               onClick={() => {
-                                setSelectedHutang(h)
-                                setJumlahBayarPengajuan(h.sisa_pembayaran)
+                                setSelectedHutang(h);
+                                setJumlahBayarPengajuan(h.sisa_pembayaran);
+                                setIsRequestOpen(true);
                               }}
-                              className="h-7 px-3 border border-black bg-orange-500 hover:bg-orange-600 text-white font-bold text-[10px] rounded shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
+                              className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold transition-colors cursor-pointer text-[10px]"
                             >
-                              Ajukan Bayar
-                            </Button>
+                              Verify
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md">Verified</span>
                           )}
                         </TableCell>
                       </TableRow>
@@ -338,115 +509,172 @@ export default function AccountPayablePage() {
                 </TableBody>
               </Table>
             </div>
+          </GlassCard>
+
+          {/* Initiate Payment Request Dashed Card */}
+          <div className="border border-dashed border-slate-300 rounded-3xl p-8 flex flex-col items-center justify-center text-center bg-white/40 space-y-4">
+            <div className="w-12 h-12 rounded-full bg-red-50 text-[#800000] flex items-center justify-center">
+              <Send className="w-5 h-5" />
+            </div>
+            <div className="space-y-1.5 max-w-[480px]">
+              <h4 className="text-base font-bold text-slate-800">Initiate Payment Request</h4>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Compile verified invoices and submit a new payment request (UC-AP-03) for managerial review and treasury processing.
+              </p>
+            </div>
+            <Button
+              onClick={() => {
+                if (filteredHutang.filter(h => h.status !== 'LUNAS').length > 0) {
+                  setSelectedHutang(filteredHutang.filter(h => h.status !== 'LUNAS')[0]);
+                  setJumlahBayarPengajuan(filteredHutang.filter(h => h.status !== 'LUNAS')[0].sisa_pembayaran);
+                }
+                setIsRequestOpen(true);
+              }}
+              className="px-5 py-2.5 rounded-2xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 shadow-[0_2px_10px_rgba(220,38,38,0.2)] cursor-pointer"
+            >
+              Create Request
+            </Button>
           </div>
 
-          {/* Form Pengajuan Pembayaran (Permintaan Pembayaran) */}
-          <div className="xl:col-span-1 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-6">
-            <h2 className="text-lg font-bold border-b-2 border-black pb-3 uppercase tracking-tight flex items-center gap-2">
-              <CheckSquare className="w-5 h-5 text-orange-600" /> Form Pengajuan Pembayaran AP
-            </h2>
-
-            {selectedHutang ? (
-              <form onSubmit={handleRequestSubmit} className="space-y-4">
-                <div className="bg-orange-50 p-4 border border-orange-200 rounded-lg space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="font-bold text-slate-500">TAGIHAN INVOICE:</span>
-                    <span className="font-mono font-bold text-slate-800">{selectedHutang.no_invoice}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="font-bold text-slate-500">SUPPLIER:</span>
-                    <span className="font-bold text-slate-800">{selectedHutang.supplier_name}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="font-bold text-slate-500">SISA HUTANG:</span>
-                    <span className="font-mono font-black text-slate-900">Rp {selectedHutang.sisa_pembayaran.toLocaleString()}</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Metode Pembayaran</label>
-                  <select
-                    value={metodeBayar}
-                    onChange={(e) => setMetodeBayar(e.target.value as 'TRANSFER' | 'KAS_KECIL' | 'GIRO')}
-                    className="w-full text-xs font-bold p-2.5 border-2 border-black rounded-lg mt-1 focus:outline-none"
-                    required
-                  >
-                    <option value="TRANSFER">TRANSFER BANK (OPERASIONAL)</option>
-                    <option value="KAS_KECIL">KAS KECIL (PETTY CASH)</option>
-                    <option value="GIRO">GIRO / CEK</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Jumlah Pembayaran Diajukan (IDR)</label>
-                  <Input 
-                    type="number" 
-                    value={jumlahBayarPengajuan || ''}
-                    onChange={(e) => setJumlahBayarPengajuan(Number(e.target.value))}
-                    max={selectedHutang.sisa_pembayaran}
-                    className="border-2 border-black font-bold mt-1" 
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Alasan & Keterangan Pengajuan</label>
-                  <textarea 
-                    value={keteranganPengajuan}
-                    onChange={(e) => setKeteranganPengajuan(e.target.value)}
-                    className="w-full min-h-[70px] p-2.5 text-xs font-semibold border-2 border-black rounded-lg mt-1 focus:outline-none" 
-                    placeholder="Contoh: Pelunasan tagihan bahan baku bogasari tahap 1"
-                    required
-                  />
-                </div>
-
-                <div className="flex gap-2 pt-1">
-                  <Button type="button" onClick={() => setSelectedHutang(null)} className="flex-1 border-2 border-black bg-white hover:bg-slate-50 text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold py-2 text-xs">
-                    Batal
-                  </Button>
-                  <Button type="submit" disabled={loading} className="flex-1 border-2 border-black bg-orange-500 hover:bg-orange-600 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold py-2 text-xs">
-                    {loading ? 'Memproses...' : 'Kirim Pengajuan'}
-                  </Button>
-                </div>
-              </form>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-center bg-slate-50 border border-dashed border-slate-200 rounded-lg space-y-3">
-                <HelpCircle className="w-12 h-12 text-slate-300" />
-                <p className="text-sm font-semibold text-slate-500 max-w-[200px]">
-                  Pilih salah satu kewajiban hutang usaha untuk diajukan pembayarannya ke Management.
-                </p>
-              </div>
-            )}
-          </div>
         </div>
-      )}
 
-      {activeTab === 'matching' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Matching Validator Form */}
-          <div className="lg:col-span-1 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-6">
-            <h2 className="text-lg font-bold border-b-2 border-black pb-3 uppercase tracking-tight flex items-center gap-2">
-              <FileCheck2 className="w-5 h-5 text-orange-600" /> Matching Validator
-            </h2>
+        {/* Right Side: Payment Review (UC-AP-04) Sidebar */}
+        <div className="xl:col-span-1">
+          <GlassCard className="h-full flex flex-col">
+            <div className="px-6 py-5 border-b border-slate-100">
+              <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                <CheckSquare className="w-5 h-5 text-red-600" /> Payment Review (UC-AP-04)
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">Pending your approval</p>
+            </div>
 
-            <form onSubmit={handleMatchingSubmit} className="space-y-4">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {pendingReviews.length === 0 ? (
+                // Fallback Mock data from screenshot if no active pending requests exist in API
+                <>
+                  <div className="border border-red-100 bg-red-50/20 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-start">
+                        <span className="font-mono text-[10px] font-bold text-slate-400">PRQ-2023-110</span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
+                      </div>
+                      <p className="text-xs font-semibold text-slate-700">Batched IT hardware purchases</p>
+                    </div>
+                    <div className="flex justify-between items-end mt-4">
+                      <p className="text-base font-bold text-slate-800">Rp 675.000.000</p>
+                      <div className="flex gap-1">
+                        <button className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer">
+                          <X className="w-4 h-4" />
+                        </button>
+                        <button className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm">
+                          <Check className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border border-red-100 bg-red-50/20 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-start">
+                        <span className="font-mono text-[10px] font-bold text-slate-400">PRQ-2023-112</span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
+                      </div>
+                      <p className="text-xs font-semibold text-slate-700">Q3 Office Lease Payment</p>
+                    </div>
+                    <div className="flex justify-between items-end mt-4">
+                      <p className="text-base font-bold text-slate-800">Rp 1.807.500.000</p>
+                      <div className="flex gap-1">
+                        <button className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer">
+                          <X className="w-4 h-4" />
+                        </button>
+                        <button className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm">
+                          <Check className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                pendingReviews.map((pmt) => (
+                  <div key={pmt.id_permintaan} className="border border-slate-100 bg-slate-50/30 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-start">
+                        <span className="font-mono text-[10px] font-bold text-slate-400">{pmt.no_permintaan}</span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
+                      </div>
+                      <p className="text-xs font-semibold text-slate-700">{pmt.keterangan}</p>
+                      <p className="text-[10px] text-slate-400">Invoice: {pmt.tr_hutang?.no_invoice} ({pmt.tr_hutang?.supplier_name})</p>
+                    </div>
+                    <div className="flex justify-between items-end mt-4">
+                      <p className="text-base font-bold text-slate-800">Rp {pmt.jumlah_bayar.toLocaleString()}</p>
+                      <div className="flex gap-1.5">
+                        <button 
+                          onClick={() => handleReviewAction(pmt.id_permintaan, 'DITOLAK')}
+                          className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleReviewAction(pmt.id_permintaan, 'DISETUJUI')}
+                          className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 text-center bg-slate-50/50">
+              <Link href="/finance/treasury" className="text-xs font-semibold text-red-600 hover:underline">
+                View all pending requests
+              </Link>
+            </div>
+          </GlassCard>
+        </div>
+
+      </div>
+
+      {/* =====================================================================
+          OVERLAY MODALS
+          ===================================================================== */}
+
+      {/* 1. THREE-WAY MATCHING MODAL */}
+      {isMatchingOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-xl overflow-hidden animate-[fadeIn_0.3s_ease-out]">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <FileCheck2 className="w-5 h-5 text-red-600" /> Three-Way Matching Validator
+              </h3>
+              <button 
+                onClick={() => setIsMatchingOpen(false)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleMatchingSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Nomor Invoice Baru</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Nomor Invoice Baru</label>
                 <Input 
-                  placeholder="Contoh: PINV-202606-9901" 
+                  placeholder="PINV-202606-9901" 
                   value={noInvoiceInput}
                   onChange={(e) => setNoInvoiceInput(e.target.value)}
-                  className="border-2 border-black font-semibold mt-1" 
+                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1" 
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Pilih Purchase Order (PO)</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pilih Purchase Order (PO)</label>
                 <select
                   value={selectedPoNo}
                   onChange={(e) => handlePoChange(e.target.value)}
-                  className="w-full text-xs font-bold p-2.5 border-2 border-black rounded-lg mt-1 focus:outline-none"
+                  className="w-full text-xs font-bold p-2.5 border border-slate-200 rounded-xl mt-1 focus:outline-none focus:border-slate-300 bg-white"
                   required
                 >
                   <option value="">-- PILIH NOMOR PO --</option>
@@ -457,11 +685,11 @@ export default function AccountPayablePage() {
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Pilih Goods Receipt (GR)</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pilih Goods Receipt (GR)</label>
                 <select
                   value={selectedGrCode}
                   onChange={(e) => setSelectedGrCode(e.target.value)}
-                  className="w-full text-xs font-bold p-2.5 border-2 border-black rounded-lg mt-1 focus:outline-none"
+                  className="w-full text-xs font-bold p-2.5 border border-slate-200 rounded-xl mt-1 focus:outline-none focus:border-slate-300 bg-white"
                   required
                 >
                   <option value="">-- PILIH KODE GR --</option>
@@ -471,101 +699,186 @@ export default function AccountPayablePage() {
                 </select>
               </div>
 
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">ID Supplier</label>
-                <Input 
-                  type="number"
-                  value={supplierIdInput || ''}
-                  onChange={(e) => setSupplierIdInput(Number(e.target.value))}
-                  className="border-2 border-black font-semibold mt-1 bg-slate-50" 
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Jumlah Tagihan (IDR)</label>
-                <Input 
-                  type="number" 
-                  value={jumlahInput || ''}
-                  onChange={(e) => setJumlahInput(Number(e.target.value))}
-                  className="border-2 border-black font-bold mt-1" 
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Tgl Invoice</label>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">ID Supplier</label>
+                  <Input 
+                    type="number"
+                    value={supplierIdInput || ''}
+                    onChange={(e) => setSupplierIdInput(Number(e.target.value))}
+                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 bg-slate-50" 
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jumlah Tagihan (IDR)</label>
+                  <Input 
+                    type="number" 
+                    value={jumlahInput || ''}
+                    onChange={(e) => setJumlahInput(Number(e.target.value))}
+                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 font-bold" 
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tanggal Invoice</label>
                   <Input 
                     type="date" 
                     value={tanggalInvoiceInput}
                     onChange={(e) => setTanggalInvoiceInput(e.target.value)}
-                    className="border-2 border-black text-xs font-semibold mt-1" 
+                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl text-xs font-medium mt-1" 
                     required
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Jatuh Tempo</label>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jatuh Tempo</label>
                   <Input 
                     type="date" 
                     value={dueDateInput}
                     onChange={(e) => setDueDateInput(e.target.value)}
-                    className="border-2 border-black text-xs font-semibold mt-1" 
+                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl text-xs font-medium mt-1" 
                     required
                   />
                 </div>
               </div>
 
-              <Button type="submit" disabled={loading} className="w-full border-2 border-black bg-orange-500 hover:bg-orange-600 text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold py-3 uppercase tracking-wider text-xs">
-                {loading ? 'Memverifikasi...' : 'Verifikasi & Simpan Hutang'}
-              </Button>
+              <div className="flex gap-2 pt-4">
+                <Button 
+                  type="button" 
+                  onClick={() => setIsMatchingOpen(false)}
+                  variant="ghost"
+                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
+                >
+                  Batal
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={loading} 
+                  className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer"
+                >
+                  {loading ? 'Memverifikasi...' : 'Simpan Hutang'}
+                </Button>
+              </div>
             </form>
-          </div>
-
-          {/* PO/GR Matching Reference Logs */}
-          <div className="lg:col-span-2 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-4">
-            <h2 className="text-lg font-bold border-b-2 border-black pb-3 uppercase tracking-tight flex items-center gap-2">
-              <FileCheck2 className="w-5 h-5 text-orange-600" /> Referensi Data PO & GR Aktif (Modul Purchasing & Gudang)
-            </h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* PO List */}
-              <div className="border border-slate-200 rounded-lg p-4 space-y-3">
-                <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest border-b pb-2">Purchase Orders (PO) Aktif</h3>
-                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                  {poList.map((po) => (
-                    <div key={po.id_po} className="p-3 bg-slate-50 rounded-lg border border-slate-100 space-y-1 text-xs">
-                      <div className="flex justify-between font-bold">
-                        <span className="font-mono text-slate-800">{po.no_po}</span>
-                        <span className="text-orange-600 font-mono">Rp {po.total_harga.toLocaleString()}</span>
-                      </div>
-                      <p className="font-semibold text-slate-700">Supplier: {po.supplier_name} (ID: {po.supplier_id})</p>
-                      <p className="text-slate-500">Item: {po.product_name} · Qty: {po.qty}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* GR List */}
-              <div className="border border-slate-200 rounded-lg p-4 space-y-3">
-                <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest border-b pb-2">Goods Receipts (GR) Aktif</h3>
-                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                  {grList.map((gr) => (
-                    <div key={gr.receipt_id} className="p-3 bg-slate-50 rounded-lg border border-slate-100 space-y-1 text-xs">
-                      <div className="flex justify-between font-bold">
-                        <span className="font-mono text-slate-800">{gr.gr_code}</span>
-                        <span className="text-emerald-600">Qty: {gr.quantity}</span>
-                      </div>
-                      <p className="font-semibold text-slate-700">Supplier: {gr.supplier_name} (ID: {gr.supplier_id})</p>
-                      <p className="text-slate-500">Item: {gr.product_name} · Status: {gr.status}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       )}
+
+      {/* 2. PAYMENT REQUEST MODAL */}
+      {isRequestOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-xl overflow-hidden animate-[fadeIn_0.3s_ease-out]">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <CheckSquare className="w-5 h-5 text-red-600" /> Form Pengajuan Pembayaran
+              </h3>
+              <button 
+                onClick={() => setIsRequestOpen(false)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRequestSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pilih Kewajiban Invoice (AP)</label>
+                <select
+                  value={selectedHutang?.id_hutang || 0}
+                  onChange={(e) => {
+                    const h = hutangList.find(x => x.id_hutang === Number(e.target.value))
+                    if (h) {
+                      setSelectedHutang(h);
+                      setJumlahBayarPengajuan(h.sisa_pembayaran);
+                    }
+                  }}
+                  className="w-full text-xs font-bold p-2.5 border border-slate-200 rounded-xl mt-1 focus:outline-none focus:border-slate-300 bg-white"
+                  required
+                >
+                  <option value={0}>-- PILIH FAKTUR TERVERIFIKASI --</option>
+                  {hutangList.filter(h => h.status !== 'LUNAS').map((h) => (
+                    <option key={h.id_hutang} value={h.id_hutang}>{h.no_invoice} - {h.supplier_name} (Sisa: Rp {h.sisa_pembayaran.toLocaleString()})</option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedHutang && (
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-slate-400">Supplier:</span>
+                    <span className="font-bold text-slate-800">{selectedHutang.supplier_name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-slate-400">Sisa Hutang:</span>
+                    <span className="font-mono font-bold text-red-600">Rp {selectedHutang.sisa_pembayaran.toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Metode Pembayaran</label>
+                  <select
+                    value={metodeBayar}
+                    onChange={(e) => setMetodeBayar(e.target.value as 'TRANSFER' | 'KAS_KECIL' | 'GIRO')}
+                    className="w-full text-xs font-bold p-2.5 border border-slate-200 rounded-xl mt-1 focus:outline-none focus:border-slate-300 bg-white"
+                    required
+                  >
+                    <option value="TRANSFER">Transfer Bank</option>
+                    <option value="KAS_KECIL">Kas Kecil</option>
+                    <option value="GIRO">Giro / Cek</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Diajukan (IDR)</label>
+                  <Input 
+                    type="number" 
+                    value={jumlahBayarPengajuan || ''}
+                    onChange={(e) => setJumlahBayarPengajuan(Number(e.target.value))}
+                    max={selectedHutang?.sisa_pembayaran || 0}
+                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 font-bold" 
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Keterangan / Alasan Diajukan</label>
+                <textarea 
+                  value={keteranganPengajuan}
+                  onChange={(e) => setKeteranganPengajuan(e.target.value)}
+                  className="w-full min-h-[80px] p-3 text-xs font-medium border border-slate-200 rounded-xl focus:outline-none focus:border-slate-300 mt-1" 
+                  placeholder="Contoh: Pelunasan sisa pembelian bahan kemasan Cikande"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-4">
+                <Button 
+                  type="button" 
+                  onClick={() => setIsRequestOpen(false)}
+                  variant="ghost"
+                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
+                >
+                  Batal
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={loading || !selectedHutang} 
+                  className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer"
+                >
+                  {loading ? 'Mengirim...' : 'Kirim Pengajuan'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

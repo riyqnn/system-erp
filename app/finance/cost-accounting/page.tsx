@@ -11,9 +11,17 @@ import {
   CheckCircle, 
   AlertCircle,
   HelpCircle,
-  BarChart4
+  BarChart4,
+  X,
+  Sliders,
+  Settings,
+  ChevronRight,
+  TrendingDown,
+  RefreshCw,
+  SlidersHorizontal,
+  Download
 } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
+import { CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -52,13 +60,49 @@ interface LaporanPersediaan {
   status: 'SUBMITTED' | 'APPROVED';
 }
 
+function GlassCard({
+  children,
+  className = "",
+  hover = false,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  hover?: boolean;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}) {
+  return (
+    <div
+      className={`
+        bg-white/95 backdrop-blur-md
+        border border-slate-100
+        shadow-[0_4px_20px_rgba(0,0,0,0.02),0_1px_2px_rgba(0,0,0,0.01)]
+        rounded-3xl overflow-hidden
+        ${hover ? "hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-0.5" : ""}
+        transition-all duration-300 ease-out
+        ${className}
+      `}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function CostAccountingPage() {
-  const [activeTab, setActiveTab] = useState<'biaya' | 'hpp' | 'laporan'>('biaya')
   const [biayaList, setBiayaList] = useState<BiayaProduksi[]>([])
   const [hppList, setHppList] = useState<HppCalculation[]>([])
   const [laporanList, setLaporanList] = useState<LaporanPersediaan[]>([])
   const [loading, setLoading] = useState(false)
   const [notif, setNotif] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  // Modal open states
+  const [isCostOpen, setIsCostOpen] = useState(false)
+  const [isHppOpen, setIsHppOpen] = useState(false)
+  const [isValuationOpen, setIsValuationOpen] = useState(false)
 
   // Mock Products list for calculator dropdown
   const productsMock = [
@@ -88,7 +132,7 @@ export default function CostAccountingPage() {
   const totalQty = Number(openingQty) + Number(incomingQty)
   const totalValue = Number(openingValue) + Number(incomingValue)
   const calculatedHpp = totalQty > 0 ? totalValue / totalQty : 0
-  const closingValue = closingQty * calculatedHpp
+  const calculatedClosingValue = closingQty * calculatedHpp
 
   // Form Laporan Persediaan States
   const [periodeLaporan, setPeriodeLaporan] = useState('2026-06')
@@ -159,6 +203,7 @@ export default function CostAccountingPage() {
         setNamaBiaya('')
         setJumlahBiaya(0)
         setKeteranganBiaya('')
+        setIsCostOpen(false)
         loadData()
       } else {
         showNotif('error', json.error || 'Gagal menyimpan dokumen biaya.')
@@ -192,7 +237,7 @@ export default function CostAccountingPage() {
           incoming_qty: incomingQty,
           incoming_value: incomingValue,
           closing_qty: closingQty,
-          closing_value: closingValue
+          closing_value: calculatedClosingValue
         })
       })
       const json = await res.json()
@@ -204,6 +249,7 @@ export default function CostAccountingPage() {
         setIncomingQty(0)
         setIncomingValue(0)
         setClosingQty(0)
+        setIsHppOpen(false)
         loadData()
       } else {
         showNotif('error', json.error || 'Gagal menyimpan kalkulasi HPP.')
@@ -240,6 +286,7 @@ export default function CostAccountingPage() {
         showNotif('success', `Laporan penilaian persediaan periode ${periodeLaporan} senilai Rp ${totalNilaiLaporan.toLocaleString()} berhasil dikirim ke finance.`)
         setTotalStokLaporan(0)
         setTotalNilaiLaporan(0)
+        setIsValuationOpen(false)
         loadData()
       } else {
         showNotif('error', json.error || 'Gagal mengirim laporan persediaan.')
@@ -261,202 +308,480 @@ export default function CostAccountingPage() {
   const averageHppBiskuit = hppList.reduce((sum, h) => sum + h.hpp_per_unit, 0) / (hppList.length || 1)
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto px-2 pb-12 animate-[fadeIn_0.4s_ease-out]">
-      {/* Header */}
-      <div className="flex items-center justify-between border-2 border-black bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-xl">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-            <Calculator className="w-6 h-6 text-red-600" />
+    <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
+      
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-8 rounded-full bg-red-600" style={{ width: '4px', backgroundColor: '#dc2626' }} />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.25em]" style={{ color: '#dc2626' }}>
+                Finance Module
+              </p>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-800">
+                Cost Accounting & Valuation
+              </h1>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-black uppercase tracking-tight">Cost Accounting</h1>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">PT. Mayora Indah Tbk · Penentuan Harga Pokok Penjualan (HPP) & Valuasi Persediaan</p>
-          </div>
+          <p className="text-sm ml-4 text-slate-500">
+            Period: Q3 2026 Ending
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 self-start md:self-auto">
+          <Button
+            onClick={() => setIsCostOpen(true)}
+            variant="ghost"
+            className="h-9 gap-2 text-xs font-semibold text-slate-600 border border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-50"
+          >
+            <Download className="w-4 h-4 text-slate-400" />
+            Export Report
+          </Button>
         </div>
       </div>
 
       {/* Notifications */}
       {notif && (
-        <div className={`p-4 rounded-lg border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-center gap-3 transition-all ${notif.type === 'success' ? 'bg-emerald-50 text-emerald-900 border-emerald-500' : 'bg-red-50 text-red-900 border-red-500'}`}>
+        <div className={`p-4 rounded-2xl border flex items-center gap-3 transition-all ${notif.type === 'success' ? 'bg-emerald-50 text-emerald-900 border-emerald-200' : 'bg-red-50 text-red-900 border-red-200'}`}>
           {notif.type === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
           <span className="text-sm font-semibold">{notif.message}</span>
         </div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Biaya Produksi Diajukan</p>
-            <p className="text-2xl font-black text-black font-mono">{formatRupiah(totalBiayaProduksiBulanIni)}</p>
-          </div>
-          <div className="p-3 rounded-lg bg-red-50 border border-red-100"><TrendingUp className="w-5 h-5 text-red-600" /></div>
-        </div>
+      {/* Summary KPI Cards Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+        <GlassCard>
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                  <Coins className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Total Inventory Value</span>
+              </div>
+              <p className="text-2xl font-bold tracking-tight text-slate-800 mt-2">
+                Rp 4,250,890
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">
+              <ArrowUpRight className="w-3 h-3" />
+              +2.4%
+            </div>
+          </CardContent>
+        </GlassCard>
 
-        <div className="border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Rata-Rata HPP Produk Jadi</p>
-            <p className="text-2xl font-black text-blue-700 font-mono">{formatRupiah(averageHppBiskuit)}</p>
-          </div>
-          <div className="p-3 rounded-lg bg-blue-50 border border-blue-100"><Calculator className="w-5 h-5 text-blue-600" /></div>
-        </div>
+        <GlassCard>
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                  <Calculator className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Cost of Goods Sold (HPP)</span>
+              </div>
+              <p className="text-2xl font-bold tracking-tight text-slate-800 mt-2">
+                {formatRupiah(averageHppBiskuit)}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700">
+              <ArrowUpRight className="w-3 h-3" />
+              +5.1%
+            </div>
+          </CardContent>
+        </GlassCard>
 
-        <div className="border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Laporan Valuasi Masuk</p>
-            <p className="text-2xl font-black text-emerald-700 font-mono">{laporanList.length} Laporan</p>
+        <GlassCard>
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                  <TrendingUp className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Overhead Variance</span>
+              </div>
+              <p className="text-2xl font-bold tracking-tight text-slate-800 mt-2">
+                -{formatRupiah(totalBiayaProduksiBulanIni)}
+              </p>
+            </div>
+            <div className="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-slate-100 text-slate-500">
+              Under-absorbed
+            </div>
+          </CardContent>
+        </GlassCard>
+
+        <GlassCard className="relative">
+          {/* Sparkline gradient line background for Turnover Ratio card */}
+          <div className="absolute left-0 bottom-0 right-0 h-10 opacity-30">
+            <svg viewBox="0 0 100 20" preserveAspectRatio="none" className="w-full h-full">
+              <path d="M0,15 Q20,2 40,16 T80,10 T100,5" fill="none" stroke="#EE4444" strokeWidth="2" />
+            </svg>
           </div>
-          <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100"><FileText className="w-5 h-5 text-emerald-600" /></div>
-        </div>
+          <CardContent className="p-6 flex items-center justify-between relative z-10">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                  <RefreshCw className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Inventory Turnover Ratio</span>
+              </div>
+              <p className="text-2xl font-bold tracking-tight text-slate-800 mt-2">
+                4.8x
+              </p>
+            </div>
+            <div className="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-50 text-emerald-700">
+              Optimal
+            </div>
+          </CardContent>
+        </GlassCard>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b-2 border-black bg-slate-100 p-1.5 rounded-xl border-2 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] gap-2">
-        <button 
-          onClick={() => setActiveTab('biaya')}
-          className={`flex-1 py-3 text-sm font-bold uppercase rounded-lg border-2 border-transparent transition-all flex items-center justify-center gap-2 ${activeTab === 'biaya' ? 'bg-white border-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]' : 'text-slate-600 hover:bg-slate-50'}`}
-        >
-          <TrendingUp className="w-4 h-4" /> Dokumen Biaya Produksi
-        </button>
-        <button 
-          onClick={() => setActiveTab('hpp')}
-          className={`flex-1 py-3 text-sm font-bold uppercase rounded-lg border-2 border-transparent transition-all flex items-center justify-center gap-2 ${activeTab === 'hpp' ? 'bg-white border-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]' : 'text-slate-600 hover:bg-slate-50'}`}
-        >
-          <Calculator className="w-4 h-4" /> Kalkulator HPP
-        </button>
-        <button 
-          onClick={() => setActiveTab('laporan')}
-          className={`flex-1 py-3 text-sm font-bold uppercase rounded-lg border-2 border-transparent transition-all flex items-center justify-center gap-2 ${activeTab === 'laporan' ? 'bg-white border-black text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]' : 'text-slate-600 hover:bg-slate-50'}`}
-        >
-          <FileText className="w-4 h-4" /> Laporan Penilaian Persediaan
-        </button>
-      </div>
+      {/* Main Layout Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        
+        {/* Left Columns (2/3 width) */}
+        <div className="xl:col-span-2 space-y-6">
+          
+          {/* Card 1: HPP & Overhead Allocation */}
+          <GlassCard>
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-slate-800">HPP & Overhead Allocation</h3>
+              <button 
+                onClick={() => setIsCostOpen(true)}
+                className="text-xs font-semibold text-red-600 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                + Submit Cost <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              
+              {/* Cost Allocation Segment Progress Bar */}
+              <div className="space-y-4">
+                <div className="h-6 bg-slate-100 rounded-full overflow-hidden flex">
+                  <div className="h-full bg-[#800000] flex items-center justify-center text-[10px] font-bold text-white" style={{ width: '55%' }}>55%</div>
+                  <div className="h-full bg-[#E57373] flex items-center justify-center text-[10px] font-bold text-white" style={{ width: '25%' }}>25%</div>
+                  <div className="h-full bg-[#FFCDD2] flex items-center justify-center text-[10px] font-bold text-slate-700" style={{ width: '20%' }}>20%</div>
+                </div>
 
-      {/* Tab Contents */}
-      {activeTab === 'biaya' && (
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Submit Cost Form (Production) */}
-          <div className="xl:col-span-1 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-6">
-            <h2 className="text-lg font-bold border-b-2 border-black pb-3 uppercase tracking-tight flex items-center gap-2">
-              <Plus className="w-5 h-5 text-red-600" /> Kirim Dokumen Biaya Produksi
-            </h2>
+                <div className="flex flex-wrap items-center justify-between text-xs gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#800000]" />
+                    <span className="text-slate-500 font-medium">Direct Materials (55%):</span>
+                    <span className="font-bold text-slate-800">Rp 1,012,110</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#E57373]" />
+                    <span className="text-slate-500 font-medium">Direct Labor (25%):</span>
+                    <span className="font-bold text-slate-800">Rp 460,050</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#FFCDD2]" />
+                    <span className="text-slate-500 font-medium">Mfg Overhead (20%):</span>
+                    <span className="font-bold text-slate-800">Rp 368,040</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cost Pools Table */}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader className="bg-slate-50/50">
+                    <TableRow className="border-b border-slate-100">
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Cost Pool</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Allocation Base</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right">Applied Rate</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right">Total Applied</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="text-xs text-slate-700">
+                    <TableRow className="border-b border-slate-100">
+                      <TableCell className="font-bold text-slate-800 px-6 py-4">Machine Setup</TableCell>
+                      <TableCell className="font-medium text-slate-500 px-6 py-4">Machine Hours</TableCell>
+                      <TableCell className="text-right font-semibold text-slate-800 px-6 py-4">Rp 45,000 / hr</TableCell>
+                      <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp 120,500</TableCell>
+                    </TableRow>
+                    <TableRow className="border-b border-slate-100">
+                      <TableCell className="font-bold text-slate-800 px-6 py-4">Quality Control</TableCell>
+                      <TableCell className="font-medium text-slate-500 px-6 py-4">Inspection Count</TableCell>
+                      <TableCell className="text-right font-semibold text-slate-800 px-6 py-4">Rp 12,500 / unit</TableCell>
+                      <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp 85,240</TableCell>
+                    </TableRow>
+                    <TableRow className="border-b border-slate-100">
+                      <TableCell className="font-bold text-slate-800 px-6 py-4">Facility Maintenance</TableCell>
+                      <TableCell className="font-medium text-slate-500 px-6 py-4">Square Footage</TableCell>
+                      <TableCell className="text-right font-semibold text-slate-800 px-6 py-4">Rp 5,000 / sqft</TableCell>
+                      <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp 162,300</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+
+            </div>
+          </GlassCard>
+
+          {/* Card 2: Inventory Valuation Report */}
+          <GlassCard>
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <h3 className="text-base font-semibold text-slate-800">Inventory Valuation Report</h3>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded">Method: FIFO</span>
+                <button 
+                  onClick={() => setIsHppOpen(true)}
+                  className="text-xs font-semibold text-red-600 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  + Calculate HPP <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader className="bg-slate-50/50">
+                  <TableRow className="border-b border-slate-100">
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Category</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right">Units on Hand</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right">Avg Unit Cost</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right">Total Value</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="text-xs text-slate-700">
+                  <TableRow className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
+                    <TableCell className="font-bold text-slate-800 px-6 py-4 flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#800000]" />
+                      Raw Materials
+                    </TableCell>
+                    <TableCell className="text-right font-medium text-slate-500 px-6 py-4">145,000</TableCell>
+                    <TableCell className="text-right font-medium text-slate-500 px-6 py-4">Rp 12,400</TableCell>
+                    <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp 1,798,000</TableCell>
+                  </TableRow>
+                  <TableRow className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
+                    <TableCell className="font-bold text-slate-800 px-6 py-4 flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#E57373]" />
+                      Work in Progress
+                    </TableCell>
+                    <TableCell className="text-right font-medium text-slate-500 px-6 py-4">22,500</TableCell>
+                    <TableCell className="text-right font-medium text-slate-500 px-6 py-4">Rp 35,800</TableCell>
+                    <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp 805,500</TableCell>
+                  </TableRow>
+                  <TableRow className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
+                    <TableCell className="font-bold text-slate-800 px-6 py-4 flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#FFCDD2]" />
+                      Finished Goods
+                    </TableCell>
+                    <TableCell className="text-right font-medium text-slate-500 px-6 py-4">18,200</TableCell>
+                    <TableCell className="text-right font-medium text-slate-500 px-6 py-4">Rp 90,510</TableCell>
+                    <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp 1,647,390</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </GlassCard>
+
+        </div>
+
+        {/* Right Column (1/3 width) */}
+        <div className="xl:col-span-1 space-y-6">
+          
+          {/* Card 1: Inventory Reconciliation */}
+          <GlassCard>
+            <div className="px-6 py-5 border-b border-slate-100">
+              <h3 className="text-base font-semibold text-slate-800">Inventory Reconciliation</h3>
+              <p className="text-xs text-slate-400 mt-1">Compare ledger vs physical count</p>
+            </div>
             
-            <form onSubmit={handleBiayaSubmit} className="space-y-4">
+            <div className="p-6 space-y-5">
+              
+              {/* Discrepancy Detected Box */}
+              <div className="border border-red-200 bg-red-50/20 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-red-700 font-bold text-xs">
+                  <AlertCircle className="w-4.5 h-4.5" />
+                  Discrepancy Detected
+                </div>
+                <div className="grid grid-cols-2 gap-y-2 text-xs">
+                  <span className="text-slate-400 font-semibold">System Value:</span>
+                  <span className="text-slate-800 font-bold text-right">Rp 4,250,890</span>
+                  
+                  <span className="text-slate-400 font-semibold">Physical Count:</span>
+                  <span className="text-slate-800 font-bold text-right">Rp 4,238,440</span>
+                  
+                  <span className="text-slate-400 font-semibold">Variance:</span>
+                  <span className="text-red-600 font-bold text-right">-Rp 12,450 (0.29%)</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsValuationOpen(true)}
+                className="w-full bg-[#800000] hover:bg-[#800000]/90 text-white font-bold text-xs py-3 rounded-2xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Initiate Reconciliation
+              </button>
+
+              <div className="text-center pt-2">
+                <button 
+                  onClick={() => showNotif('success', `Histori Valuasi: ${laporanList.length} Laporan terkirim.`)}
+                  className="text-xs font-semibold text-red-600 hover:underline cursor-pointer"
+                >
+                  View Previous Reconciliation Logs
+                </button>
+              </div>
+
+            </div>
+          </GlassCard>
+
+          {/* Card 2: Analyst Tools */}
+          <GlassCard>
+            <div className="px-6 py-5 border-b border-slate-100">
+              <h3 className="text-base font-semibold text-slate-800 uppercase tracking-wider text-xs text-slate-400">Analyst Tools</h3>
+            </div>
+            
+            <div className="divide-y divide-slate-100">
+              <div 
+                onClick={() => setIsHppOpen(true)}
+                className="flex items-center justify-between py-4 px-6 hover:bg-slate-50/50 transition-colors group cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-slate-50 text-slate-600 flex items-center justify-center">
+                    <SlidersHorizontal className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800 group-hover:text-red-600 transition-colors">Standard Cost Update Simulator</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-red-600 transition-all group-hover:translate-x-0.5" />
+              </div>
+
+              <div 
+                onClick={() => setIsCostOpen(true)}
+                className="flex items-center justify-between py-4 px-6 hover:bg-slate-50/50 transition-colors group cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-slate-50 text-slate-600 flex items-center justify-center">
+                    <Settings className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800 group-hover:text-red-600 transition-colors">Overhead Rate Configuration</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-red-600 transition-all group-hover:translate-x-0.5" />
+              </div>
+            </div>
+          </GlassCard>
+
+        </div>
+
+      </div>
+
+      {/* =====================================================================
+          OVERLAY MODALS
+          ===================================================================== */}
+
+      {/* 1. SUBMIT COST MODAL */}
+      {isCostOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-xl overflow-hidden animate-[fadeIn_0.3s_ease-out]">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-red-600" /> Kirim Dokumen Biaya Produksi
+              </h3>
+              <button 
+                onClick={() => setIsCostOpen(false)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleBiayaSubmit} className="p-6 space-y-4">
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Nama Biaya Produksi</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Nama Biaya Produksi</label>
                 <Input 
-                  placeholder="Contoh: Overhead Pabrik Cikande, Upah Tenaga Kerja"
+                  placeholder="Overhead Pabrik Cikande, Upah Tenaga Kerja"
                   value={namaBiaya} 
                   onChange={(e) => setNamaBiaya(e.target.value)}
-                  className="border-2 border-black font-semibold mt-1" 
+                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1" 
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Jumlah Biaya (IDR)</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jumlah Biaya (IDR)</label>
                 <Input 
                   type="number"
                   value={jumlahBiaya || ''} 
                   onChange={(e) => setJumlahBiaya(Number(e.target.value))}
-                  className="border-2 border-black font-bold mt-1" 
+                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 font-bold" 
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Tanggal Biaya</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tanggal Biaya</label>
                 <Input 
                   type="date"
                   value={tanggalBiaya} 
                   onChange={(e) => setTanggalBiaya(e.target.value)}
-                  className="border-2 border-black font-semibold mt-1" 
+                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl text-xs mt-1" 
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Keterangan / Rincian</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Keterangan / Rincian</label>
                 <textarea 
                   value={keteranganBiaya}
                   onChange={(e) => setKeteranganBiaya(e.target.value)}
-                  className="w-full min-h-[80px] p-3 text-sm font-medium border-2 border-black rounded-lg focus:outline-none focus:ring-0 mt-1" 
+                  className="w-full min-h-[80px] p-3 text-xs font-medium border border-slate-200 rounded-xl focus:outline-none focus:border-slate-300 mt-1" 
                   placeholder="Deskripsi penyerahan biaya produksi..."
                 />
               </div>
 
-              <Button type="submit" disabled={loading} className="w-full border-2 border-black bg-red-600 hover:bg-red-700 text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold py-3 uppercase tracking-wider text-xs">
-                {loading ? 'Mengirim...' : 'Kirim Dokumen Biaya'}
-              </Button>
+              <div className="flex gap-2 pt-4">
+                <Button 
+                  type="button" 
+                  onClick={() => setIsCostOpen(false)}
+                  variant="ghost"
+                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
+                >
+                  Batal
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={loading} 
+                  className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer"
+                >
+                  {loading ? 'Mengirim...' : 'Kirim Biaya'}
+                </Button>
+              </div>
             </form>
-          </div>
-
-          {/* Biaya Produksi list table */}
-          <div className="xl:col-span-2 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-4">
-            <h2 className="text-lg font-bold border-b pb-3 border-slate-200 uppercase tracking-tight">
-              Histori Dokumen Biaya Produksi Masuk
-            </h2>
-
-            <div className="overflow-x-auto">
-              <Table className="border-2 border-black">
-                <TableHeader className="bg-slate-100 border-b-2 border-black">
-                  <TableRow>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-center w-36">No Dokumen</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-center w-28">Tanggal</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black">Nama / Rincian Biaya</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-right w-40">Jumlah Biaya</TableHead>
-                    <TableHead className="font-bold text-black text-center w-32">Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {biayaList.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 font-bold text-slate-400">
-                        Belum ada dokumen biaya masuk.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    biayaList.map((b) => (
-                      <TableRow key={b.id_biaya_produksi} className="border-b border-slate-200 hover:bg-slate-50/50">
-                        <TableCell className="font-mono font-bold border-r-2 border-black text-center text-xs">{b.no_dokumen}</TableCell>
-                        <TableCell className="border-r-2 border-black text-center text-xs font-semibold">
-                          {new Date(b.tanggal).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </TableCell>
-                        <TableCell className="border-r-2 border-black text-xs font-bold text-slate-800">
-                          <p>{b.nama_biaya}</p>
-                          {b.keterangan && <p className="text-[11px] text-slate-400 font-medium italic mt-0.5">{b.keterangan}</p>}
-                        </TableCell>
-                        <TableCell className="border-r-2 border-black text-right font-mono text-xs font-bold">{formatRupiah(b.jumlah)}</TableCell>
-                        <TableCell className="text-center">
-                          <span className={`text-[10px] px-2 py-0.5 rounded font-extrabold border uppercase ${b.status === 'JOURNALED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                            {b.status}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
           </div>
         </div>
       )}
 
-      {activeTab === 'hpp' && (
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* HPP Calculator form */}
-          <div className="xl:col-span-1 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-4">
-            <h2 className="text-lg font-bold border-b-2 border-black pb-3 uppercase tracking-tight flex items-center gap-2">
-              <Calculator className="w-5 h-5 text-red-600" /> Kalkulator Nilai Rata-rata HPP
-            </h2>
+      {/* 2. HPP CALCULATOR MODAL */}
+      {isHppOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-xl overflow-hidden animate-[fadeIn_0.3s_ease-out]">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Calculator className="w-5 h-5 text-red-600" /> Kalkulator Nilai HPP
+              </h3>
+              <button 
+                onClick={() => setIsHppOpen(false)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-            <form onSubmit={handleHppSubmit} className="space-y-3">
+            <form onSubmit={handleHppSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pilih Produk</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pilih Produk</label>
                 <select
                   value={selectedProductId}
                   onChange={(e) => setSelectedProductId(Number(e.target.value))}
-                  className="w-full text-xs font-bold p-2.5 border-2 border-black rounded-lg mt-1 focus:outline-none"
+                  className="w-full text-xs font-bold p-2.5 border border-slate-200 rounded-xl mt-1 focus:outline-none focus:border-slate-300 bg-white"
                   required
                 >
                   <option value={0}>-- PILIH PRODUK JADI --</option>
@@ -467,206 +792,153 @@ export default function CostAccountingPage() {
               </div>
 
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Periode Perhitungan</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Periode Perhitungan</label>
                 <Input 
                   placeholder="YYYY-MM (e.g. 2026-06)"
                   value={periodeHpp}
                   onChange={(e) => setPeriodeHpp(e.target.value)}
-                  className="border-2 border-black font-semibold text-xs mt-1"
+                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl text-xs mt-1"
                   required
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2 border border-slate-100 p-2.5 rounded bg-slate-50">
-                <div className="col-span-2 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">A. Saldo Persediaan Awal</div>
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                <div className="col-span-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Saldo Persediaan Awal</div>
                 <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Qty Awal</label>
-                  <Input type="number" value={openingQty || ''} onChange={(e) => setOpeningQty(Number(e.target.value))} className="h-8 border border-black font-bold text-xs" />
+                  <label className="text-[9px] font-bold text-slate-400">Qty Awal</label>
+                  <Input type="number" value={openingQty || ''} onChange={(e) => setOpeningQty(Number(e.target.value))} className="h-9 border border-slate-200 rounded-lg text-xs" />
                 </div>
                 <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Nilai Awal (IDR)</label>
-                  <Input type="number" value={openingValue || ''} onChange={(e) => setOpeningValue(Number(e.target.value))} className="h-8 border border-black font-bold text-xs" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 border border-slate-100 p-2.5 rounded bg-slate-50">
-                <div className="col-span-2 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">B. Barang Masuk Produksi</div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Qty Masuk</label>
-                  <Input type="number" value={incomingQty || ''} onChange={(e) => setIncomingQty(Number(e.target.value))} className="h-8 border border-black font-bold text-xs" />
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Nilai Masuk (IDR)</label>
-                  <Input type="number" value={incomingValue || ''} onChange={(e) => setIncomingValue(Number(e.target.value))} className="h-8 border border-black font-bold text-xs" />
+                  <label className="text-[9px] font-bold text-slate-400">Nilai Awal (IDR)</label>
+                  <Input type="number" value={openingValue || ''} onChange={(e) => setOpeningValue(Number(e.target.value))} className="h-9 border border-slate-200 rounded-lg text-xs" />
                 </div>
               </div>
 
-              <div className="border border-slate-100 p-2.5 rounded bg-slate-50">
-                <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">C. Saldo Persediaan Akhir</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[9px] font-bold text-slate-400 uppercase">Qty Akhir</label>
-                    <Input type="number" value={closingQty || ''} onChange={(e) => setClosingQty(Number(e.target.value))} className="h-8 border border-black font-bold text-xs" />
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-bold text-slate-400 uppercase">Nilai Akhir (Valuasi)</label>
-                    <div className="h-8 flex items-center px-3 border border-black rounded text-xs font-bold bg-slate-100 font-mono">
-                      Rp {closingValue ? Math.round(closingValue).toLocaleString() : 0}
-                    </div>
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                <div className="col-span-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Barang Masuk Produksi</div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400">Qty Masuk</label>
+                  <Input type="number" value={incomingQty || ''} onChange={(e) => setIncomingQty(Number(e.target.value))} className="h-9 border border-slate-200 rounded-lg text-xs" />
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400">Nilai Masuk (IDR)</label>
+                  <Input type="number" value={incomingValue || ''} onChange={(e) => setIncomingValue(Number(e.target.value))} className="h-9 border border-slate-200 rounded-lg text-xs" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                <div className="col-span-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Saldo Persediaan Akhir</div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400">Qty Akhir</label>
+                  <Input type="number" value={closingQty || ''} onChange={(e) => setClosingQty(Number(e.target.value))} className="h-9 border border-slate-200 rounded-lg text-xs" />
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400">Nilai Akhir (Valuasi)</label>
+                  <div className="h-9 flex items-center px-3 border border-slate-200 rounded-lg text-xs font-bold bg-white text-slate-700 font-mono">
+                    Rp {calculatedClosingValue ? Math.round(calculatedClosingValue).toLocaleString() : 0}
                   </div>
                 </div>
               </div>
 
-              <div className="border-2 border-black p-3 bg-red-50 rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                <div className="flex justify-between text-xs font-bold text-red-900">
-                  <span>HPP PER UNIT (AVERAGE):</span>
-                  <span className="font-mono">{formatRupiah(calculatedHpp)}</span>
-                </div>
+              <div className="p-3 bg-red-50 text-red-700 rounded-2xl flex justify-between items-center text-xs font-bold border border-red-100">
+                <span>ESTIMASI HPP PER UNIT:</span>
+                <span className="font-mono">{formatRupiah(calculatedHpp)}</span>
               </div>
 
-              <Button type="submit" disabled={calculatedHpp <= 0} className="w-full border-2 border-black bg-red-600 hover:bg-red-700 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold py-2.5 uppercase tracking-wider text-xs">
-                Simpan Kalkulasi HPP
-              </Button>
+              <div className="flex gap-2 pt-2">
+                <Button 
+                  type="button" 
+                  onClick={() => setIsHppOpen(false)}
+                  variant="ghost"
+                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
+                >
+                  Batal
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={calculatedHpp <= 0} 
+                  className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer"
+                >
+                  Simpan HPP
+                </Button>
+              </div>
             </form>
-          </div>
-
-          {/* HPP calculation log table */}
-          <div className="xl:col-span-2 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-4">
-            <h2 className="text-lg font-bold border-b pb-3 border-slate-200 uppercase tracking-tight flex items-center gap-2">
-              <Calculator className="w-5 h-5 text-red-600" /> Log Histori Penetapan HPP Rata-rata
-            </h2>
-
-            <div className="overflow-x-auto">
-              <Table className="border-2 border-black">
-                <TableHeader className="bg-slate-100 border-b-2 border-black">
-                  <TableRow>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-center w-24">Periode</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black">Nama Produk</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-center w-28">Stok Awal / Masuk</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-right w-36">Total Nilai Persediaan</TableHead>
-                    <TableHead className="font-bold text-black text-right w-36">HPP Per Unit</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {hppList.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 font-bold text-slate-400">
-                        Belum ada kalkulasi HPP tersimpan.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    hppList.map((h) => (
-                      <TableRow key={h.id_hpp} className="border-b border-slate-200 hover:bg-slate-50/50">
-                        <TableCell className="font-bold border-r-2 border-black text-center text-xs font-mono">{h.periode}</TableCell>
-                        <TableCell className="border-r-2 border-black text-xs font-bold text-slate-800">{h.product_name || 'Roma Marie Susu'}</TableCell>
-                        <TableCell className="border-r-2 border-black text-center text-[10px] font-semibold text-slate-600">
-                          Awal: {h.opening_qty} · Masuk: {h.incoming_qty}
-                        </TableCell>
-                        <TableCell className="border-r-2 border-black text-right font-mono text-xs font-semibold">{formatRupiah(h.opening_value + h.incoming_value)}</TableCell>
-                        <TableCell className="text-right font-mono text-xs font-bold text-red-600 bg-red-50/10">{formatRupiah(h.hpp_per_unit)}</TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
           </div>
         </div>
       )}
 
-      {activeTab === 'laporan' && (
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Submit Laporan Persediaan (Inventory management) */}
-          <div className="xl:col-span-1 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-6">
-            <h2 className="text-lg font-bold border-b-2 border-black pb-3 uppercase tracking-tight flex items-center gap-2">
-              <FileText className="w-5 h-5 text-red-600" /> Penyerahan Laporan Valuasi Stok
-            </h2>
-            
-            <form onSubmit={handleLaporanSubmit} className="space-y-4">
+      {/* 3. INVENTORY VALUATION REPORT MODAL */}
+      {isValuationOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-xl overflow-hidden animate-[fadeIn_0.3s_ease-out]">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-red-600" /> Laporan Valuasi Stok
+              </h3>
+              <button 
+                onClick={() => setIsValuationOpen(false)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleLaporanSubmit} className="p-6 space-y-4">
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Periode Laporan</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Periode Laporan</label>
                 <Input 
                   placeholder="YYYY-MM (e.g. 2026-06)"
                   value={periodeLaporan} 
                   onChange={(e) => setPeriodeLaporan(e.target.value)}
-                  className="border-2 border-black font-semibold mt-1" 
+                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1" 
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Total Kuantitas Stok (Unit/Carton/Kg)</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Total Kuantitas Stok (Unit)</label>
                 <Input 
                   type="number"
                   value={totalStokLaporan || ''} 
                   onChange={(e) => setTotalStokLaporan(Number(e.target.value))}
-                  className="border-2 border-black font-semibold mt-1" 
+                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 font-bold" 
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Total Nilai Valuasi Persediaan (IDR)</label>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Total Nilai Valuasi Persediaan (IDR)</label>
                 <Input 
                   type="number"
                   value={totalNilaiLaporan || ''} 
                   onChange={(e) => setTotalNilaiLaporan(Number(e.target.value))}
-                  className="border-2 border-black font-bold mt-1" 
+                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 font-bold" 
                   required
                 />
               </div>
 
-              <Button type="submit" disabled={loading} className="w-full border-2 border-black bg-red-600 hover:bg-red-700 text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold py-3 uppercase tracking-wider text-xs">
-                {loading ? 'Mengirim...' : 'Kirim Laporan Persediaan'}
-              </Button>
+              <div className="flex gap-2 pt-4">
+                <Button 
+                  type="button" 
+                  onClick={() => setIsValuationOpen(false)}
+                  variant="ghost"
+                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
+                >
+                  Batal
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={loading} 
+                  className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer"
+                >
+                  {loading ? 'Mengirim...' : 'Kirim Laporan'}
+                </Button>
+              </div>
             </form>
-          </div>
-
-          {/* Laporan Penilaian Persediaan List table */}
-          <div className="xl:col-span-2 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-4">
-            <h2 className="text-lg font-bold border-b pb-3 border-slate-200 uppercase tracking-tight flex items-center gap-2">
-              <FileText className="w-5 h-5 text-red-600" /> Histori Laporan Penilaian Persediaan Masuk
-            </h2>
-
-            <div className="overflow-x-auto">
-              <Table className="border-2 border-black">
-                <TableHeader className="bg-slate-100 border-b-2 border-black">
-                  <TableRow>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-center w-36">No Laporan</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-center w-28">Periode</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-right w-36">Total Stok Persediaan</TableHead>
-                    <TableHead className="font-bold text-black border-r-2 border-black text-right w-44">Total Nilai Valuasi</TableHead>
-                    <TableHead className="font-bold text-black text-center w-32">Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {laporanList.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 font-bold text-slate-400">
-                        Belum ada laporan penilaian persediaan masuk.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    laporanList.map((l) => (
-                      <TableRow key={l.id_laporan} className="border-b border-slate-200 hover:bg-slate-50/50">
-                        <TableCell className="font-mono font-bold border-r-2 border-black text-center text-xs">{l.no_laporan}</TableCell>
-                        <TableCell className="border-r-2 border-black text-center text-xs font-bold font-mono">{l.periode}</TableCell>
-                        <TableCell className="border-r-2 border-black text-right font-mono text-xs font-semibold">{l.total_stok.toLocaleString()} unit</TableCell>
-                        <TableCell className="border-r-2 border-black text-right font-mono text-xs font-bold text-slate-700">{formatRupiah(l.total_nilai)}</TableCell>
-                        <TableCell className="text-center">
-                          <span className={`text-[10px] px-2.5 py-0.5 rounded font-extrabold border uppercase ${l.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                            {l.status}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
           </div>
         </div>
       )}
+
     </div>
   )
 }
