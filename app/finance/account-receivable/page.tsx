@@ -10,9 +10,18 @@ import {
   AlertCircle, 
   Filter, 
   Calendar,
-  UserCheck
+  UserCheck,
+  AlertTriangle,
+  MoreVertical,
+  Download,
+  Plus,
+  Search,
+  ChevronRight,
+  FileText,
+  ArrowUpRight,
+  ArrowDownRight
 } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
+import { CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -34,6 +43,38 @@ interface Akun {
   id_akun: number;
   kode_akun: string;
   nama_akun: string;
+}
+
+function GlassCard({
+  children,
+  className = "",
+  hover = false,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  hover?: boolean;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}) {
+  return (
+    <div
+      className={`
+        bg-white/95 backdrop-blur-md
+        border border-slate-100
+        shadow-[0_4px_20px_rgba(0,0,0,0.02),0_1px_2px_rgba(0,0,0,0.01)]
+        rounded-3xl overflow-hidden
+        ${hover ? "hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:-translate-y-0.5" : ""}
+        transition-all duration-300 ease-out
+        ${className}
+      `}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      {children}
+    </div>
+  );
 }
 
 export default function AccountReceivablePage() {
@@ -139,9 +180,9 @@ export default function AccountReceivablePage() {
     .filter(p => p.status === 'OVERDUE')
     .reduce((sum, p) => sum + p.sisa_pembayaran, 0)
 
-  const lunasAR = piutangList
-    .filter(p => p.status === 'LUNAS')
-    .reduce((sum, p) => sum + (p.jumlah - p.sisa_pembayaran), 0)
+  const awaitingAR = piutangList
+    .filter(p => p.status === 'BELUM_LUNAS')
+    .reduce((sum, p) => sum + p.sisa_pembayaran, 0)
 
   // Calculate Aging Schedule
   const aging = {
@@ -165,12 +206,16 @@ export default function AccountReceivablePage() {
       aging.overdue_1_30 += p.sisa_pembayaran
     } else if (diffDays <= 60) {
       aging.overdue_31_60 += p.sisa_pembayaran
-    } else if (diffDays <= 90) {
-      aging.overdue_61_90 += p.sisa_pembayaran
     } else {
       aging.overdue_90plus += p.sisa_pembayaran
     }
   })
+
+  const totalAgingSum = (aging.current + aging.overdue_1_30 + aging.overdue_31_60 + aging.overdue_90plus) || 1
+  const pctCurrent = Math.round((aging.current / totalAgingSum) * 100)
+  const pct1_30 = Math.round((aging.overdue_1_30 / totalAgingSum) * 100)
+  const pct31_60 = Math.round((aging.overdue_31_60 / totalAgingSum) * 100)
+  const pct90 = Math.round((aging.overdue_90plus / totalAgingSum) * 100)
 
   // Filter & Search List
   const filteredPiutang = piutangList.filter(p => {
@@ -179,270 +224,429 @@ export default function AccountReceivablePage() {
     return matchesSearch && matchesStatus
   })
 
+  // Find priority invoice (highest sisa_pembayaran outstanding / overdue)
+  const priorityInvoices = piutangList
+    .filter(p => p.status !== 'LUNAS')
+    .sort((a, b) => b.sisa_pembayaran - a.sisa_pembayaran)
+  
+  const priorityInv = priorityInvoices[0] || null
+
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto px-2 pb-12 animate-[fadeIn_0.4s_ease-out]">
-      {/* Header (Neobrutalist) */}
-      <div className="flex items-center justify-between border-2 border-black bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-xl">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-            <Receipt className="w-6 h-6 text-blue-600" />
+    <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
+      
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="w-1/2 h-8 rounded-full bg-red-600" style={{ width: '4px', backgroundColor: '#dc2626' }} />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.25em]" style={{ color: '#dc2626' }}>
+                Finance Module
+              </p>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-800">
+                Accounts Receivable
+              </h1>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-black uppercase tracking-tight">Account Receivable (Piutang)</h1>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">PT. Mayora Indah Tbk · Monitoring Saldo Piutang & Penagihan Faktur</p>
-          </div>
+          <p className="text-sm ml-4 text-slate-500">
+            Manage customer debt, verify invoices, and monitor incoming payments.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 self-start md:self-auto">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 gap-2 hover:bg-slate-100 text-xs font-semibold text-slate-600 rounded-2xl cursor-pointer border border-slate-200"
+          >
+            <Download className="w-4 h-4 text-slate-400" />
+            Export Report
+          </Button>
+
+          <Button
+            onClick={() => showNotif('success', 'Silakan gunakan modul Sales & Marketing (SnM) untuk membuat Invoice Penjualan baru.')}
+            className="h-9 gap-2 text-xs font-semibold text-white rounded-2xl cursor-pointer bg-red-600 hover:bg-red-700 shadow-[0_2px_10px_rgba(220,38,38,0.2)]"
+          >
+            <Plus className="w-4 h-4" />
+            New Invoice
+          </Button>
         </div>
       </div>
 
       {/* Notifications */}
       {notif && (
-        <div className={`p-4 rounded-lg border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-center gap-3 transition-all ${notif.type === 'success' ? 'bg-emerald-50 text-emerald-900 border-emerald-500' : 'bg-red-50 text-red-900 border-red-500'}`}>
+        <div className={`p-4 rounded-2xl border flex items-center gap-3 transition-all ${notif.type === 'success' ? 'bg-emerald-50 text-emerald-900 border-emerald-200' : 'bg-red-50 text-red-900 border-red-200'}`}>
           {notif.type === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
           <span className="text-sm font-semibold">{notif.message}</span>
         </div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Piutang Berjalan (AR)</p>
-            <p className="text-2xl font-black text-black font-mono">Rp {outstandingAR.toLocaleString('id-ID')}</p>
-          </div>
-          <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 font-bold">AR</div>
-        </div>
-
-        <div className="border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest text-red-500">Overdue (Jatuh Tempo)</p>
-            <p className="text-2xl font-black text-red-600 font-mono">Rp {overdueAR.toLocaleString('id-ID')}</p>
-          </div>
-          <div className="w-10 h-10 rounded-lg bg-red-50 border border-red-200 flex items-center justify-center text-red-600 font-bold">!</div>
-        </div>
-
-        <div className="border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest text-emerald-500">Terbayar Bulan Ini</p>
-            <p className="text-2xl font-black text-emerald-600 font-mono">Rp {lunasAR.toLocaleString('id-ID')}</p>
-          </div>
-          <div className="w-10 h-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 font-bold">✓</div>
-        </div>
-      </div>
-
-      {/* Aging Schedule (Analisis Umur Piutang) */}
-      <div className="border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-4">
-        <h2 className="text-lg font-bold border-b-2 border-black pb-3 uppercase tracking-tight flex items-center gap-2">
-          <Clock className="w-5 h-5 text-blue-600" /> Analisis Umur Piutang (Aging Schedule)
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-          <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg text-center">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Belum Jatuh Tempo</p>
-            <p className="text-sm font-black text-slate-800 font-mono mt-1">Rp {aging.current.toLocaleString()}</p>
-          </div>
-          <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-lg text-center">
-            <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">1 - 30 Hari</p>
-            <p className="text-sm font-black text-amber-700 font-mono mt-1">Rp {aging.overdue_1_30.toLocaleString()}</p>
-          </div>
-          <div className="bg-orange-50/50 border border-orange-100 p-4 rounded-lg text-center">
-            <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest">31 - 60 Hari</p>
-            <p className="text-sm font-black text-orange-700 font-mono mt-1">Rp {aging.overdue_31_60.toLocaleString()}</p>
-          </div>
-          <div className="bg-red-50/30 border border-red-100 p-4 rounded-lg text-center">
-            <p className="text-[10px] font-bold text-red-500 uppercase tracking-widest">61 - 90 Hari</p>
-            <p className="text-sm font-black text-red-600 font-mono mt-1">Rp {aging.overdue_61_90.toLocaleString()}</p>
-          </div>
-          <div className="bg-red-100/50 border border-red-200 p-4 rounded-lg text-center col-span-2 sm:col-span-1">
-            <p className="text-[10px] font-bold text-red-700 uppercase tracking-widest">&gt; 90 Hari</p>
-            <p className="text-sm font-black text-red-800 font-mono mt-1">Rp {aging.overdue_90plus.toLocaleString()}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Monitoring & Penagihan Piutang Table */}
-        <div className="xl:col-span-2 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-slate-200">
-            <h2 className="text-lg font-bold uppercase tracking-tight flex items-center gap-2">
-              <Receipt className="w-5 h-5 text-blue-600" /> Daftar Faktur Penjualan & Tagihan Customer
-            </h2>
-            <div className="flex gap-2">
-              <div className="relative">
-                <SearchIcon className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
-                <Input 
-                  placeholder="Cari Customer / No Faktur..." 
-                  value={searchCust}
-                  onChange={(e) => setSearchCust(e.target.value)}
-                  className="pl-8 pr-4 h-8 border-2 border-black font-semibold text-xs min-w-[200px]"
-                />
+      {/* Summary KPI Cards Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <GlassCard>
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                  <Receipt className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Customer Debt</span>
               </div>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value as 'ALL' | 'BELUM_LUNAS' | 'LUNAS' | 'OVERDUE')}
-                className="text-xs font-bold px-2 py-1 border-2 border-black rounded-lg focus:outline-none"
-              >
-                <option value="ALL">SEMUA STATUS</option>
-                <option value="BELUM_LUNAS">BELUM LUNAS</option>
-                <option value="OVERDUE">OVERDUE</option>
-                <option value="LUNAS">LUNAS</option>
-              </select>
+              <p className="text-2xl font-bold tracking-tight text-slate-800 mt-2">
+                Rp {outstandingAR.toLocaleString('id-ID')}
+              </p>
             </div>
-          </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">
+              <ArrowDownRight className="w-3 h-3" />
+              -2.4%
+            </div>
+          </CardContent>
+        </GlassCard>
 
-          <div className="overflow-x-auto">
-            <Table className="border-2 border-black">
-              <TableHeader className="bg-slate-100 border-b-2 border-black">
-                <TableRow>
-                  <TableHead className="font-bold text-black border-r-2 border-black text-center w-28">No Faktur</TableHead>
-                  <TableHead className="font-bold text-black border-r-2 border-black">Customer</TableHead>
-                  <TableHead className="font-bold text-black border-r-2 border-black text-center w-24">Jatuh Tempo</TableHead>
-                  <TableHead className="font-bold text-black border-r-2 border-black text-right w-36">Total Tagihan</TableHead>
-                  <TableHead className="font-bold text-black border-r-2 border-black text-right w-36">Sisa Piutang</TableHead>
-                  <TableHead className="font-bold text-black border-r-2 border-black text-center w-28">Status</TableHead>
-                  <TableHead className="font-bold text-black text-center w-24">Aksi</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredPiutang.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 font-bold text-slate-400">
-                      Tidak ada piutang terdaftar.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredPiutang.map((p) => (
-                    <TableRow key={p.id_piutang} className="border-b border-slate-200 hover:bg-slate-50/50">
-                      <TableCell className="font-mono font-bold border-r-2 border-black text-center text-xs">{p.inv_number}</TableCell>
-                      <TableCell className="font-bold text-black text-xs border-r-2 border-black">{p.customer_name}</TableCell>
-                      <TableCell className="border-r-2 border-black text-center text-xs font-semibold">
-                        {new Date(p.due_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: '2-digit' })}
-                      </TableCell>
-                      <TableCell className="border-r-2 border-black text-right font-mono text-xs font-semibold">{p.jumlah.toLocaleString()}</TableCell>
-                      <TableCell className="border-r-2 border-black text-right font-mono text-xs font-bold text-slate-700">{p.sisa_pembayaran.toLocaleString()}</TableCell>
-                      <TableCell className="border-r-2 border-black text-center">
-                        <span className={`text-[10px] px-2 py-0.5 rounded font-extrabold border uppercase ${p.status === 'LUNAS' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : p.status === 'OVERDUE' ? 'bg-red-50 text-red-700 border-red-200 animate-pulse' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                          {p.status.replace('_', ' ')}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-center flex gap-1 justify-center items-center py-2.5">
-                        {p.status !== 'LUNAS' && (
-                          <>
-                            <Button 
-                              type="button" 
-                              onClick={() => {
-                                setSelectedPiutang(p)
-                                setJumlahBayar(p.sisa_pembayaran)
-                              }}
-                              className="h-7 px-2 border border-black bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[10px] rounded"
-                            >
-                              Bayar
-                            </Button>
-                            <Button 
-                              type="button" 
-                              onClick={() => handleSendReminder(p)}
-                              className="h-7 px-2 border border-black bg-white hover:bg-slate-100 text-black font-bold text-[10px] rounded shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
-                            >
-                              <Send className="w-3 h-3" />
-                            </Button>
-                          </>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-
-        {/* Form Penerimaan Pembayaran Piutang */}
-        <div className="xl:col-span-1 border-2 border-black bg-white rounded-xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-6 space-y-6">
-          <h2 className="text-lg font-bold border-b-2 border-black pb-3 uppercase tracking-tight flex items-center gap-2">
-            <Wallet className="w-5 h-5 text-blue-600" /> Pencatatan Pelunasan Piutang
-          </h2>
-
-          {selectedPiutang ? (
-            <form onSubmit={handlePaymentSubmit} className="space-y-4">
-              <div className="bg-blue-50 p-4 border border-blue-200 rounded-lg space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="font-bold text-slate-500">NOMOR INVOICE:</span>
-                  <span className="font-mono font-bold text-slate-800">{selectedPiutang.inv_number}</span>
+        <GlassCard>
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <Clock className="w-4.5 h-4.5" />
                 </div>
-                <div className="flex justify-between text-xs">
-                  <span className="font-bold text-slate-500">PELANGGAN:</span>
-                  <span className="font-bold text-slate-800">{selectedPiutang.customer_name}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="font-bold text-slate-500">SISA PIUTANG:</span>
-                  <span className="font-mono font-black text-slate-900">Rp {selectedPiutang.sisa_pembayaran.toLocaleString()}</span>
-                </div>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Awaiting Verification</span>
               </div>
+              <p className="text-2xl font-bold tracking-tight text-slate-800 mt-2">
+                Rp {awaitingAR.toLocaleString('id-ID')}
+              </p>
+            </div>
+            <div className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
+              {piutangList.filter(p => p.status === 'BELUM_LUNAS').length} Invoices
+            </div>
+          </CardContent>
+        </GlassCard>
 
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Rekening Kas/Bank Penampung</label>
+        <GlassCard>
+          <CardContent className="p-6 flex items-center justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                  <AlertTriangle className="w-4.5 h-4.5" />
+                </div>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Overdue Payments</span>
+              </div>
+              <p className="text-2xl font-bold tracking-tight text-slate-800 mt-2">
+                Rp {overdueAR.toLocaleString('id-ID')}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700">
+              <ArrowUpRight className="w-3 h-3" />
+              +5.1%
+            </div>
+          </CardContent>
+        </GlassCard>
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        
+        {/* Left Side: Table of Accounts Receivable (2/3 width) */}
+        <div className="xl:col-span-2">
+          <GlassCard className="h-full">
+            <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <h3 className="text-base font-semibold text-slate-800">Payment Monitoring & Verification</h3>
+              </div>
+              
+              {/* Search & Filter Toolbar */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
+                  <Input 
+                    placeholder="Search Customer / Inv..." 
+                    value={searchCust}
+                    onChange={(e) => setSearchCust(e.target.value)}
+                    className="pl-8 pr-4 h-8 text-xs font-medium w-[180px] bg-slate-50/50 border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-lg"
+                  />
+                </div>
                 <select
-                  value={selectedAkunKas}
-                  onChange={(e) => setSelectedAkunKas(Number(e.target.value))}
-                  className="w-full text-xs font-bold p-2.5 border-2 border-black rounded-lg mt-1 focus:outline-none"
-                  required
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value as 'ALL' | 'BELUM_LUNAS' | 'LUNAS' | 'OVERDUE')}
+                  className="text-xs font-semibold h-8 px-2 border border-slate-200 rounded-lg bg-white focus:outline-none text-slate-600"
                 >
-                  <option value={0}>-- PILIH KAS / REKENING --</option>
-                  {akunList.map((a) => (
-                    <option key={a.id_akun} value={a.id_akun}>{a.kode_akun} - {a.nama_akun}</option>
-                  ))}
+                  <option value="ALL">All Status</option>
+                  <option value="BELUM_LUNAS">Pending</option>
+                  <option value="OVERDUE">Overdue</option>
+                  <option value="LUNAS">Paid</option>
                 </select>
               </div>
+            </div>
 
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Jumlah Pembayaran Diterima (IDR)</label>
-                <Input 
-                  type="number" 
-                  value={jumlahBayar || ''}
-                  onChange={(e) => setJumlahBayar(Number(e.target.value))}
-                  max={selectedPiutang.sisa_pembayaran}
-                  className="border-2 border-black font-bold mt-1" 
-                  required
-                />
-              </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader className="bg-slate-50/50">
+                  <TableRow className="border-b border-slate-100">
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-28">Invoice ID</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Customer</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right">Amount</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center">Due Date</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-28">Status</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-24">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="text-xs text-slate-700">
+                  {filteredPiutang.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-12 font-semibold text-slate-400">
+                        Tidak ada data piutang terdaftar.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredPiutang.map((p) => {
+                      const statusMap = {
+                        LUNAS: { label: "Paid", bg: "bg-emerald-50 text-emerald-700 border-emerald-100", dot: "bg-emerald-500" },
+                        OVERDUE: { label: "Overdue", bg: "bg-red-50 text-red-700 border-red-100", dot: "bg-red-500" },
+                        BELUM_LUNAS: { label: "Verify", bg: "bg-slate-100 text-slate-600 border-slate-200", dot: "bg-slate-400" }
+                      };
+                      const s = statusMap[p.status] || { label: p.status, bg: "bg-blue-50 text-blue-700 border-blue-100", dot: "bg-blue-500" };
 
-              <div className="flex gap-2 pt-2">
-                <Button type="button" onClick={() => setSelectedPiutang(null)} className="flex-1 border-2 border-black bg-white hover:bg-slate-50 text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold py-2 text-xs">
-                  Batal
-                </Button>
-                <Button type="submit" disabled={loading} className="flex-1 border-2 border-black bg-emerald-500 hover:bg-emerald-600 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold py-2 text-xs">
-                  {loading ? 'Memproses...' : 'Catat Pelunasan'}
-                </Button>
+                      return (
+                        <TableRow key={p.id_piutang} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
+                          <TableCell className="font-mono font-bold text-slate-800 px-6 py-4">{p.inv_number}</TableCell>
+                          <TableCell className="font-bold text-slate-800 px-6 py-4">{p.customer_name}</TableCell>
+                          <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp {p.jumlah.toLocaleString()}</TableCell>
+                          <TableCell className="text-center font-medium text-slate-500 px-6 py-4">
+                            {new Date(p.due_date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </TableCell>
+                          <TableCell className="text-center px-6 py-4">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${s.bg}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+                              {s.label}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center px-6 py-4 flex gap-1 justify-center items-center">
+                            {p.status !== 'LUNAS' ? (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setSelectedPiutang(p);
+                                    setJumlahBayar(p.sisa_pembayaran);
+                                  }}
+                                  className="px-2.5 py-1 rounded bg-red-50 hover:bg-red-100/80 text-red-600 font-bold transition-colors cursor-pointer"
+                                >
+                                  Review
+                                </button>
+                                <button
+                                  onClick={() => handleSendReminder(p)}
+                                  className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            ) : (
+                              <button className="p-1 rounded text-slate-300">
+                                <MoreVertical className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </GlassCard>
+        </div>
+
+        {/* Right Side: Verification Sidebar or Payment Form */}
+        <div className="xl:col-span-1">
+          {selectedPiutang ? (
+            // ==========================================
+            // PAYMENT TRANSACTION FORM (DYNAMIC DRAWER)
+            // ==========================================
+            <GlassCard className="h-full border border-slate-100">
+              <div className="px-6 py-5 border-b border-slate-100">
+                <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                  <Wallet className="w-5 h-5 text-red-600" /> Pencatatan Pelunasan
+                </h3>
               </div>
-            </form>
+              <div className="p-6">
+                <form onSubmit={handlePaymentSubmit} className="space-y-5">
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-semibold text-slate-400">NOMOR INVOICE</span>
+                      <span className="font-mono font-bold text-slate-800">{selectedPiutang.inv_number}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="font-semibold text-slate-400">CUSTOMER</span>
+                      <span className="font-bold text-slate-800">{selectedPiutang.customer_name}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="font-semibold text-slate-400">OUTSTANDING</span>
+                      <span className="font-bold text-red-600">Rp {selectedPiutang.sisa_pembayaran.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Rekening Kas/Bank Penampung</label>
+                    <select
+                      value={selectedAkunKas}
+                      onChange={(e) => setSelectedAkunKas(Number(e.target.value))}
+                      className="w-full text-xs font-bold p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-slate-300 bg-white"
+                      required
+                    >
+                      <option value={0}>-- PILIH REKENING KAS / BANK --</option>
+                      {akunList.map((a) => (
+                        <option key={a.id_akun} value={a.id_akun}>{a.kode_akun} - {a.nama_akun}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jumlah Pembayaran Diterima (IDR)</label>
+                    <Input 
+                      type="number" 
+                      value={jumlahBayar || ''}
+                      onChange={(e) => setJumlahBayar(Number(e.target.value))}
+                      max={selectedPiutang.sisa_pembayaran}
+                      className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl font-bold h-10" 
+                      required
+                    />
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <Button 
+                      type="button" 
+                      onClick={() => setSelectedPiutang(null)} 
+                      variant="ghost"
+                      className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50"
+                    >
+                      Batal
+                    </Button>
+                    <Button 
+                      type="submit" 
+                      disabled={loading} 
+                      className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer shadow-[0_2px_10px_rgba(220,38,38,0.2)]"
+                    >
+                      {loading ? 'Memproses...' : 'Catat Pelunasan'}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </GlassCard>
           ) : (
-            <div className="flex flex-col items-center justify-center py-12 text-center bg-slate-50 border border-dashed border-slate-200 rounded-lg space-y-3">
-              <UserCheck className="w-12 h-12 text-slate-300" />
-              <p className="text-sm font-semibold text-slate-500 max-w-[200px]">
-                Pilih faktur pelanggan di tabel untuk mencatat penerimaan pelunasan piutang.
-              </p>
+            // ==========================================
+            // VERIFICATION & DEBT AGING SIDEBAR (IMAGE 1)
+            // ==========================================
+            <div className="space-y-6">
+              
+              {/* Priority Verification Banner (Image 1 Red banner) */}
+              <div className="bg-[#800000] text-white rounded-3xl p-6 relative overflow-hidden shadow-sm flex flex-col justify-between min-h-[180px]">
+                {/* Large checkmark logo watermark */}
+                <div className="absolute right-0 bottom-0 opacity-10 translate-x-2 translate-y-4">
+                  <CheckCircle className="w-40 h-40" />
+                </div>
+                
+                <div className="space-y-2 z-10">
+                  <h4 className="text-base font-bold">Priority Verification</h4>
+                  <p className="text-xs text-red-100 leading-relaxed font-light">
+                    {priorityInv 
+                      ? "1 large invoice requires immediate manual verification."
+                      : "No invoices require manual verification."}
+                  </p>
+                </div>
+
+                {priorityInv && (
+                  <div className="bg-black/20 backdrop-blur-sm p-4 rounded-2xl flex justify-between items-center mt-4 border border-white/10 z-10">
+                    <div className="min-w-0">
+                      <span className="font-mono text-[10px] font-semibold opacity-60">{priorityInv.inv_number}</span>
+                      <p className="text-xs font-bold truncate pr-2">{priorityInv.customer_name}</p>
+                    </div>
+                    <span className="text-sm font-bold shrink-0">
+                      Rp {priorityInv.sisa_pembayaran.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => {
+                    if (priorityInv) {
+                      setSelectedPiutang(priorityInv);
+                      setJumlahBayar(priorityInv.sisa_pembayaran);
+                    } else {
+                      showNotif('success', 'Semua invoice saat ini terverifikasi.');
+                    }
+                  }}
+                  className="w-full bg-white hover:bg-slate-50 text-[#800000] font-bold text-xs py-3 rounded-2xl flex items-center justify-center gap-1.5 mt-5 transition-colors cursor-pointer z-10"
+                >
+                  Start Verification <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Debt Aging Summary Progress bars (Image 1 Bottom Right) */}
+              <GlassCard>
+                <div className="px-6 py-5 border-b border-slate-100">
+                  <h3 className="text-base font-semibold text-slate-800">Debt Aging Summary</h3>
+                </div>
+                <div className="p-6 space-y-4">
+                  {/* Current */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span className="text-slate-500">Current</span>
+                      <span className="text-slate-800">{pctCurrent}%</span>
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${pctCurrent}%` }} />
+                    </div>
+                  </div>
+
+                  {/* 1-30 Days */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span className="text-slate-500">1-30 Days Overdue</span>
+                      <span className="text-slate-800">{pct1_30}%</span>
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-slate-400 rounded-full" style={{ width: `${pct1_30}%` }} />
+                    </div>
+                  </div>
+
+                  {/* 31-60 Days */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span className="text-slate-500">31-60 Days Overdue</span>
+                      <span className="text-slate-800">{pct31_60}%</span>
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-amber-400 rounded-full" style={{ width: `${pct31_60}%` }} />
+                    </div>
+                  </div>
+
+                  {/* 60+ Days */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span className="text-slate-500">60+ Days Overdue</span>
+                      <span className="text-slate-800">{pct90}%</span>
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-red-500 rounded-full" style={{ width: `${pct90}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-100 text-center">
+                    <button
+                      onClick={() => showNotif('success', `Rincian Umur Piutang: Belum Jatuh Tempo (Rp ${aging.current.toLocaleString()}), 1-30 Hari (Rp ${aging.overdue_1_30.toLocaleString()}), >30 Hari (Rp ${aging.overdue_90plus.toLocaleString()}).`)}
+                      className="text-xs font-semibold text-red-600 hover:underline cursor-pointer"
+                    >
+                      View Detailed Aging Report
+                    </button>
+                  </div>
+                </div>
+              </GlassCard>
+
             </div>
           )}
         </div>
-      </div>
-    </div>
-  )
-}
 
-function SearchIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.3-4.3" />
-    </svg>
+      </div>
+
+    </div>
   )
 }

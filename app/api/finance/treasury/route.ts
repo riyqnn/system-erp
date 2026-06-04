@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     // 1. Aksi: Persetujuan Pengajuan Pembayaran oleh Management
     if (action === 'approve') {
-      const user = await verifyAuthForRoute(request, ['ADMIN', 'MANAGEMENT']);
+      const user = await verifyAuthForRoute(request, ['ADMIN', 'MANAGEMENT', 'FINANCE']);
       const { permintaan_id, status, alasan } = await request.json();
 
       if (!permintaan_id || !status || !['DISETUJUI', 'DITOLAK'].includes(status)) {
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
 
     // 2. Aksi: Eksekusi Pembayaran oleh Treasury
     if (action === 'execute') {
-      const user = await verifyAuthForRoute(request, ['ADMIN', 'TREASURY']);
+      const user = await verifyAuthForRoute(request, ['ADMIN', 'TREASURY', 'FINANCE']);
       const { permintaan_id, akun_kas_id } = await request.json();
 
       if (!permintaan_id || !akun_kas_id) {

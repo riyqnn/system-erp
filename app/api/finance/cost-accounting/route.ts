@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 
     // 1. Aksi: Production mengirimkan dokumen biaya produksi
     if (action === 'submit_cost') {
-      const user = await verifyAuthForRoute(request, ['ADMIN', 'PRODUCTION']);
+      const user = await verifyAuthForRoute(request, ['ADMIN', 'PRODUCTION', 'FINANCE']);
       const { nama_biaya, jumlah, tanggal, keterangan, production_request_id } = await request.json();
 
       if (!nama_biaya || !jumlah || !tanggal) {
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
     // 2. Aksi: Cost Accounting menghitung HPP & Valuasi Persediaan
     if (action === 'calculate_hpp') {
-      const user = await verifyAuthForRoute(request, ['ADMIN', 'COST_ACCOUNTING']);
+      const user = await verifyAuthForRoute(request, ['ADMIN', 'COST_ACCOUNTING', 'FINANCE']);
       const { periode, product_id, opening_qty, opening_value, incoming_qty, incoming_value, closing_qty, closing_value } = await request.json();
 
       if (!periode || !product_id) {
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
 
     // 3. Aksi: Inventory Management mengirimkan laporan penilaian persediaan
     if (action === 'valuation_report') {
-      const user = await verifyAuthForRoute(request, ['ADMIN', 'INVENTORY_MANAGEMENT']);
+      const user = await verifyAuthForRoute(request, ['ADMIN', 'INVENTORY_MANAGEMENT', 'FINANCE']);
       const { periode, total_stok, total_nilai } = await request.json();
 
       if (!periode || !total_stok || !total_nilai) {

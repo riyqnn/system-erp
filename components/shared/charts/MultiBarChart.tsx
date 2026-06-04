@@ -14,6 +14,7 @@ interface MultiBarChartProps {
   showLegend?: boolean
   barRadius?: number
   barSpacing?: number
+  valueFormatter?: (value: number) => string
 }
 
 export function MultiBarChart({
@@ -23,6 +24,7 @@ export function MultiBarChart({
   showLegend = true,
   barRadius = 4,
   barSpacing = 2,
+  valueFormatter,
 }: MultiBarChartProps) {
   const [isVisible, setIsVisible] = useState(false)
   const [hoveredBar, setHoveredBar] = useState<{ categoryIndex: number; valueIndex: number } | null>(null)
@@ -48,7 +50,7 @@ export function MultiBarChart({
   // Find max value for scaling
   const maxValue = Math.max(...data.flatMap(d => d.values.map(v => v.value)))
 
-  const padding = { top: 30, right: 20, bottom: 40, left: 50 }
+  const padding = { top: 30, right: 20, bottom: 40, left: 65 }
   const chartWidth = 1000
   const chartHeight = height - padding.top - padding.bottom
 
@@ -64,6 +66,8 @@ export function MultiBarChart({
 
   // Extract unique legend items
   const legendItems = data[0]?.values.map(v => ({ label: v.label, color: v.color })) || []
+
+  const formatVal = valueFormatter || ((v) => v.toLocaleString())
 
   return (
     <div ref={chartRef} className="w-full relative" style={{ height }}>
@@ -98,7 +102,7 @@ export function MultiBarChart({
                     textAnchor="end"
                     className="text-[10px] fill-slate-400 font-medium"
                   >
-                    {value.toLocaleString()}
+                    {formatVal(value)}
                   </text>
                 </g>
               )
@@ -149,9 +153,9 @@ export function MultiBarChart({
                 {isHovered && (
                   <g className="animate-in fade-in slide-in-from-bottom-2 duration-200">
                     <rect
-                      x={x + barWidth / 2 - 30}
+                      x={x + barWidth / 2 - 40}
                       y={y - 30}
-                      width={60}
+                      width={80}
                       height={24}
                       rx="6"
                       fill="#1E293B"
@@ -162,7 +166,7 @@ export function MultiBarChart({
                       textAnchor="middle"
                       className="text-[10px] fill-white font-bold"
                     >
-                      {valueItem.value.toLocaleString()}
+                      {formatVal(valueItem.value)}
                     </text>
                   </g>
                 )}
