@@ -1,5 +1,6 @@
 'use client'
 
+import { TrackingReportModal } from '../_components/TrackingReportModal'
 import { Fragment, useMemo, useState } from 'react'
 import {
   Truck,
@@ -92,6 +93,7 @@ export function DeliveryMonitoringClient() {
   const [status, setStatus] = useState('All Status')
   const [supplier, setSupplier] = useState('All Suppliers')
   const [dateRange, setDateRange] = useState('')
+  const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false)
 
   const filteredData = useMemo(() => {
     return monitoringData.filter((item) => {
@@ -432,13 +434,23 @@ export function DeliveryMonitoringClient() {
               </div>
             </div>
 
-            <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-red-700">
-              <ChartBar size={18} weight="bold" />
-              Input Tracking Report
+            <button
+              type="button"
+              onClick={() => setIsTrackingModalOpen(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
+>
+            <ChartBar size={18} weight="bold" />
+            Input Tracking Report
             </button>
           </div>
         </div>
       </div>
+      <TrackingReportModal
+        isOpen={isTrackingModalOpen}
+        onClose={() => setIsTrackingModalOpen(false)}
+        title="Input Tracking Report"
+        contextLabel="Delivery status update from supplier"
+      />
     </ModuleLayout>
   )
 }

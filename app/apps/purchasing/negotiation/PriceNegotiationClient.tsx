@@ -1,5 +1,6 @@
 'use client'
 
+import { TrackingReportModal } from '@/app/apps/purchasing/_components/TrackingReportModal'
 import Link from 'next/link'
 import { useState } from 'react'
 import {
@@ -18,6 +19,7 @@ export function PriceNegotiationClient() {
   const [quantity, setQuantity] = useState('100')
   const [deadline, setDeadline] = useState('2026-04-15')
   const [notes, setNotes] = useState('')
+  const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false)
 
   return (
     <ModuleLayout
@@ -301,11 +303,21 @@ export function PriceNegotiationClient() {
         </div>
 
         <div className="flex justify-end">
-          <button className="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-red-700">
+          <button
+            type="button"
+            onClick={() => setIsTrackingModalOpen(true)}
+            className="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
+          >
             Input Tracking Report
           </button>
         </div>
       </div>
+      <TrackingReportModal
+        isOpen={isTrackingModalOpen}
+        onClose={() => setIsTrackingModalOpen(false)}
+        title="Input Negotiation Tracking"
+        contextLabel="Negotiation status update from supplier"
+      />
     </ModuleLayout>
   )
 }

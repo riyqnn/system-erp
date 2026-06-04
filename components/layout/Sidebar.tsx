@@ -129,7 +129,6 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
       { label: 'RFQ / Sourcing', href: '/apps/purchasing/rfq-sourcing', icon: FileText },
       { label: 'Price Negotiation', href: '/apps/purchasing/negotiation', icon: Handshake },
       { label: 'Purchase Order', href: '/apps/purchasing/purchase-orders', icon: ShoppingCart },
-      { label: 'Approval PO', href: '/apps/purchasing/approval-po', icon: CheckCircle },
       { label: 'Monitoring', href: '/apps/purchasing/delivery-monitoring', icon: Truck },
       { label: 'Goods Receipt', href: '/apps/purchasing/goods-receipt', icon: Package },
       { label: 'Three-Way Matching', href: '/apps/purchasing/three-way-matching', icon: Scales },
