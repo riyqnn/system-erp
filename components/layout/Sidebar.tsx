@@ -25,7 +25,9 @@ import {
   Calculator,
   CreditCard,
   Megaphone,
-  Wrench
+  Wrench,
+  CalendarCheck,
+  CheckSquare,
 } from '@phosphor-icons/react'
 
 interface SubItem {
@@ -125,10 +127,14 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
       { label: 'Requests', href: '/apps/purchasing/requests', icon: ShoppingCart },
     ],
     production: [
-      { label: 'Overview', href: '/apps/production', icon: GridFour },
-      { label: 'Production Orders', href: '/apps/production/orders', icon: Factory },
-      { label: 'Bill of Materials', href: '/apps/production/bom', icon: Factory },
-      { label: 'Planning', href: '/apps/production/planning', icon: Factory },
+      { label: 'Dashboard', href: '/production', icon: GridFour },
+      { label: 'Resep & Order', href: '/production/resep-order', icon: ClipboardText },
+      { label: 'Rencana MRP', href: '/production/planning', icon: CalendarCheck },
+      { label: 'Goods Issue', href: '/production/goods-issue', icon: Package },
+      { label: 'Produksi', href: '/production/produksi', icon: Factory },
+      { label: 'QC & Penerimaan', href: '/production/quality-control', icon: CheckSquare },
+      { label: 'Penyelesaian', href: '/production/settlement', icon: Receipt },
+      { label: 'Laporan Produksi', href: '/production/laporan', icon: ChartBar },
     ],
     snm: [
       { label: 'Overview', href: '/snm', icon: GridFour },

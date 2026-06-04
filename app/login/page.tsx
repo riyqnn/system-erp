@@ -48,7 +48,7 @@ export default function LoginPage() {
         'INVENTORY': '/inventory',
         'FINANCE': '/finance',
         'PURCHASING': '/apps/purchasing',
-        'PRODUCTION': '/apps/production',
+        'PRODUCTION': '/production',
         'SNM': '/snm',
         'SALES': '/snm',
         'ADMIN': '/dashboard',
