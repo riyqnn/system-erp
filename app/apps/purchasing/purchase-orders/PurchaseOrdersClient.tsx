@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ShoppingCart,
   Clock,
@@ -16,72 +16,235 @@ import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 import { TrackingReportModal } from '@/app/apps/purchasing/_components/TrackingReportModal'
 
-const purchaseOrders = [
-  {
-    poNo: 'PO-202604-001',
-    date: '10 Apr 2026',
-    supplier: 'PT Jawamanis Rafinasi',
-    totalValue: 'Rp 8.250.000',
-    status: 'Released',
-    approver: 'Budi Santoso',
-  },
-  {
-    poNo: 'PO-202604-002',
-    date: '11 Apr 2026',
-    supplier: 'PT Aneka Coffee',
-    totalValue: 'Rp 10.500.000',
-    status: 'Pending Approval',
-    approver: '-',
-  },
-  {
-    poNo: 'PO-202604-003',
-    date: '12 Apr 2026',
-    supplier: 'PT Musim Mas',
-    totalValue: 'Rp 7.200.000',
-    status: 'Approved',
-    approver: 'Rina Wati',
-  },
-  {
-    poNo: 'PO-202604-004',
-    date: '12 Apr 2026',
-    supplier: 'PT Supernova Flexible',
-    totalValue: 'Rp 3.250.000',
-    status: 'Draft',
-    approver: '-',
-  },
-]
+type POStatus =
+  | 'DRAFT'
+  | 'PENDING_APPROVAL'
+  | 'REVISION_REQUIRED'
+  | 'APPROVED'
+  | 'RELEASED'
+  | 'CANCELLED'
+
+type PurchaseOrderItem = {
+  id: string
+  productCode: string
+  productName: string
+  category: string
+  qty: number
+  unit: string
+  unitPrice: number
+  subtotal: number
+}
+
+type PurchaseOrder = {
+  id: string
+  poNo: string
+  poDate: string
+  expectedDeliveryDate: string | null
+  supplierId: string
+  supplierName: string
+  supplierContact: string
+  supplierAddress: string
+  prNo: string
+  requestedBy: string
+  department: string
+  subtotal: number
+  taxAmount: number
+  totalValue: number
+  status: POStatus
+  approvalLevel: string
+  approver: string
+  approvedAt: string | null
+  approvalNotes: string
+  rejectionReason: string
+  releasedAt: string | null
+  createdBy: string
+  productCode: string
+  productName: string
+  category: string
+  qty: number
+  unit: string
+  unitPrice: number
+  items: PurchaseOrderItem[]
+}
+
+type UserRole = 'PURCHASING' | 'MANAGER_PURCHASING' | 'DIRECTOR'
+
+function formatCurrency(value: number) {
+  return `Rp ${new Intl.NumberFormat('id-ID').format(value || 0)}`
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return '-'
+
+  return new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(value))
+}
+
+function formatStatus(status: POStatus) {
+  const statusMap: Record<POStatus, string> = {
+    DRAFT: 'Draft',
+    PENDING_APPROVAL: 'Pending Approval',
+    REVISION_REQUIRED: 'Revision Required',
+    APPROVED: 'Approved',
+    RELEASED: 'Released',
+    CANCELLED: 'Cancelled',
+  }
+
+  return statusMap[status] || status
+}
+
+function getStatusClass(status: POStatus) {
+  const statusClassMap: Record<POStatus, string> = {
+    DRAFT: 'bg-slate-100 text-slate-600',
+    PENDING_APPROVAL: 'bg-orange-100 text-orange-700',
+    REVISION_REQUIRED: 'bg-yellow-100 text-yellow-700',
+    APPROVED: 'bg-green-100 text-green-700',
+    RELEASED: 'bg-blue-100 text-blue-700',
+    CANCELLED: 'bg-red-100 text-red-700',
+  }
+
+  return statusClassMap[status] || 'bg-slate-100 text-slate-600'
+}
+
+function getItemSummary(items: PurchaseOrderItem[]) {
+  if (!items || items.length === 0) return '-'
+
+  return items.map((item) => item.productName).join(', ')
+}
 
 export function PurchaseOrdersClient() {
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('All Status')
   const [supplier, setSupplier] = useState('All Suppliers')
   const [dateRange, setDateRange] = useState('')
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false)
-  const [selectedPO, setSelectedPO] = useState<(typeof purchaseOrders)[0] | null>(null)
+  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [errorMessage, setErrorMessage] = useState('')
 
   // Simulasi role sementara.
-  // Ganti ke 'PURCHASING' untuk cek mode staf biasa.
-  // Ganti ke 'MANAGER_PURCHASING' untuk cek tombol approve/reject muncul.
-  type UserRole = 'PURCHASING' | 'MANAGER_PURCHASING' | 'DIRECTOR'
-
-  const [currentUserRole] = useState<UserRole>('PURCHASING')
+  // Kalau mau tombol approve/reject muncul, pakai MANAGER_PURCHASING.
+  // Kalau mau mode staff biasa, ganti ke PURCHASING.
+  const [currentUserRole] = useState<UserRole>('MANAGER_PURCHASING')
 
   const canApprovePO = currentUserRole === 'MANAGER_PURCHASING'
+
+  const fetchPurchaseOrders = async () => {
+    try {
+      setIsLoading(true)
+      setErrorMessage('')
+
+      const response = await fetch('/api/purchasing/purchase-orders')
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to fetch purchase orders')
+      }
+
+      setPurchaseOrders(result.data || [])
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to fetch purchase orders'
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchPurchaseOrders()
+  }, [])
+
+  const supplierOptions = useMemo(() => {
+    const suppliers = purchaseOrders.map((order) => order.supplierName)
+    return ['All Suppliers', ...Array.from(new Set(suppliers))]
+  }, [purchaseOrders])
 
   const filteredOrders = useMemo(() => {
     return purchaseOrders.filter((order) => {
       const matchesSearch =
         order.poNo.toLowerCase().includes(search.toLowerCase()) ||
-        order.supplier.toLowerCase().includes(search.toLowerCase())
+        order.supplierName.toLowerCase().includes(search.toLowerCase()) ||
+        order.prNo.toLowerCase().includes(search.toLowerCase()) ||
+        getItemSummary(order.items).toLowerCase().includes(search.toLowerCase())
 
-      const matchesStatus = status === 'All Status' || order.status === status
+      const matchesStatus =
+        status === 'All Status' || formatStatus(order.status) === status
 
       const matchesSupplier =
-        supplier === 'All Suppliers' || order.supplier === supplier
+        supplier === 'All Suppliers' || order.supplierName === supplier
 
-      return matchesSearch && matchesStatus && matchesSupplier
+      const matchesDate = !dateRange || order.poDate === dateRange
+
+      return matchesSearch && matchesStatus && matchesSupplier && matchesDate
     })
-  }, [search, status, supplier])
+  }, [purchaseOrders, search, status, supplier, dateRange])
+
+  const pendingApprovalCount = purchaseOrders.filter(
+    (order) => order.status === 'PENDING_APPROVAL'
+  ).length
+
+  const releasedCount = purchaseOrders.filter(
+    (order) => order.status === 'RELEASED'
+  ).length
+
+  const handleApprovePO = () => {
+    if (!selectedPO) return
+
+    setPurchaseOrders((currentOrders) =>
+      currentOrders.map((order) =>
+        order.id === selectedPO.id
+          ? {
+              ...order,
+              status: 'APPROVED',
+              approver: 'Manager Purchasing',
+              approvalNotes: 'Approved by Manager Purchasing.',
+            }
+          : order
+      )
+    )
+
+    setSelectedPO((currentPO) =>
+      currentPO
+        ? {
+            ...currentPO,
+            status: 'APPROVED',
+            approver: 'Manager Purchasing',
+            approvalNotes: 'Approved by Manager Purchasing.',
+          }
+        : currentPO
+    )
+  }
+
+  const handleRejectPO = () => {
+    if (!selectedPO) return
+
+    setPurchaseOrders((currentOrders) =>
+      currentOrders.map((order) =>
+        order.id === selectedPO.id
+          ? {
+              ...order,
+              status: 'REVISION_REQUIRED',
+              rejectionReason: 'Revision required by Manager Purchasing.',
+            }
+          : order
+      )
+    )
+
+    setSelectedPO((currentPO) =>
+      currentPO
+        ? {
+            ...currentPO,
+            status: 'REVISION_REQUIRED',
+            rejectionReason: 'Revision required by Manager Purchasing.',
+          }
+        : currentPO
+    )
+  }
 
   return (
     <ModuleLayout
@@ -108,6 +271,12 @@ export function PurchaseOrdersClient() {
           </Link>
         </div>
 
+        {errorMessage && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between">
@@ -115,7 +284,9 @@ export function PurchaseOrdersClient() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-red-500">
                   Total
                 </p>
-                <h3 className="mt-2 text-4xl font-bold text-slate-900">24</h3>
+                <h3 className="mt-2 text-4xl font-bold text-slate-900">
+                  {purchaseOrders.length}
+                </h3>
                 <p className="mt-1 text-xs text-slate-400">Total active PO</p>
               </div>
 
@@ -131,7 +302,9 @@ export function PurchaseOrdersClient() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">
                   Priority
                 </p>
-                <h3 className="mt-2 text-4xl font-bold text-slate-900">8</h3>
+                <h3 className="mt-2 text-4xl font-bold text-slate-900">
+                  {pendingApprovalCount}
+                </h3>
                 <p className="mt-1 text-xs text-slate-400">Pending approval</p>
               </div>
 
@@ -147,7 +320,9 @@ export function PurchaseOrdersClient() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">
                   Outgoing
                 </p>
-                <h3 className="mt-2 text-4xl font-bold text-slate-900">12</h3>
+                <h3 className="mt-2 text-4xl font-bold text-slate-900">
+                  {releasedCount}
+                </h3>
                 <p className="mt-1 text-xs text-slate-400">
                   Released to supplier
                 </p>
@@ -161,52 +336,62 @@ export function PurchaseOrdersClient() {
         </div>
 
         <div className="rounded-xl border border-red-100 bg-white p-4 shadow-sm">
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
-            <div className="relative">
-              <MagnifyingGlass
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+              <div className="relative">
+                <MagnifyingGlass
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+
+                <input
+                  type="text"
+                  placeholder="Search PO number, PR, supplier, or item..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-red-300"
+                />
+              </div>
+
+              <select
+                value={status}
+                onChange={(event) => setStatus(event.target.value)}
+                className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
+              >
+                <option>All Status</option>
+                <option>Draft</option>
+                <option>Pending Approval</option>
+                <option>Revision Required</option>
+                <option>Approved</option>
+                <option>Released</option>
+                <option>Cancelled</option>
+              </select>
+
+              <select
+                value={supplier}
+                onChange={(event) => setSupplier(event.target.value)}
+                className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
+              >
+                {supplierOptions.map((supplierOption) => (
+                  <option key={supplierOption}>{supplierOption}</option>
+                ))}
+              </select>
 
               <input
-                type="text"
-                placeholder="Search PO number or supplier..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-red-300"
+                type="date"
+                value={dateRange}
+                onChange={(event) => setDateRange(event.target.value)}
+                className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
               />
             </div>
 
-            <select
-              value={status}
-              onChange={(event) => setStatus(event.target.value)}
-              className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
+            <button
+              type="button"
+              onClick={() => setIsTrackingModalOpen(true)}
+              className="h-10 rounded-lg border border-red-200 px-4 text-sm font-semibold text-red-600 transition hover:bg-red-50"
             >
-              <option>All Status</option>
-              <option>Draft</option>
-              <option>Pending Approval</option>
-              <option>Approved</option>
-              <option>Released</option>
-            </select>
-
-            <select
-              value={supplier}
-              onChange={(event) => setSupplier(event.target.value)}
-              className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
-            >
-              <option>All Suppliers</option>
-              <option>PT Jawamanis Rafinasi</option>
-              <option>PT Aneka Coffee</option>
-              <option>PT Musim Mas</option>
-              <option>PT Supernova Flexible</option>
-            </select>
-
-            <input
-              type="date"
-              value={dateRange}
-              onChange={(event) => setDateRange(event.target.value)}
-              className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
-            />
+              Input Tracking Report
+            </button>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
@@ -217,6 +402,7 @@ export function PurchaseOrdersClient() {
                     <th className="px-4 py-3 font-semibold">PO No</th>
                     <th className="px-4 py-3 font-semibold">Date</th>
                     <th className="px-4 py-3 font-semibold">Supplier</th>
+                    <th className="px-4 py-3 font-semibold">Item</th>
                     <th className="px-4 py-3 font-semibold">Total Value</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
                     <th className="px-4 py-3 font-semibold">Approver</th>
@@ -227,84 +413,93 @@ export function PurchaseOrdersClient() {
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {filteredOrders.map((order) => (
-                    <tr key={order.poNo} className="hover:bg-red-50/30">
-                      <td className="px-4 py-4 font-bold text-red-600">
-                        {order.poNo}
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-600">
-                        {order.date}
-                      </td>
-
-                      <td className="px-4 py-4 font-medium text-slate-900">
-                        {order.supplier}
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-700">
-                        {order.totalValue}
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                            order.status === 'Released'
-                              ? 'bg-green-100 text-green-700'
-                              : order.status === 'Pending Approval'
-                                ? 'bg-orange-100 text-orange-700'
-                                : order.status === 'Approved'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-slate-100 text-slate-500'
-                          }`}
-                        >
-                          {order.status}
-                        </span>
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-600">
-                        {order.approver}
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <div className="flex items-center justify-end gap-3 text-slate-400">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedPO(order)}
-                            className="hover:text-slate-700"
-                            title="View PO Detail"
-                          >
-                            <Eye size={18} />
-                          </button>
-
-                          {(order.status === 'Draft' ||
-                            order.status === 'Revision Required') && (
-                            <button
-                              type="button"
-                              className="hover:text-red-600"
-                              title="Edit Draft PO"
-                            >
-                              <PencilSimple size={18} />
-                            </button>
-                          )}
-
-                          {order.status === 'Approved' && (
-                            <button
-                              type="button"
-                              className="hover:text-blue-600"
-                              title="Send PO to Supplier"
-                            >
-                              <PaperPlaneTilt size={18} weight="bold" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-
-                  {filteredOrders.length === 0 && (
+                  {isLoading ? (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={8}
+                        className="px-4 py-8 text-center text-sm text-slate-500"
+                      >
+                        Loading purchase order data...
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredOrders.map((order) => (
+                      <tr key={order.id} className="hover:bg-red-50/30">
+                        <td className="px-4 py-4 font-bold text-red-600">
+                          {order.poNo}
+                        </td>
+
+                        <td className="px-4 py-4 text-slate-600">
+                          {formatDate(order.poDate)}
+                        </td>
+
+                        <td className="px-4 py-4 font-medium text-slate-900">
+                          {order.supplierName}
+                        </td>
+
+                        <td className="px-4 py-4 text-slate-600">
+                          {getItemSummary(order.items)}
+                        </td>
+
+                        <td className="px-4 py-4 font-semibold text-slate-900">
+                          {formatCurrency(order.totalValue)}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
+                              order.status
+                            )}`}
+                          >
+                            {formatStatus(order.status)}
+                          </span>
+                        </td>
+
+                        <td className="px-4 py-4 text-slate-600">
+                          {order.approver}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPO(order)}
+                              className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-red-600"
+                              title="View PO Detail"
+                            >
+                              <Eye size={18} />
+                            </button>
+
+                            {(order.status === 'DRAFT' ||
+                              order.status === 'REVISION_REQUIRED') && (
+                              <Link
+                                href={`/apps/purchasing/purchase-orders/create?poNo=${order.poNo}`}
+                                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-red-600"
+                                title="Edit PO"
+                              >
+                                <PencilSimple size={18} />
+                              </Link>
+                            )}
+
+                            {order.status === 'APPROVED' && (
+                              <button
+                                type="button"
+                                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-blue-600"
+                                title="Send PO to Supplier"
+                              >
+                                <PaperPlaneTilt size={18} weight="bold" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+
+                  {!isLoading && filteredOrders.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={8}
                         className="px-4 py-8 text-center text-sm text-slate-500"
                       >
                         No purchase order data found.
@@ -316,26 +511,19 @@ export function PurchaseOrdersClient() {
             </div>
 
             <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
-              <p>Showing 1-4 of 24 purchase orders</p>
+              <p>
+                Showing {filteredOrders.length} of {purchaseOrders.length}{' '}
+                purchase order data
+              </p>
 
               <div className="flex items-center gap-2">
-                <button className="rounded-lg border border-slate-200 px-3 py-1 hover:bg-slate-50">
+                <button className="rounded-lg border border-slate-200 px-3 py-1 text-slate-500 hover:bg-slate-50">
                   ‹
                 </button>
-
                 <button className="rounded-lg bg-red-600 px-3 py-1 text-white">
                   1
                 </button>
-
-                <button className="rounded-lg border border-slate-200 px-3 py-1 hover:bg-slate-50">
-                  2
-                </button>
-
-                <button className="rounded-lg border border-slate-200 px-3 py-1 hover:bg-slate-50">
-                  3
-                </button>
-
-                <button className="rounded-lg border border-slate-200 px-3 py-1 hover:bg-slate-50">
+                <button className="rounded-lg border border-slate-200 px-3 py-1 text-slate-500 hover:bg-slate-50">
                   ›
                 </button>
               </div>
@@ -343,299 +531,248 @@ export function PurchaseOrdersClient() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="font-semibold text-slate-900">
               Monthly Procurement Trend
             </h3>
-
             <p className="mt-1 text-sm text-slate-500">
-              Supplier and purchase order trend analysis for the current month.
+              Purchase order volume for the last three months.
             </p>
 
-            <div className="mt-6 flex h-40 items-end gap-5">
-              <div className="h-24 flex-1 rounded-t-xl bg-red-700" />
-              <div className="h-32 flex-1 rounded-t-xl bg-red-500" />
-              <div className="h-20 flex-1 rounded-t-xl bg-red-300" />
-              <div className="h-36 flex-1 rounded-t-xl bg-slate-300" />
-              <div className="h-28 flex-1 rounded-t-xl bg-slate-400" />
+            <div className="mt-6 flex h-36 items-end gap-6">
+              <div className="flex flex-col items-center gap-2">
+                <div className="h-24 w-20 rounded-t-lg bg-red-700" />
+                <span className="text-xs text-slate-500">Apr</span>
+              </div>
+
+              <div className="flex flex-col items-center gap-2">
+                <div className="h-32 w-20 rounded-t-lg bg-red-500" />
+                <span className="text-xs text-slate-500">May</span>
+              </div>
+
+              <div className="flex flex-col items-center gap-2">
+                <div className="h-28 w-20 rounded-t-lg bg-blue-500" />
+                <span className="text-xs text-slate-500">Jun</span>
+              </div>
             </div>
           </div>
 
-          <div className="rounded-xl bg-red-700 p-5 text-white shadow-sm">
-            <h3 className="font-semibold">Smart Insights</h3>
-
-            <p className="mt-2 text-sm text-red-50">
-              Three suppliers show unusual delivery patterns this month.
+          <div className="rounded-xl bg-slate-900 p-5 text-white shadow-sm">
+            <h3 className="font-semibold">Smart Insight</h3>
+            <p className="mt-2 text-sm text-slate-300">
+              Prioritize PO with pending approval status and monitor approved PO
+              before sending to supplier.
             </p>
 
-            <button className="mt-6 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50">
-              View Detail
+            <button className="mt-6 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-slate-100">
+              View Insight
             </button>
           </div>
-        </div>
-
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setIsTrackingModalOpen(true)}
-            className="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
-          >
-            Input Tracking Report
-          </button>
         </div>
       </div>
 
       {selectedPO && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-xl bg-white shadow-xl">
+          <div className="w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <div>
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-3">
                   <h2 className="text-xl font-bold text-slate-900">
                     {selectedPO.poNo}
                   </h2>
 
                   <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      selectedPO.status === 'Pending Approval'
-                        ? 'bg-orange-100 text-orange-700'
-                        : selectedPO.status === 'Approved'
-                          ? 'bg-blue-100 text-blue-700'
-                          : selectedPO.status === 'Released'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-slate-100 text-slate-500'
-                    }`}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
+                      selectedPO.status
+                    )}`}
                   >
-                    {selectedPO.status}
+                    {formatStatus(selectedPO.status)}
                   </span>
                 </div>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Purchase order detail and approval review.
+                  Purchase order detail and approval information.
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={() => setSelectedPO(null)}
-                className="text-xl text-slate-400 hover:text-slate-700"
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
               >
-                ×
+                <X size={20} />
               </button>
             </div>
 
-            <div className="space-y-5 px-6 py-5">
-              <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h2 className="text-2xl font-bold text-slate-900">
-                        {selectedPO.poNo}
-                      </h2>
+            <div className="max-h-[75vh] overflow-y-auto px-6 py-5">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="rounded-xl border border-red-100 bg-red-50 p-4">
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    PO Date
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">
+                    {formatDate(selectedPO.poDate)}
+                  </p>
+                </div>
 
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          selectedPO.status === 'Pending Approval'
-                            ? 'bg-orange-100 text-orange-700'
-                            : selectedPO.status === 'Approved'
-                              ? 'bg-blue-100 text-blue-700'
-                              : selectedPO.status === 'Released'
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-slate-100 text-slate-500'
-                        }`}
-                      >
-                        {selectedPO.status}
-                      </span>
-                    </div>
+                <div className="rounded-xl border border-red-100 bg-red-50 p-4">
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    Supplier
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">
+                    {selectedPO.supplierName}
+                  </p>
+                </div>
 
-                    <p className="mt-3 text-sm text-slate-500">
-                      Created on {selectedPO.date}
-                    </p>
-                  </div>
-
-                  <div className="text-left md:text-right">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      Total PO Value
-                    </p>
-
-                    <p className="mt-1 text-3xl font-bold text-red-600">
-                      {selectedPO.totalValue}
-                    </p>
-
-                    <span className="mt-2 inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-                      Level 1 - Manager Purchasing Authority
-                    </span>
-                  </div>
+                <div className="rounded-xl border border-red-100 bg-red-50 p-4">
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    Total Value
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">
+                    {formatCurrency(selectedPO.totalValue)}
+                  </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-                <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
-                  <h3 className="border-b border-red-100 pb-3 text-lg font-semibold text-slate-900">
+              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="font-semibold text-slate-900">
                     Supplier Information
                   </h3>
 
-                  <div className="mt-4 space-y-4 text-sm">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <span className="text-slate-500">Name</span>
-                      <span className="font-bold text-slate-900">
-                        {selectedPO.supplier}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <span className="text-slate-500">Supplier ID</span>
-                      <span className="font-semibold text-slate-900">
-                        VND-RM-004
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <span className="text-slate-500">Product</span>
-                      <span className="font-semibold text-slate-900">
-                        Coffee Extract
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <span className="text-slate-500">Price</span>
-                      <span className="font-semibold text-slate-900">
-                        Rp 105.000/kg
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                      <span className="text-slate-500">Lead Time</span>
-                      <span className="font-semibold text-slate-900">
-                        5 Days
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Term of Payment</span>
-                      <span className="font-semibold text-slate-900">
-                        Net 30
-                      </span>
-                    </div>
+                  <div className="mt-3 space-y-2 text-sm text-slate-600">
+                    <p>
+                      <span className="font-medium text-slate-700">
+                        Supplier ID:
+                      </span>{' '}
+                      {selectedPO.supplierId}
+                    </p>
+                    <p>
+                      <span className="font-medium text-slate-700">
+                        Contact:
+                      </span>{' '}
+                      {selectedPO.supplierContact}
+                    </p>
+                    <p>
+                      <span className="font-medium text-slate-700">
+                        Address:
+                      </span>{' '}
+                      {selectedPO.supplierAddress}
+                    </p>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
-                  <h3 className="border-b border-red-100 pb-3 text-lg font-semibold text-slate-900">
-                    Order Detail
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="font-semibold text-slate-900">
+                    Approval Information
                   </h3>
 
-                  <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-                    <table className="w-full border-collapse text-left text-sm">
-                      <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                        <tr>
-                          <th className="px-4 py-3 font-semibold">Product</th>
-                          <th className="px-4 py-3 font-semibold">Qty</th>
-                          <th className="px-4 py-3 font-semibold">
-                            Unit Price
-                          </th>
-                          <th className="px-4 py-3 text-right font-semibold">
-                            Subtotal
-                          </th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        <tr>
-                          <td className="px-4 py-4 font-semibold text-slate-900">
-                            Coffee Extract
-                          </td>
-
-                          <td className="px-4 py-4 text-slate-700">100 kg</td>
-
-                          <td className="px-4 py-4 text-slate-700">
-                            Rp 105.000
-                          </td>
-
-                          <td className="px-4 py-4 text-right font-semibold text-slate-900">
-                            {selectedPO.totalValue}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-
-                    <div className="border-t border-slate-100 bg-red-50 px-4 py-4">
-                      <div className="flex items-center justify-end gap-8">
-                        <span className="text-sm font-semibold text-slate-600">
-                          Total
-                        </span>
-
-                        <span className="text-lg font-bold text-red-600">
-                          {selectedPO.totalValue}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-xl bg-slate-50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      Approval Rule
+                  <div className="mt-3 space-y-2 text-sm text-slate-600">
+                    <p>
+                      <span className="font-medium text-slate-700">
+                        Approval Level:
+                      </span>{' '}
+                      {selectedPO.approvalLevel}
                     </p>
-
-                    <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                      PO value up to Rp 100.000.000 requires approval from
-                      Manager Purchasing. PO value above Rp 100.000.000 requires
-                      approval from Director.
+                    <p>
+                      <span className="font-medium text-slate-700">
+                        Approver:
+                      </span>{' '}
+                      {selectedPO.approver}
+                    </p>
+                    <p>
+                      <span className="font-medium text-slate-700">
+                        Notes:
+                      </span>{' '}
+                      {selectedPO.approvalNotes}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
-                <label className="mb-3 block text-sm font-semibold text-slate-900">
-                  Approval Notes
-                </label>
+              <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Product</th>
+                      <th className="px-4 py-3 font-semibold">Qty</th>
+                      <th className="px-4 py-3 font-semibold">Unit Price</th>
+                      <th className="px-4 py-3 font-semibold">Subtotal</th>
+                    </tr>
+                  </thead>
 
-                <textarea
-                  placeholder="Write optional approval notes..."
-                  className="min-h-[100px] w-full rounded-xl border border-red-100 px-4 py-3 text-sm outline-none focus:border-red-300"
-                />
-
-                {selectedPO.status === 'Pending Approval' && canApprovePO ? (
-                  <div className="mt-5">
-                    <div className="mb-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700">
-                      You are authorized as Manager Purchasing to approve or
-                      reject this purchase order.
-                    </div>
-
-                    <div className="flex justify-end gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedPO(null)}
-                        className="inline-flex h-11 items-center gap-2 rounded-lg border border-red-200 bg-white px-5 text-sm font-semibold text-red-600 hover:bg-red-50"
-                      >
-                        <X size={16} weight="bold" />
-                        Reject
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setSelectedPO(null)}
-                        className="inline-flex h-11 items-center gap-2 rounded-lg bg-red-700 px-5 text-sm font-semibold text-white hover:bg-red-800"
-                      >
-                        <CheckCircle size={16} weight="bold" />
-                        Approve PO
-                      </button>
-                    </div>
-                  </div>
-                ) : selectedPO.status === 'Pending Approval' && !canApprovePO ? (
-                  <div className="mt-5 rounded-lg bg-yellow-50 px-4 py-3 text-sm text-yellow-700">
-                    You can view this purchase order, but approval actions are
-                    only available for Manager Purchasing.
-                  </div>
-                ) : (
-                  <div className="mt-5 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                    Approval action is only available for purchase orders with
-                    Pending Approval status.
-                  </div>
-                )}
+                  <tbody className="divide-y divide-slate-100">
+                    {selectedPO.items.map((item) => (
+                      <tr key={item.id}>
+                        <td className="px-4 py-4">
+                          <p className="font-semibold text-slate-900">
+                            {item.productName}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {item.productCode}
+                          </p>
+                        </td>
+                        <td className="px-4 py-4 text-slate-600">
+                          {item.qty} {item.unit}
+                        </td>
+                        <td className="px-4 py-4 text-slate-600">
+                          {formatCurrency(item.unitPrice)}
+                        </td>
+                        <td className="px-4 py-4 font-semibold text-slate-900">
+                          {formatCurrency(item.subtotal)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+
+              <div className="mt-5 rounded-xl bg-slate-50 p-4">
+                <div className="flex justify-between text-sm text-slate-600">
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(selectedPO.subtotal)}</span>
+                </div>
+                <div className="mt-2 flex justify-between text-sm text-slate-600">
+                  <span>Tax 11%</span>
+                  <span>{formatCurrency(selectedPO.taxAmount)}</span>
+                </div>
+                <div className="mt-3 flex justify-between border-t border-slate-200 pt-3 font-bold text-slate-900">
+                  <span>Grand Total</span>
+                  <span>{formatCurrency(selectedPO.totalValue)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setSelectedPO(null)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              >
+                Close
+              </button>
+
+              {selectedPO.status === 'PENDING_APPROVAL' && canApprovePO && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleRejectPO}
+                    className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                  >
+                    Request Revision
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleApprovePO}
+                    className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700"
+                  >
+                    <CheckCircle size={16} />
+                    Approve PO
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -644,8 +781,8 @@ export function PurchaseOrdersClient() {
       <TrackingReportModal
         isOpen={isTrackingModalOpen}
         onClose={() => setIsTrackingModalOpen(false)}
-        title="Input PO Tracking"
-        contextLabel="Purchase order status update"
+        title="Input Tracking Report"
+        contextLabel="Purchase Order Monitoring"
       />
     </ModuleLayout>
   )
