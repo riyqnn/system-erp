@@ -1,86 +1,163 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-const suppliers = [
-  {
-    supplierId: 'VND-RM-001',
-    supplierName: 'PT Jawamanis Rafinasi',
-    category: 'Raw Material',
-    product: 'Gula Pasir',
-    estimatedPrice: 'Rp 16.500/kg',
-    leadTime: '2 Days',
-    top: 'Net 30',
-    status: 'Active',
-  },
-  {
-    supplierId: 'VND-RM-004',
-    supplierName: 'PT Aneka Coffee',
-    category: 'Raw Material',
-    product: 'Ekstrak Kopi',
-    estimatedPrice: 'Rp 105.000/kg',
-    leadTime: '5 Days',
-    top: 'Net 30',
-    status: 'Active',
-  },
-  {
-    supplierId: 'VND-PM-001',
-    supplierName: 'PT Supernova Flexible',
-    category: 'Packaging',
-    product: 'Plastik Roll',
-    estimatedPrice: 'Rp 65.000/roll',
-    leadTime: '5 Days',
-    top: 'Net 30',
-    status: 'Active',
-  },
-  {
-    supplierId: 'VND-RM-012',
-    supplierName: 'PT Sumber Roso',
-    category: 'Raw Material',
-    product: 'Garam Industri',
-    estimatedPrice: 'Rp 8.000/kg',
-    leadTime: '3 Days',
-    top: 'Net 14',
-    status: 'Inactive',
-  },
-  {
-    supplierId: 'VND-PM-005',
-    supplierName: 'CV Kemas Jaya',
-    category: 'Packaging',
-    product: 'Karton Box',
-    estimatedPrice: 'Rp 12.000/pcs',
-    leadTime: '7 Days',
-    top: 'Net 45',
-    status: 'Active',
-  },
-]
+type SupplierStatus = 'ACTIVE' | 'INACTIVE'
+
+type Supplier = {
+  id: string
+  supplierId: string
+  supplierName: string
+  contact: string
+  address: string
+  productCode: string
+  product: string
+  category: string
+  unit: string
+  estimatedPrice: number
+  leadTime: number
+  termOfPayment: string
+  status: SupplierStatus
+}
+
+type SupplierForm = {
+  supplierCode: string
+  supplierName: string
+  contact: string
+  address: string
+  productSku: string
+  estimatedPrice: string
+  leadTimeDays: string
+  paymentTerm: string
+  status: SupplierStatus
+}
+
+const initialForm: SupplierForm = {
+  supplierCode: '',
+  supplierName: '',
+  contact: '',
+  address: '',
+  productSku: 'RM-001',
+  estimatedPrice: '',
+  leadTimeDays: '',
+  paymentTerm: 'NET_30',
+  status: 'ACTIVE',
+}
+
+function formatCurrency(value: number, unit: string) {
+  return `Rp ${new Intl.NumberFormat('id-ID').format(value)}/${unit}`
+}
+
+function formatPaymentTerm(value: string) {
+  return value.replace('NET_', 'Net ')
+}
+
+function formatStatus(value: SupplierStatus) {
+  return value === 'ACTIVE' ? 'Active' : 'Inactive'
+}
 
 export function SuppliersPageClient() {
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All Categories')
   const [status, setStatus] = useState('All Status')
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-  const [selectedStatus, setSelectedStatus] = useState<'Active' | 'Inactive'>(
-    'Active'
-  )
+  const [form, setForm] = useState<SupplierForm>(initialForm)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+
+  const fetchSuppliers = async () => {
+    try {
+      setIsLoading(true)
+      setErrorMessage('')
+
+      const response = await fetch('/api/purchasing/suppliers')
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to fetch suppliers')
+      }
+
+      setSuppliers(result.data || [])
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to fetch suppliers'
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchSuppliers()
+  }, [])
+
+  const categories = useMemo(() => {
+    const uniqueCategories = Array.from(
+      new Set(suppliers.map((supplier) => supplier.category))
+    )
+
+    return ['All Categories', ...uniqueCategories]
+  }, [suppliers])
 
   const filteredSuppliers = useMemo(() => {
     return suppliers.filter((supplier) => {
       const matchesSearch =
         supplier.supplierName.toLowerCase().includes(search.toLowerCase()) ||
         supplier.supplierId.toLowerCase().includes(search.toLowerCase()) ||
-        supplier.product.toLowerCase().includes(search.toLowerCase())
+        supplier.product.toLowerCase().includes(search.toLowerCase()) ||
+        supplier.productCode.toLowerCase().includes(search.toLowerCase())
 
       const matchesCategory =
         category === 'All Categories' || supplier.category === category
 
-      const matchesStatus = status === 'All Status' || supplier.status === status
+      const matchesStatus =
+        status === 'All Status' || formatStatus(supplier.status) === status
 
       return matchesSearch && matchesCategory && matchesStatus
     })
-  }, [search, category, status])
+  }, [suppliers, search, category, status])
+
+  const handleChange = (field: keyof SupplierForm, value: string) => {
+    setForm((currentForm) => ({
+      ...currentForm,
+      [field]: value,
+    }))
+  }
+
+  const handleAddSupplier = async () => {
+    try {
+      setIsSaving(true)
+      setErrorMessage('')
+
+      const response = await fetch('/api/purchasing/suppliers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(form),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to save supplier')
+      }
+
+      setForm(initialForm)
+      setIsAddModalOpen(false)
+      await fetchSuppliers()
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to save supplier'
+      )
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   return (
     <ModuleLayout
@@ -97,6 +174,12 @@ export function SuppliersPageClient() {
           title="Suppliers"
           description="Manage and monitor all approved suppliers."
         />
+
+        {errorMessage && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        )}
 
         <div className="rounded-xl border border-red-100 bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -119,9 +202,9 @@ export function SuppliersPageClient() {
                 onChange={(event) => setCategory(event.target.value)}
                 className="h-10 rounded-lg border border-red-100 bg-white px-3 text-sm outline-none transition focus:border-red-300"
               >
-                <option>All Categories</option>
-                <option>Raw Material</option>
-                <option>Packaging</option>
+                {categories.map((categoryOption) => (
+                  <option key={categoryOption}>{categoryOption}</option>
+                ))}
               </select>
 
               <select
@@ -161,49 +244,63 @@ export function SuppliersPageClient() {
                 </thead>
 
                 <tbody className="divide-y divide-red-50">
-                  {filteredSuppliers.map((supplier) => (
-                    <tr key={supplier.supplierId} className="hover:bg-red-50/30">
-                      <td className="px-4 py-4 text-xs font-medium text-slate-700">
-                        {supplier.supplierId}
-                      </td>
-                      <td className="px-4 py-4 font-semibold text-slate-900">
-                        {supplier.supplierName}
-                      </td>
-                      <td className="px-4 py-4 text-slate-600">
-                        {supplier.category}
-                      </td>
-                      <td className="px-4 py-4 text-slate-600">
-                        {supplier.product}
-                      </td>
-                      <td className="px-4 py-4 text-slate-700">
-                        {supplier.estimatedPrice}
-                      </td>
-                      <td className="px-4 py-4 text-slate-700">
-                        {supplier.leadTime}
-                      </td>
-                      <td className="px-4 py-4 text-slate-700">
-                        {supplier.top}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                            supplier.status === 'Active'
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-slate-100 text-slate-500'
-                          }`}
-                        >
-                          {supplier.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-right">
-                        <button className="text-xl font-bold text-red-700">
-                          ⋮
-                        </button>
+                  {isLoading ? (
+                    <tr>
+                      <td
+                        colSpan={9}
+                        className="px-4 py-8 text-center text-sm text-slate-500"
+                      >
+                        Loading supplier data...
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredSuppliers.map((supplier) => (
+                      <tr key={supplier.id} className="hover:bg-red-50/30">
+                        <td className="px-4 py-4 text-xs font-medium text-slate-700">
+                          {supplier.supplierId}
+                        </td>
+                        <td className="px-4 py-4 font-semibold text-slate-900">
+                          {supplier.supplierName}
+                        </td>
+                        <td className="px-4 py-4 text-slate-600">
+                          {supplier.category}
+                        </td>
+                        <td className="px-4 py-4 text-slate-600">
+                          {supplier.product}
+                        </td>
+                        <td className="px-4 py-4 text-slate-700">
+                          {formatCurrency(
+                            supplier.estimatedPrice,
+                            supplier.unit
+                          )}
+                        </td>
+                        <td className="px-4 py-4 text-slate-700">
+                          {supplier.leadTime} Days
+                        </td>
+                        <td className="px-4 py-4 text-slate-700">
+                          {formatPaymentTerm(supplier.termOfPayment)}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                              supplier.status === 'ACTIVE'
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {formatStatus(supplier.status)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <button className="text-xl font-bold text-red-700">
+                            ⋮
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
 
-                  {filteredSuppliers.length === 0 && (
+                  {!isLoading && filteredSuppliers.length === 0 && (
                     <tr>
                       <td
                         colSpan={9}
@@ -218,7 +315,10 @@ export function SuppliersPageClient() {
             </div>
 
             <div className="flex flex-col gap-3 border-t border-red-50 px-4 py-3 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
-              <p>Showing {filteredSuppliers.length} of 18 supplier data</p>
+              <p>
+                Showing {filteredSuppliers.length} of {suppliers.length} supplier
+                data
+              </p>
 
               <div className="flex items-center gap-2">
                 <button className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
@@ -226,12 +326,6 @@ export function SuppliersPageClient() {
                 </button>
                 <button className="rounded-lg bg-red-700 px-3 py-1 text-white">
                   1
-                </button>
-                <button className="rounded-lg px-3 py-1 text-slate-600 hover:bg-slate-100">
-                  2
-                </button>
-                <button className="rounded-lg px-3 py-1 text-slate-600 hover:bg-slate-100">
-                  3
                 </button>
                 <button className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
                   ›
@@ -245,8 +339,7 @@ export function SuppliersPageClient() {
           <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
             <h3 className="font-semibold text-slate-900">Supplier Statistics</h3>
             <p className="mt-1 text-sm text-slate-500">
-              Supplier category distribution based on this year procurement
-              volume.
+              Supplier category distribution based on supplier product profile.
             </p>
 
             <div className="mt-6 flex h-32 items-end gap-6">
@@ -287,34 +380,18 @@ export function SuppliersPageClient() {
 
             <div className="grid grid-cols-1 gap-4 px-6 py-5 md:grid-cols-2">
               <div>
-                <label className="mb-1 flex items-center gap-2 text-xs font-semibold text-slate-600">
+                <label className="mb-1 block text-xs font-semibold text-slate-600">
                   Supplier ID
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
-                    AUTO-GENERATE
-                  </span>
                 </label>
                 <input
                   type="text"
-                  value="VND-RM-001"
-                  readOnly
-                  className="h-10 w-full rounded-lg border border-red-100 bg-slate-100 px-3 text-sm text-slate-500 outline-none"
+                  placeholder="Example: VND-RM-006"
+                  value={form.supplierCode}
+                  onChange={(event) =>
+                    handleChange('supplierCode', event.target.value)
+                  }
+                  className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300"
                 />
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600">
-                  Estimated Price / Unit
-                </label>
-                <div className="flex h-10 overflow-hidden rounded-lg border border-red-100 focus-within:border-red-300">
-                  <span className="flex items-center border-r border-red-100 px-3 text-sm text-slate-500">
-                    Rp
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="16.500"
-                    className="w-full px-3 text-sm outline-none"
-                  />
-                </div>
               </div>
 
               <div>
@@ -323,120 +400,142 @@ export function SuppliersPageClient() {
                 </label>
                 <input
                   type="text"
-                  placeholder="PT Jawamanis Rafinasi"
+                  placeholder="Example: PT Supplier Baru"
+                  value={form.supplierName}
+                  onChange={(event) =>
+                    handleChange('supplierName', event.target.value)
+                  }
                   className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300"
                 />
               </div>
 
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">
-                  Unit of Measure
+                  Contact
                 </label>
                 <input
                   type="text"
-                  placeholder="kg"
+                  placeholder="supplier@email.com"
+                  value={form.contact}
+                  onChange={(event) => handleChange('contact', event.target.value)}
                   className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300"
                 />
               </div>
 
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">
-                  Category
+                  Address
                 </label>
-                <select className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300">
-                  <option>Raw Material</option>
-                  <option>Packaging</option>
+                <input
+                  type="text"
+                  placeholder="City, Province"
+                  value={form.address}
+                  onChange={(event) => handleChange('address', event.target.value)}
+                  className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">
+                  Product SKU
+                </label>
+                <select
+                  value={form.productSku}
+                  onChange={(event) =>
+                    handleChange('productSku', event.target.value)
+                  }
+                  className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300"
+                >
+                  <option value="RM-001">RM-001</option>
+                  <option value="RM-002">RM-002</option>
+                  <option value="RM-003">RM-003</option>
+                  <option value="RM-004">RM-004</option>
+                  <option value="RM-005">RM-005</option>
+                  <option value="PM-001">PM-001</option>
+                  <option value="PM-002">PM-002</option>
                 </select>
               </div>
 
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">
-                  Lead Time
+                  Estimated Price
                 </label>
-                <div className="flex h-10 overflow-hidden rounded-lg border border-red-100 focus-within:border-red-300">
-                  <input
-                    type="text"
-                    placeholder="2"
-                    className="w-full px-3 text-sm outline-none"
-                  />
-                  <span className="flex items-center border-l border-red-100 px-3 text-sm text-slate-500">
-                    Days
-                  </span>
-                </div>
+                <input
+                  type="number"
+                  placeholder="Example: 16500"
+                  value={form.estimatedPrice}
+                  onChange={(event) =>
+                    handleChange('estimatedPrice', event.target.value)
+                  }
+                  className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300"
+                />
               </div>
 
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">
-                  Product
+                  Lead Time Days
                 </label>
-                <select className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300">
-                  <option>Gula Pasir</option>
-                  <option>Ekstrak Kopi</option>
-                  <option>Plastik Roll</option>
-                  <option>Garam Industri</option>
-                  <option>Karton Box</option>
-                </select>
+                <input
+                  type="number"
+                  placeholder="Example: 5"
+                  value={form.leadTimeDays}
+                  onChange={(event) =>
+                    handleChange('leadTimeDays', event.target.value)
+                  }
+                  className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300"
+                />
               </div>
 
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">
                   Term of Payment
                 </label>
-                <input
-                  type="text"
-                  placeholder="Net 30"
+                <select
+                  value={form.paymentTerm}
+                  onChange={(event) =>
+                    handleChange('paymentTerm', event.target.value)
+                  }
                   className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300"
-                />
+                >
+                  <option value="NET_14">Net 14</option>
+                  <option value="NET_30">Net 30</option>
+                  <option value="NET_45">Net 45</option>
+                </select>
               </div>
 
-              <div className="md:col-span-2">
-                <label className="mb-2 block text-xs font-semibold text-slate-600">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">
                   Status
                 </label>
-
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedStatus('Active')}
-                    className={`rounded-full px-5 py-2 text-xs font-semibold transition ${
-                      selectedStatus === 'Active'
-                        ? 'bg-red-700 text-white'
-                        : 'border border-red-100 text-slate-500 hover:bg-red-50'
-                    }`}
-                  >
-                    Active
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSelectedStatus('Inactive')}
-                    className={`rounded-full px-5 py-2 text-xs font-semibold transition ${
-                      selectedStatus === 'Inactive'
-                        ? 'bg-red-700 text-white'
-                        : 'border border-red-100 text-slate-500 hover:bg-red-50'
-                    }`}
-                  >
-                    Inactive
-                  </button>
-                </div>
+                <select
+                  value={form.status}
+                  onChange={(event) =>
+                    handleChange('status', event.target.value as SupplierStatus)
+                  }
+                  className="h-10 w-full rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300"
+                >
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                </select>
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+            <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
               <button
                 type="button"
                 onClick={() => setIsAddModalOpen(false)}
-                className="rounded-lg border border-slate-300 bg-white px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
               >
                 Cancel
               </button>
 
               <button
                 type="button"
-                onClick={() => setIsAddModalOpen(false)}
-                className="rounded-lg bg-red-700 px-5 py-2 text-sm font-medium text-white hover:bg-red-800"
+                onClick={handleAddSupplier}
+                disabled={isSaving}
+                className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-red-300"
               >
-                Save Supplier
+                {isSaving ? 'Saving...' : 'Save Supplier'}
               </button>
             </div>
           </div>
