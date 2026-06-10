@@ -1,37 +1,205 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  Scales,
+  ShoppingCart,
+  Package,
   FileText,
-  Truck,
-  Receipt,
   CheckCircle,
-  PaperPlaneTilt,
-  Sparkle,
+  WarningCircle,
 } from '@phosphor-icons/react'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-const matchingResults = [
-  {
-    label: 'Product',
-    detail: 'MATCH (RM-001 Gula Pasir)',
-  },
-  {
-    label: 'Quantity',
-    detail: 'MATCH (500 kg = 500 kg = 500 kg)',
-  },
-  {
-    label: 'Price',
-    detail: 'MATCH (Rp 16.500/kg)',
-  },
-]
+type MatchStatus = 'MATCHED' | 'MISMATCH' | 'PENDING'
+
+type MatchingResult = {
+  id: string
+  checkItem: string
+  checkResult: 'MATCH' | 'MISMATCH'
+  detail: string
+}
+
+type ThreeWayMatching = {
+  id: string
+  matchingNo: string
+  matchStatus: MatchStatus
+  sentToFinance: boolean
+  sentToFinanceAt: string | null
+  createdAt: string
+
+  poNo: string
+  poDate: string | null
+  poStatus: string
+  poSubtotal: number
+  poTaxAmount: number
+  poTotalValue: number
+
+  grNo: string
+  receiptDate: string | null
+  grStatus: string
+
+  invoiceNo: string
+  invoiceDate: string | null
+  dueDate: string | null
+  invoiceSubtotal: number
+  invoiceTaxAmount: number
+  invoiceGrandTotal: number
+  paymentStatus: string
+
+  supplierId: string
+  supplierName: string
+  supplierContact: string
+  supplierAddress: string
+
+  productCode: string
+  productName: string
+  category: string
+  poQty: number
+  grReceivedQty: number
+  unit: string
+  unitPrice: number
+
+  results: MatchingResult[]
+}
+
+function formatCurrency(value: number) {
+  return `Rp ${new Intl.NumberFormat('id-ID').format(value || 0)}`
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return '-'
+
+  return new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(value))
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('id-ID').format(value || 0)
+}
+
+function formatMatchStatus(status: MatchStatus) {
+  const statusMap: Record<MatchStatus, string> = {
+    MATCHED: 'Matched',
+    MISMATCH: 'Mismatch',
+    PENDING: 'Pending',
+  }
+
+  return statusMap[status] || status
+}
+
+function getMatchStatusClass(status: MatchStatus) {
+  const statusClassMap: Record<MatchStatus, string> = {
+    MATCHED: 'bg-green-100 text-green-700',
+    MISMATCH: 'bg-red-100 text-red-700',
+    PENDING: 'bg-amber-100 text-amber-700',
+  }
+
+  return statusClassMap[status] || 'bg-slate-100 text-slate-600'
+}
+
+function getResultClass(result: 'MATCH' | 'MISMATCH') {
+  return result === 'MATCH'
+    ? 'bg-green-100 text-green-700'
+    : 'bg-red-100 text-red-700'
+}
 
 export function ThreeWayMatchingClient() {
-  const [selectedInvoice, setSelectedInvoice] = useState(
-    'INV-JWM-20260401 | PT Jawamanis Rafinasi | Rp 8.250.000'
-  )
-  const [hasMatched, setHasMatched] = useState(true)
+  const [matchings, setMatchings] = useState<ThreeWayMatching[]>([])
+  const [selectedMatchingId, setSelectedMatchingId] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSending, setIsSending] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+
+  const fetchMatchings = async () => {
+    try {
+      setIsLoading(true)
+      setErrorMessage('')
+
+      const response = await fetch('/api/purchasing/three-way-matchings')
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to fetch three-way matching data')
+      }
+
+      const matchingData = result.data || []
+      setMatchings(matchingData)
+
+      if (matchingData.length > 0) {
+        setSelectedMatchingId(matchingData[0].id)
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Failed to fetch three-way matching data'
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchMatchings()
+  }, [])
+
+  const selectedMatching = useMemo(() => {
+    return matchings.find((item) => item.id === selectedMatchingId) || null
+  }, [matchings, selectedMatchingId])
+
+  const matchedCount = matchings.filter(
+    (item) => item.matchStatus === 'MATCHED'
+  ).length
+
+  const mismatchCount = matchings.filter(
+    (item) => item.matchStatus === 'MISMATCH'
+  ).length
+
+  const pendingCount = matchings.filter(
+    (item) => item.matchStatus === 'PENDING'
+  ).length
+
+  const handleSendToFinance = async () => {
+    if (!selectedMatching) return
+
+    try {
+      setIsSending(true)
+      setErrorMessage('')
+
+      const response = await fetch('/api/purchasing/three-way-matchings', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchingNo: selectedMatching.matchingNo,
+          sentToFinance: true,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to send matching to finance')
+      }
+
+      await fetchMatchings()
+      alert('Matching result has been sent to Finance.')
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Failed to send matching to finance'
+      )
+    } finally {
+      setIsSending(false)
+    }
+  }
 
   return (
     <ModuleLayout
@@ -46,239 +214,361 @@ export function ThreeWayMatchingClient() {
       <div className="space-y-6">
         <ModuleHeader
           title="Three-Way Matching"
-          description="Verify consistency between purchase order, goods receipt, and supplier invoice."
+          description="Match purchase order, goods receipt, and supplier invoice before sending to finance."
         />
 
+        {errorMessage && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase text-slate-400">
+                  Matched
+                </p>
+                <h3 className="mt-2 text-4xl font-bold text-slate-900">
+                  {matchedCount}
+                </h3>
+              </div>
+              <div className="rounded-xl bg-green-50 p-3">
+                <CheckCircle size={22} className="text-green-600" />
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase text-slate-400">
+                  Mismatch
+                </p>
+                <h3 className="mt-2 text-4xl font-bold text-slate-900">
+                  {mismatchCount}
+                </h3>
+              </div>
+              <div className="rounded-xl bg-red-50 p-3">
+                <WarningCircle size={22} className="text-red-600" />
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase text-slate-400">
+                  Pending
+                </p>
+                <h3 className="mt-2 text-4xl font-bold text-slate-900">
+                  {pendingCount}
+                </h3>
+              </div>
+              <div className="rounded-xl bg-amber-50 p-3">
+                <Scales size={22} className="text-amber-600" />
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
-          <label className="mb-2 block text-xs font-semibold text-slate-600">
-            Select Supplier Invoice
-          </label>
-
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
-            <select
-              value={selectedInvoice}
-              onChange={(event) => setSelectedInvoice(event.target.value)}
-              className="h-11 w-full rounded-lg border border-slate-200 px-3 text-sm font-medium outline-none focus:border-red-300"
-            >
-              <option>
-                INV-JWM-20260401 | PT Jawamanis Rafinasi | Rp 8.250.000
-              </option>
-              <option>
-                INV-ANK-20260402 | PT Aneka Coffee | Rp 10.500.000
-              </option>
-              <option>
-                INV-SPF-20260403 | PT Supernova Flexible | Rp 6.500.000
-              </option>
-            </select>
-
-            <button
-              type="button"
-              onClick={() => setHasMatched(true)}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-red-700 px-5 text-sm font-semibold text-white hover:bg-red-800"
-            >
-              <Sparkle size={18} weight="bold" />
-              Run Matching
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between bg-blue-600 px-5 py-3 text-white">
-              <h3 className="font-semibold">Purchase Order</h3>
-              <FileText size={20} weight="bold" />
-            </div>
-
-            <div className="space-y-4 p-5 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Transaction ID</span>
-                <span className="font-bold text-slate-900">PO-202604-001</span>
-              </div>
-
-              <div className="border-t border-dashed border-slate-200 pt-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Product</span>
-                  <span className="font-semibold text-slate-900">Gula Pasir</span>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="text-slate-500">Quantity</span>
-                  <span className="font-semibold text-slate-900">500 kg</span>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="text-slate-500">Unit Price</span>
-                  <span className="font-semibold text-slate-900">
-                    Rp 16.500/kg
-                  </span>
-                </div>
-              </div>
-
-              <div className="border-t border-dashed border-slate-200 pt-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900">Total PO</span>
-                  <span className="font-bold text-blue-600">Rp 8.250.000</span>
-                </div>
-              </div>
-            </div>
+          <div className="mb-4 flex items-center gap-2">
+            <Scales size={20} className="text-red-600" />
+            <h3 className="text-lg font-semibold text-slate-900">
+              Select Matching Document
+            </h3>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-green-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between bg-green-600 px-5 py-3 text-white">
-              <h3 className="font-semibold">Goods Receipt</h3>
-              <Truck size={20} weight="bold" />
+          {isLoading ? (
+            <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
+              Loading three-way matching data...
             </div>
-
-            <div className="space-y-4 p-5 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Receipt ID</span>
-                <span className="font-bold text-slate-900">GR-202604-001</span>
-              </div>
-
-              <div className="border-t border-dashed border-slate-200 pt-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Product</span>
-                  <span className="font-semibold text-slate-900">Gula Pasir</span>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="text-slate-500">Received Qty</span>
-                  <span className="font-semibold text-slate-900">500 kg</span>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="text-slate-500">Exp. Date</span>
-                  <span className="font-semibold text-slate-900">
-                    2028-04-01
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex justify-end border-t border-dashed border-slate-200 pt-4">
-                <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-                  <CheckCircle size={14} weight="bold" />
-                  Accepted
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-orange-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between bg-orange-500 px-5 py-3 text-white">
-              <h3 className="font-semibold">Supplier Invoice</h3>
-              <Receipt size={20} weight="bold" />
-            </div>
-
-            <div className="space-y-4 p-5 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Invoice ID</span>
-                <span className="font-bold text-slate-900">
-                  INV-JWM-20260401
-                </span>
-              </div>
-
-              <div className="border-t border-dashed border-slate-200 pt-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Product</span>
-                  <span className="font-semibold text-slate-900">Gula Pasir</span>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="text-slate-500">Billed Qty</span>
-                  <span className="font-semibold text-slate-900">500 kg</span>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="text-slate-500">Billed Price</span>
-                  <span className="font-semibold text-slate-900">
-                    Rp 16.500/kg
-                  </span>
-                </div>
-              </div>
-
-              <div className="border-t border-dashed border-slate-200 pt-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-900">Total Invoice</span>
-                  <span className="font-bold text-orange-600">
-                    Rp 8.250.000
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {hasMatched && (
-          <div className="overflow-hidden rounded-xl border border-green-200 bg-white shadow-sm">
-            <div className="bg-green-600 px-6 py-10 text-center text-white">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white text-green-600">
-                <CheckCircle size={38} weight="fill" />
-              </div>
-
-              <h2 className="mt-4 text-3xl font-bold tracking-wide">
-                MATCHING SUCCESSFUL
-              </h2>
-              <p className="mt-2 text-sm text-green-50">
-                All documents are synchronized and valid.
-              </p>
-            </div>
-
-            <div className="space-y-3 bg-green-50 px-6 py-5">
-              {matchingResults.map((result) => (
-                <div
-                  key={result.label}
-                  className="flex items-center justify-between rounded-lg border border-green-200 bg-white px-4 py-3"
+          ) : (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.8fr]">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-500">
+                  Supplier Invoice
+                </label>
+                <select
+                  value={selectedMatchingId}
+                  onChange={(event) => setSelectedMatchingId(event.target.value)}
+                  className="h-11 w-full rounded-lg border border-red-100 px-3 text-sm font-medium outline-none focus:border-red-300"
                 >
-                  <div className="flex items-center gap-3">
-                    <CheckCircle size={20} weight="fill" className="text-green-600" />
-                    <span className="text-sm font-medium text-slate-700">
-                      {result.label}: {result.detail}
+                  {matchings.map((matching) => (
+                    <option key={matching.id} value={matching.id}>
+                      {matching.invoiceNo} — {matching.supplierName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase text-slate-400">
+                    Matching No
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">
+                    {selectedMatching?.matchingNo || '-'}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-semibold uppercase text-slate-400">
+                    Supplier
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">
+                    {selectedMatching?.supplierName || '-'}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-semibold uppercase text-slate-400">
+                    Status
+                  </p>
+                  {selectedMatching && (
+                    <span
+                      className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getMatchStatusClass(
+                        selectedMatching.matchStatus
+                      )}`}
+                    >
+                      {formatMatchStatus(selectedMatching.matchStatus)}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-semibold uppercase text-slate-400">
+                    Finance
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">
+                    {selectedMatching?.sentToFinance ? 'Sent' : 'Not Sent'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {selectedMatching && (
+          <>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+              <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center gap-2">
+                  <ShoppingCart size={20} className="text-red-600" />
+                  <h3 className="font-semibold text-slate-900">
+                    Purchase Order
+                  </h3>
+                </div>
+
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-slate-500">PO Number</span>
+                    <span className="font-semibold text-slate-900">
+                      {selectedMatching.poNo}
                     </span>
                   </div>
-
-                  <span className="text-xs font-bold uppercase text-green-700">
-                    Verified
-                  </span>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-slate-500">PO Date</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatDate(selectedMatching.poDate)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-slate-500">Total</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatCurrency(selectedMatching.poTotalValue)}
+                    </span>
+                  </div>
                 </div>
-              ))}
+              </div>
+
+              <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center gap-2">
+                  <Package size={20} className="text-red-600" />
+                  <h3 className="font-semibold text-slate-900">
+                    Goods Receipt
+                  </h3>
+                </div>
+
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-slate-500">GR Number</span>
+                    <span className="font-semibold text-slate-900">
+                      {selectedMatching.grNo}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-slate-500">Receipt Date</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatDate(selectedMatching.receiptDate)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-slate-500">Received Qty</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatNumber(selectedMatching.grReceivedQty)}{' '}
+                      {selectedMatching.unit}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center gap-2">
+                  <FileText size={20} className="text-red-600" />
+                  <h3 className="font-semibold text-slate-900">
+                    Supplier Invoice
+                  </h3>
+                </div>
+
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-slate-500">Invoice No</span>
+                    <span className="font-semibold text-slate-900">
+                      {selectedMatching.invoiceNo}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-slate-500">Invoice Date</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatDate(selectedMatching.invoiceDate)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-slate-500">Grand Total</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatCurrency(selectedMatching.invoiceGrandTotal)}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="border-t border-green-100 bg-white px-6 py-5">
-              <div className="rounded-xl bg-slate-50 p-5">
-                <div className="grid grid-cols-1 gap-4 text-center md:grid-cols-2">
+            <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">
+                    Matching Result
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Comparison result between PO, GR, and supplier invoice.
+                  </p>
+                </div>
+
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${getMatchStatusClass(
+                    selectedMatching.matchStatus
+                  )}`}
+                >
+                  {formatMatchStatus(selectedMatching.matchStatus)}
+                </span>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Check Item</th>
+                      <th className="px-4 py-3 font-semibold">Result</th>
+                      <th className="px-4 py-3 font-semibold">Detail</th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+                    {selectedMatching.results.map((result) => (
+                      <tr key={result.id}>
+                        <td className="px-4 py-4 font-semibold text-slate-900">
+                          {result.checkItem}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${getResultClass(
+                              result.checkResult
+                            )}`}
+                          >
+                            {result.checkResult}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-slate-600">
+                          {result.detail}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-5 rounded-xl bg-slate-50 p-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                   <div>
                     <p className="text-xs font-semibold uppercase text-slate-400">
-                      Subtotal
+                      Product
                     </p>
-                    <p className="mt-1 text-lg font-bold text-slate-900">
-                      Rp 8.250.000
+                    <p className="mt-1 font-bold text-slate-900">
+                      {selectedMatching.productName}
                     </p>
                   </div>
 
                   <div>
                     <p className="text-xs font-semibold uppercase text-slate-400">
-                      Due Date
+                      PO Qty
                     </p>
-                    <p className="mt-1 text-lg font-bold text-slate-900">
-                      10 May 2026
+                    <p className="mt-1 font-bold text-slate-900">
+                      {formatNumber(selectedMatching.poQty)}{' '}
+                      {selectedMatching.unit}
                     </p>
-                    <p className="text-xs font-semibold text-red-600">
-                      Net 30
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-slate-400">
+                      GR Qty
+                    </p>
+                    <p className="mt-1 font-bold text-slate-900">
+                      {formatNumber(selectedMatching.grReceivedQty)}{' '}
+                      {selectedMatching.unit}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-slate-400">
+                      Unit Price
+                    </p>
+                    <p className="mt-1 font-bold text-slate-900">
+                      {formatCurrency(selectedMatching.unitPrice)}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <button className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-red-700 px-5 py-3 text-sm font-semibold text-white hover:bg-red-800">
-                <PaperPlaneTilt size={18} weight="bold" />
-                Confirm and Send to Finance
-              </button>
+              <div className="mt-5 flex flex-col justify-end gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Review Document
+                </button>
 
-              <p className="mt-4 text-center text-xs text-slate-400">
-                This action will lock the documents and register payment obligations in the Finance module.
-              </p>
+                <button
+                  type="button"
+                  onClick={handleSendToFinance}
+                  disabled={
+                    isSending ||
+                    selectedMatching.sentToFinance ||
+                    selectedMatching.matchStatus !== 'MATCHED'
+                  }
+                  className="rounded-lg bg-red-700 px-5 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {selectedMatching.sentToFinance
+                    ? 'Already Sent to Finance'
+                    : isSending
+                      ? 'Sending...'
+                      : 'Confirm and Send to Finance'}
+                </button>
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     </ModuleLayout>

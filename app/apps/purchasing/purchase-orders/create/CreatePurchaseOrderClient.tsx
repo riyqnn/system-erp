@@ -35,6 +35,24 @@ export function CreatePurchaseOrderClient() {
   const [items, setItems] = useState(initialItems)
   const [notes, setNotes] = useState('')
 
+  const handleCloseForm = () => {
+    const isConfirmed = window.confirm(
+      'Are you sure you want to leave this form? Unsaved changes will be lost.'
+    )
+
+    if (isConfirmed) {
+      router.push('/apps/purchasing/purchase-orders')
+    }
+  }
+
+  const handleSaveDraft = () => {
+    router.push('/apps/purchasing/purchase-orders')
+  }
+
+  const handleSubmitForApproval = () => {
+    router.push('/apps/purchasing/purchase-orders')
+  }
+
   const subtotal = useMemo(() => {
     return items.reduce((total, item) => {
       return total + Number(item.qty || 0) * item.unitPrice
@@ -89,10 +107,21 @@ export function CreatePurchaseOrderClient() {
       ]}
     >
       <div className="space-y-6">
-        <ModuleHeader
-          title="Create Purchase Order"
-          description="Create a purchase order based on approved requisition and supplier quotation."
-        />
+        <div className="flex items-start justify-between gap-4">
+          <ModuleHeader
+            title="Create Purchase Order"
+            description="Create a purchase order based on approved requisition and supplier quotation."
+          />
+
+          <button
+            type="button"
+            onClick={handleCloseForm}
+            className="text-2xl font-semibold text-slate-400 hover:text-red-600"
+            title="Close form"
+          >
+            ×
+          </button>
+        </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
@@ -221,7 +250,9 @@ export function CreatePurchaseOrderClient() {
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <ShoppingCart size={20} className="text-red-600" />
-              <h3 className="font-semibold text-slate-900">Purchase Order Items</h3>
+              <h3 className="font-semibold text-slate-900">
+                Purchase Order Items
+              </h3>
             </div>
 
             <button
@@ -244,7 +275,9 @@ export function CreatePurchaseOrderClient() {
                     <th className="px-4 py-3 font-semibold">Unit</th>
                     <th className="px-4 py-3 font-semibold">Unit Price</th>
                     <th className="px-4 py-3 font-semibold">Subtotal</th>
-                    <th className="px-4 py-3 text-right font-semibold">Delete</th>
+                    <th className="px-4 py-3 text-right font-semibold">
+                      Delete
+                    </th>
                   </tr>
                 </thead>
 
@@ -336,7 +369,7 @@ export function CreatePurchaseOrderClient() {
         <div className="flex justify-end gap-3">
           <button
             type="button"
-            onClick={() => router.push('/apps/purchasing/purchase-orders')}
+            onClick={handleCloseForm}
             className="rounded-lg border border-slate-200 bg-white px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
           >
             Cancel
@@ -344,24 +377,18 @@ export function CreatePurchaseOrderClient() {
 
           <button
             type="button"
-            onClick={() => router.push('/apps/purchasing/purchase-orders')}
+            onClick={handleSaveDraft}
             className="rounded-lg border border-red-200 bg-white px-5 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
-            >
+          >
             Save Draft
           </button>
 
           <button
-           type="button"
-           onClick={() => router.push('/apps/purchasing/purchase-orders')}
-           className="rounded-lg bg-red-600 px-5 py-2 text-sm font-semibold text-white hover:bg-red-700"
-            >
+            type="button"
+            onClick={handleSubmitForApproval}
+            className="rounded-lg bg-red-600 px-5 py-2 text-sm font-semibold text-white hover:bg-red-700"
+          >
             Submit for Approval
-          </button>
-        </div>
-
-        <div className="flex justify-end">
-          <button className="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-red-700">
-            Input Tracking Report
           </button>
         </div>
       </div>
