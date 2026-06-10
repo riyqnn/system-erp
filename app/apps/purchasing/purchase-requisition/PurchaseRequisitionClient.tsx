@@ -3,13 +3,12 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  MagnifyingGlass,
   ClipboardText,
-  Clock,
-  CheckCircle,
   Eye,
+  MagnifyingGlass,
+  Package,
   PaperPlaneTilt,
-  X,
+  WarningCircle,
 } from '@phosphor-icons/react'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
@@ -19,39 +18,35 @@ type PRStatus =
   | 'PROCESSED'
   | 'CLOSED'
   | 'CANCELLED'
+  | string
 
 type PurchaseRequisitionItem = {
   id: string
   productCode: string
   productName: string
   category: string
-  currentStock: number
-  minimumStock: number
-  shortageQty: number
-  requestQty: number
+  qty: number
   unit: string
+  estimatedPrice: number
+  subtotal: number
 }
 
 type PurchaseRequisition = {
   id: string
   prNo: string
-  requestDate: string
-  requestedBy: string
+  requestDate: string | null
+  requiredDate: string | null
+  requesterName: string
   department: string
+  priority: string
   status: PRStatus
+  purpose: string
   notes: string
-  productCode: string
-  productName: string
-  category: string
-  currentStock: number
-  minimumStock: number
-  shortageQty: number
-  requestQty: number
-  unit: string
+  totalEstimatedValue: number
   items: PurchaseRequisitionItem[]
 }
 
-function formatDate(value: string) {
+function formatDate(value?: string | null) {
   if (!value) return '-'
 
   return new Intl.DateTimeFormat('id-ID', {
@@ -61,12 +56,20 @@ function formatDate(value: string) {
   }).format(new Date(value))
 }
 
-function formatNumber(value: number) {
-  return new Intl.NumberFormat('id-ID').format(value)
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0,
+  }).format(value || 0)
 }
 
-function formatStatus(status: PRStatus) {
-  const statusMap: Record<PRStatus, string> = {
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('id-ID').format(value || 0)
+}
+
+function getStatusLabel(status: PRStatus) {
+  const statusMap: Record<string, string> = {
     PENDING_PO_CREATION: 'Pending PO Creation',
     PROCESSED: 'Processed',
     CLOSED: 'Closed',
@@ -77,36 +80,90 @@ function formatStatus(status: PRStatus) {
 }
 
 function getStatusClass(status: PRStatus) {
-  const statusClassMap: Record<PRStatus, string> = {
-    PENDING_PO_CREATION: 'bg-amber-100 text-amber-700',
+  const statusMap: Record<string, string> = {
+    PENDING_PO_CREATION: 'bg-orange-100 text-orange-700',
     PROCESSED: 'bg-blue-100 text-blue-700',
-    CLOSED: 'bg-green-100 text-green-700',
+    CLOSED: 'bg-emerald-100 text-emerald-700',
     CANCELLED: 'bg-red-100 text-red-700',
   }
 
-  return statusClassMap[status] || 'bg-slate-100 text-slate-600'
+  return statusMap[status] || 'bg-slate-100 text-slate-700'
 }
 
-function getItemSummary(items: PurchaseRequisitionItem[]) {
-  if (!items || items.length === 0) return '-'
+function normalizePR(raw: any): PurchaseRequisition {
+  const rawItems =
+    raw.items ||
+    raw.purchasing_purchase_requisition_items ||
+    raw.purchase_requisition_items ||
+    []
 
-  return items.map((item) => item.productName).join(', ')
-}
+  const items: PurchaseRequisitionItem[] = rawItems.map((item: any) => {
+    const product = item.products || item.product || {}
 
-function getQtySummary(items: PurchaseRequisitionItem[]) {
-  if (!items || items.length === 0) return '-'
+    const qty = Number(item.qty || item.quantity || 0)
+    const estimatedPrice = Number(
+      item.estimated_price || item.estimatedPrice || item.unit_price || 0
+    )
 
-  return items
-    .map((item) => `${formatNumber(item.requestQty)} ${item.unit}`)
-    .join(', ')
+    return {
+      id: String(item.id || crypto.randomUUID()),
+      productCode:
+        item.productCode ||
+        item.product_code ||
+        product.sku ||
+        product.product_code ||
+        '-',
+      productName:
+        item.productName ||
+        item.product_name ||
+        product.name ||
+        product.product_name ||
+        '-',
+      category: item.category || product.category || '-',
+      qty,
+      unit: item.unit || product.unit || '-',
+      estimatedPrice,
+      subtotal: Number(item.subtotal || qty * estimatedPrice || 0),
+    }
+  })
+
+  const totalEstimatedValue =
+    Number(raw.totalEstimatedValue || raw.total_estimated_value || 0) ||
+    items.reduce((total, item) => total + item.subtotal, 0)
+
+  return {
+    id: String(raw.id || crypto.randomUUID()),
+    prNo:
+      raw.prNo ||
+      raw.prNumber ||
+      raw.requisitionNumber ||
+      raw.requisition_number ||
+      raw.pr_number ||
+      '-',
+    requestDate: raw.requestDate || raw.request_date || raw.created_at || null,
+    requiredDate: raw.requiredDate || raw.required_date || null,
+    requesterName:
+      raw.requesterName ||
+      raw.requester_name ||
+      raw.requestedBy ||
+      raw.requested_by ||
+      '-',
+    department: raw.department || raw.requester_department || 'Inventory',
+    priority: raw.priority || '-',
+    status: raw.status || 'PENDING_PO_CREATION',
+    purpose: raw.purpose || raw.description || '-',
+    notes: raw.notes || '-',
+    totalEstimatedValue,
+    items,
+  }
 }
 
 export function PurchaseRequisitionClient() {
-  const [requisitions, setRequisitions] = useState<PurchaseRequisition[]>([])
+  const [purchaseRequisitions, setPurchaseRequisitions] = useState<
+    PurchaseRequisition[]
+  >([])
   const [search, setSearch] = useState('')
-  const [status, setStatus] = useState('All Status')
-  const [product, setProduct] = useState('All Products')
-  const [requestDate, setRequestDate] = useState('')
+  const [statusFilter, setStatusFilter] = useState('All Status')
   const [selectedPR, setSelectedPR] = useState<PurchaseRequisition | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
@@ -123,7 +180,11 @@ export function PurchaseRequisitionClient() {
         throw new Error(result.message || 'Failed to fetch purchase requisitions')
       }
 
-      setRequisitions(result.data || [])
+      const normalizedData = (result.data || []).map((item: any) =>
+        normalizePR(item)
+      )
+
+      setPurchaseRequisitions(normalizedData)
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -139,45 +200,34 @@ export function PurchaseRequisitionClient() {
     fetchPurchaseRequisitions()
   }, [])
 
-  const productOptions = useMemo(() => {
-    const products = requisitions.flatMap((item) =>
-      item.items.map((prItem) => prItem.productName)
-    )
-
-    return ['All Products', ...Array.from(new Set(products))]
-  }, [requisitions])
-
-  const filteredRequisitions = useMemo(() => {
-    return requisitions.filter((item) => {
-      const itemSummary = getItemSummary(item.items)
-
+  const filteredPR = useMemo(() => {
+    return purchaseRequisitions.filter((item) => {
       const matchesSearch =
         item.prNo.toLowerCase().includes(search.toLowerCase()) ||
-        item.requestedBy.toLowerCase().includes(search.toLowerCase()) ||
-        itemSummary.toLowerCase().includes(search.toLowerCase())
+        item.requesterName.toLowerCase().includes(search.toLowerCase()) ||
+        item.department.toLowerCase().includes(search.toLowerCase()) ||
+        item.items.some((prItem) =>
+          prItem.productName.toLowerCase().includes(search.toLowerCase())
+        )
 
       const matchesStatus =
-        status === 'All Status' || formatStatus(item.status) === status
+        statusFilter === 'All Status' || item.status === statusFilter
 
-      const matchesProduct =
-        product === 'All Products' ||
-        item.items.some((prItem) => prItem.productName === product)
-
-      const matchesDate = !requestDate || item.requestDate === requestDate
-
-      return matchesSearch && matchesStatus && matchesProduct && matchesDate
+      return matchesSearch && matchesStatus
     })
-  }, [requisitions, search, status, product, requestDate])
+  }, [purchaseRequisitions, search, statusFilter])
 
-  const activePR = requisitions.filter(
+  const pendingCount = purchaseRequisitions.filter(
     (item) => item.status === 'PENDING_PO_CREATION'
   ).length
 
-  const processedPR = requisitions.filter(
+  const processedCount = purchaseRequisitions.filter(
     (item) => item.status === 'PROCESSED'
   ).length
 
-  const closedPR = requisitions.filter((item) => item.status === 'CLOSED').length
+  const closedCount = purchaseRequisitions.filter(
+    (item) => item.status === 'CLOSED'
+  ).length
 
   return (
     <ModuleLayout
@@ -190,19 +240,10 @@ export function PurchaseRequisitionClient() {
       ]}
     >
       <div className="space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <ModuleHeader
-            title="Purchase Requisition"
-            description="Manage purchase requests submitted by warehouse staff."
-          />
-
-          <Link
-            href="/apps/purchasing/purchase-requisition/create"
-            className="inline-flex h-10 items-center rounded-lg bg-red-600 px-4 text-sm font-medium text-white transition hover:bg-red-700"
-          >
-            + Create PR
-          </Link>
-        </div>
+        <ModuleHeader
+          title="Purchase Requisition"
+          description="View purchase requisitions submitted from the Inventory module."
+        />
 
         {errorMessage && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -214,15 +255,15 @@ export function PurchaseRequisitionClient() {
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase text-slate-400">
-                  Active PR
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Pending PO Creation
                 </p>
                 <h3 className="mt-2 text-4xl font-bold text-slate-900">
-                  {activePR}
+                  {pendingCount}
                 </h3>
               </div>
-              <div className="rounded-xl bg-red-50 p-3">
-                <ClipboardText size={22} className="text-red-500" />
+              <div className="rounded-xl bg-orange-50 p-3">
+                <WarningCircle size={26} className="text-orange-500" />
               </div>
             </div>
           </div>
@@ -230,15 +271,15 @@ export function PurchaseRequisitionClient() {
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase text-slate-400">
-                  Processed PR
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Processed
                 </p>
                 <h3 className="mt-2 text-4xl font-bold text-slate-900">
-                  {processedPR}
+                  {processedCount}
                 </h3>
               </div>
               <div className="rounded-xl bg-blue-50 p-3">
-                <Clock size={22} className="text-blue-500" />
+                <ClipboardText size={26} className="text-blue-500" />
               </div>
             </div>
           </div>
@@ -246,78 +287,70 @@ export function PurchaseRequisitionClient() {
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase text-slate-400">
-                  Closed PR
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Closed
                 </p>
                 <h3 className="mt-2 text-4xl font-bold text-slate-900">
-                  {closedPR}
+                  {closedCount}
                 </h3>
               </div>
-              <div className="rounded-xl bg-green-50 p-3">
-                <CheckCircle size={22} className="text-green-500" />
+              <div className="rounded-xl bg-emerald-50 p-3">
+                <Package size={26} className="text-emerald-500" />
               </div>
             </div>
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <div className="rounded-xl border border-red-100 bg-white p-4 shadow-sm">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px]">
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Search
+              </label>
               <div className="relative">
                 <MagnifyingGlass
-                  size={18}
+                  size={16}
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                 />
                 <input
                   type="text"
-                  placeholder="Search PR..."
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-red-300 md:w-64"
+                  placeholder="Search PR number, requester, department, or product"
+                  className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-red-300"
                 />
               </div>
+            </div>
 
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Status
+              </label>
               <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-red-300"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
               >
                 <option>All Status</option>
-                <option>Pending PO Creation</option>
-                <option>Processed</option>
-                <option>Closed</option>
-                <option>Cancelled</option>
+                <option value="PENDING_PO_CREATION">Pending PO Creation</option>
+                <option value="PROCESSED">Processed</option>
+                <option value="CLOSED">Closed</option>
+                <option value="CANCELLED">Cancelled</option>
               </select>
-
-              <select
-                value={product}
-                onChange={(event) => setProduct(event.target.value)}
-                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-red-300"
-              >
-                {productOptions.map((productOption) => (
-                  <option key={productOption}>{productOption}</option>
-                ))}
-              </select>
-
-              <input
-                type="date"
-                value={requestDate}
-                onChange={(event) => setRequestDate(event.target.value)}
-                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-red-300"
-              />
             </div>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1050px] border-collapse text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-semibold">PR No</th>
                     <th className="px-4 py-3 font-semibold">Request Date</th>
-                    <th className="px-4 py-3 font-semibold">Requested By</th>
-                    <th className="px-4 py-3 font-semibold">Item</th>
-                    <th className="px-4 py-3 font-semibold">Qty</th>
+                    <th className="px-4 py-3 font-semibold">Requester</th>
+                    <th className="px-4 py-3 font-semibold">Department</th>
+                    <th className="px-4 py-3 font-semibold">Items</th>
+                    <th className="px-4 py-3 font-semibold">Total Estimate</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
                     <th className="px-4 py-3 text-right font-semibold">
                       Action
@@ -329,29 +362,32 @@ export function PurchaseRequisitionClient() {
                   {isLoading ? (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={8}
                         className="px-4 py-8 text-center text-sm text-slate-500"
                       >
-                        Loading purchase requisition data...
+                        Loading purchase requisitions...
                       </td>
                     </tr>
                   ) : (
-                    filteredRequisitions.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-4 text-xs font-medium text-slate-700">
+                    filteredPR.map((item) => (
+                      <tr key={item.id} className="bg-white hover:bg-slate-50">
+                        <td className="px-4 py-4 font-bold text-red-600">
                           {item.prNo}
                         </td>
-                        <td className="px-4 py-4 text-slate-600">
+                        <td className="px-4 py-4 text-slate-700">
                           {formatDate(item.requestDate)}
                         </td>
-                        <td className="px-4 py-4 text-slate-600">
-                          {item.requestedBy}
+                        <td className="px-4 py-4 text-slate-700">
+                          {item.requesterName}
                         </td>
-                        <td className="px-4 py-4 font-medium text-slate-900">
-                          {getItemSummary(item.items)}
+                        <td className="px-4 py-4 text-slate-700">
+                          {item.department}
                         </td>
-                        <td className="px-4 py-4 text-slate-600">
-                          {getQtySummary(item.items)}
+                        <td className="px-4 py-4 text-slate-700">
+                          {item.items.length} item
+                        </td>
+                        <td className="px-4 py-4 font-semibold text-slate-900">
+                          {formatCurrency(item.totalEstimatedValue)}
                         </td>
                         <td className="px-4 py-4">
                           <span
@@ -359,37 +395,41 @@ export function PurchaseRequisitionClient() {
                               item.status
                             )}`}
                           >
-                            {formatStatus(item.status)}
+                            {getStatusLabel(item.status)}
                           </span>
                         </td>
                         <td className="px-4 py-4">
-                          <div className="flex justify-end gap-2">
+                          <div className="flex items-center justify-end gap-2">
                             <button
                               type="button"
                               onClick={() => setSelectedPR(item)}
-                              className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-red-600"
-                              title="View PR detail"
+                              className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                              title="View detail"
                             >
-                              <Eye size={18} />
+                              <Eye size={18} weight="bold" />
                             </button>
 
-                            <Link
-                              href={`/apps/purchasing/purchase-orders/create?prNo=${item.prNo}`}
-                              className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-red-600"
-                              title="Process to Purchase Order"
-                            >
-                              <PaperPlaneTilt size={18} />
-                            </Link>
+                            {item.status === 'PENDING_PO_CREATION' && (
+                              <Link
+                                href={`/apps/purchasing/purchase-orders/create?prNo=${encodeURIComponent(
+                                  item.prNo
+                                )}`}
+                                className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 transition hover:bg-red-100"
+                                title="Process to PO"
+                              >
+                                <PaperPlaneTilt size={18} weight="bold" />
+                              </Link>
+                            )}
                           </div>
                         </td>
                       </tr>
                     ))
                   )}
 
-                  {!isLoading && filteredRequisitions.length === 0 && (
+                  {!isLoading && filteredPR.length === 0 && (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={8}
                         className="px-4 py-8 text-center text-sm text-slate-500"
                       >
                         No purchase requisition data found.
@@ -399,90 +439,105 @@ export function PurchaseRequisitionClient() {
                 </tbody>
               </table>
             </div>
-
-            <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
-              <p>
-                Showing {filteredRequisitions.length} of {requisitions.length}{' '}
-                purchase requisition data
-              </p>
-
-              <div className="flex items-center gap-2">
-                <button className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
-                  ‹
-                </button>
-                <button className="rounded-lg bg-red-600 px-3 py-1 text-white">
-                  1
-                </button>
-                <button className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
-                  ›
-                </button>
-              </div>
-            </div>
           </div>
         </div>
-      </div>
 
-      {selectedPR && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-3xl overflow-hidden rounded-xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  Purchase Requisition Detail
-                </h2>
-                <p className="text-sm text-slate-500">{selectedPR.prNo}</p>
+        {selectedPR && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-red-600">
+                    Purchase Requisition Detail
+                  </p>
+                  <h3 className="mt-1 text-xl font-bold text-slate-900">
+                    {selectedPR.prNo}
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Submitted from Inventory module.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedPR(null)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Close
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setSelectedPR(null)}
-                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="max-h-[75vh] overflow-y-auto px-6 py-5">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase text-slate-400">
-                    Request Date
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Request Information
                   </p>
-                  <p className="mt-1 font-semibold text-slate-900">
-                    {formatDate(selectedPR.requestDate)}
-                  </p>
+                  <div className="mt-3 space-y-2 text-sm">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-slate-500">Request Date</span>
+                      <span className="font-semibold text-slate-900">
+                        {formatDate(selectedPR.requestDate)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-slate-500">Required Date</span>
+                      <span className="font-semibold text-slate-900">
+                        {formatDate(selectedPR.requiredDate)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-slate-500">Requester</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedPR.requesterName}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-slate-500">Department</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedPR.department}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase text-slate-400">
-                    Requested By
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Status Information
                   </p>
-                  <p className="mt-1 font-semibold text-slate-900">
-                    {selectedPR.requestedBy}
-                  </p>
+                  <div className="mt-3 space-y-2 text-sm">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-slate-500">Priority</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedPR.priority}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-slate-500">Status</span>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
+                          selectedPR.status
+                        )}`}
+                      >
+                        {getStatusLabel(selectedPR.status)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-slate-500">Total Estimate</span>
+                      <span className="font-semibold text-slate-900">
+                        {formatCurrency(selectedPR.totalEstimatedValue)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
+              </div>
 
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase text-slate-400">
-                    Department
-                  </p>
-                  <p className="mt-1 font-semibold text-slate-900">
-                    {selectedPR.department}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase text-slate-400">
-                    Status
-                  </p>
-                  <span
-                    className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
-                      selectedPR.status
-                    )}`}
-                  >
-                    {formatStatus(selectedPR.status)}
-                  </span>
-                </div>
+              <div className="mt-5 rounded-xl border border-slate-200 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Purpose
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                  {selectedPR.purpose}
+                </p>
               </div>
 
               <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
@@ -490,10 +545,12 @@ export function PurchaseRequisitionClient() {
                   <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Product</th>
-                      <th className="px-4 py-3 font-semibold">Current Stock</th>
-                      <th className="px-4 py-3 font-semibold">Minimum Stock</th>
-                      <th className="px-4 py-3 font-semibold">Shortage</th>
-                      <th className="px-4 py-3 font-semibold">Request Qty</th>
+                      <th className="px-4 py-3 font-semibold">Category</th>
+                      <th className="px-4 py-3 font-semibold">Qty</th>
+                      <th className="px-4 py-3 font-semibold">Est. Price</th>
+                      <th className="px-4 py-3 text-right font-semibold">
+                        Subtotal
+                      </th>
                     </tr>
                   </thead>
 
@@ -508,54 +565,60 @@ export function PurchaseRequisitionClient() {
                             {item.productCode}
                           </p>
                         </td>
-                        <td className="px-4 py-4 text-slate-600">
-                          {formatNumber(item.currentStock)} {item.unit}
+                        <td className="px-4 py-4 text-slate-700">
+                          {item.category}
                         </td>
-                        <td className="px-4 py-4 text-slate-600">
-                          {formatNumber(item.minimumStock)} {item.unit}
+                        <td className="px-4 py-4 text-slate-700">
+                          {formatNumber(item.qty)} {item.unit}
                         </td>
-                        <td className="px-4 py-4 text-slate-600">
-                          {formatNumber(item.shortageQty)} {item.unit}
+                        <td className="px-4 py-4 text-slate-700">
+                          {formatCurrency(item.estimatedPrice)}
                         </td>
-                        <td className="px-4 py-4 font-semibold text-slate-900">
-                          {formatNumber(item.requestQty)} {item.unit}
+                        <td className="px-4 py-4 text-right font-semibold text-slate-900">
+                          {formatCurrency(item.subtotal)}
                         </td>
                       </tr>
                     ))}
+
+                    {selectedPR.items.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="px-4 py-6 text-center text-sm text-slate-500"
+                        >
+                          No item detail available.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
 
-              <div className="mt-5 rounded-xl bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase text-slate-400">
-                  Notes
-                </p>
-                <p className="mt-2 text-sm text-slate-700">
-                  {selectedPR.notes}
-                </p>
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPR(null)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+
+                {selectedPR.status === 'PENDING_PO_CREATION' && (
+                  <Link
+                    href={`/apps/purchasing/purchase-orders/create?prNo=${encodeURIComponent(
+                      selectedPR.prNo
+                    )}`}
+                    className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                  >
+                    Process to PO
+                    <PaperPlaneTilt size={16} weight="bold" />
+                  </Link>
+                )}
               </div>
             </div>
-
-            <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
-              <button
-                type="button"
-                onClick={() => setSelectedPR(null)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-              >
-                Close
-              </button>
-
-              <Link
-                href={`/apps/purchasing/purchase-orders/create?prNo=${selectedPR.prNo}`}
-                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700"
-              >
-                <PaperPlaneTilt size={16} />
-                Process to PO
-              </Link>
-            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </ModuleLayout>
   )
 }
