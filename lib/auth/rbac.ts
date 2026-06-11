@@ -58,13 +58,13 @@ export function hasAllRoles(user: UserWithRole | null, roleNames: string[]): boo
  */
 export function requireRole(user: UserWithRole | null, roleName: string): void {
   if (!user) {
-    throw new Error('User not authenticated')
+    throw new AuthError('User not authenticated', 401)
   }
   if (!user.role) {
-    throw new Error('User does not have a role assigned')
+    throw new AuthError('User does not have a role assigned', 403)
   }
   if (user.role.name !== roleName) {
-    throw new Error(`Access denied. Required role: ${roleName}. Your role: ${user.role.name}`)
+    throw new AuthError(`Access denied. Required role: ${roleName}. Your role: ${user.role.name}`, 403)
   }
 }
 
@@ -73,14 +73,15 @@ export function requireRole(user: UserWithRole | null, roleName: string): void {
  */
 export function requireAnyRole(user: UserWithRole | null, roleNames: string[]): void {
   if (!user) {
-    throw new Error('User not authenticated')
+    throw new AuthError('User not authenticated', 401)
   }
   if (!user.role) {
-    throw new Error('User does not have a role assigned')
+    throw new AuthError('User does not have a role assigned', 403)
   }
   if (!roleNames.includes(user.role.name)) {
-    throw new Error(
-      `Access denied. Required role(s): ${roleNames.join(', ')}. Your role: ${user.role.name}`
+    throw new AuthError(
+      `Access denied. Required role(s): ${roleNames.join(', ')}. Your role: ${user.role.name}`,
+      403
     )
   }
 }

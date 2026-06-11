@@ -195,16 +195,16 @@ begin
   -- 8. Notifications (recipient_role = SNM). 5 unread untuk badge bell.
   -- -------------------------------------------------------------------
   insert into public.notifications (id, recipient_role, recipient_id, title, message, type, link, is_read, created_at) values
-    ('66666666-6666-6666-6666-000000000001','SNM', null, 'Sales Order menunggu approval', 'PT Hero Supermarket - Rp 552.000.000 (nilai >= Rp500jt, perlu persetujuan manager)', 'SO_APPROVAL', '/apps/snm/sales', false, '2026-06-03 08:30:00+07'),
-    ('66666666-6666-6666-6666-000000000002','SNM', null, 'Sales Order menunggu approval', 'Toko Berkah Sembako - Rp 306.000.000 (melebihi sisa kredit)', 'SO_APPROVAL', '/apps/snm/sales', false, '2026-06-03 10:15:00+07'),
-    ('66666666-6666-6666-6666-000000000003','SNM', null, 'Pre-Order menunggu approval', 'CV Distribusi Nusantara - Roma Malkist (stok tidak mencukupi)', 'SO_APPROVAL', '/apps/snm/sales', false, '2026-06-03 11:20:00+07'),
-    ('66666666-6666-6666-6666-000000000004','SNM', null, 'Sales Order disetujui', 'PT Indomarco Prismatama - Rp 438.000.000 telah disetujui.', 'SO_APPROVED', '/apps/snm/sales', true, '2026-06-02 10:05:00+07'),
-    ('66666666-6666-6666-6666-000000000005','SNM', null, 'Sales Invoice diterbitkan', 'PT Indomarco Prismatama - Rp 438.000.000 ditransmisikan ke Finance.', 'INVOICE', '/apps/snm/sales', true, '2026-06-05 09:00:00+07'),
-    ('66666666-6666-6666-6666-000000000006','SNM', null, 'Barang telah diterima customer', 'Pengiriman ke PT Hero Supermarket berstatus Delivered.', 'DELIVERY', '/apps/snm/sales', true, '2026-06-04 10:00:00+07'),
-    ('66666666-6666-6666-6666-000000000007','SNM', null, 'Sales Order ditolak', 'UD Sinar Terang - Rp 240.000.000 ditolak: melebihi batas kredit.', 'SO_REJECTED', '/apps/snm/sales', false, '2026-06-02 09:30:00+07'),
-    ('66666666-6666-6666-6666-000000000008','SNM', null, 'Invoice jatuh tempo', 'Invoice UD Sinar Terang - Rp 240.000.000 telah Overdue.', 'INVOICE', '/apps/snm/sales', false, '2026-06-01 07:00:00+07'),
-    ('66666666-6666-6666-6666-000000000009','SNM', null, 'Delivery Order diterbitkan', 'UD Maju Jaya - DO baru siap diproses gudang.', 'DELIVERY', '/apps/snm/sales', true, '2026-06-01 14:10:00+07'),
-    ('66666666-6666-6666-6666-000000000010','SNM', null, 'Sales Order baru dibuat', 'PT Sumber Alfaria Trijaya - Rp 316.800.000 (auto-approved).', 'INFO', '/apps/snm/sales', true, '2026-06-02 13:05:00+07');
+    ('66666666-6666-6666-6666-000000000001','SNM', null, 'Sales Order menunggu approval', 'PT Hero Supermarket - Rp 552.000.000 (nilai >= Rp500jt, perlu persetujuan manager)', 'SO_APPROVAL', '/snm/sales', false, '2026-06-03 08:30:00+07'),
+    ('66666666-6666-6666-6666-000000000002','SNM', null, 'Sales Order menunggu approval', 'Toko Berkah Sembako - Rp 306.000.000 (melebihi sisa kredit)', 'SO_APPROVAL', '/snm/sales', false, '2026-06-03 10:15:00+07'),
+    ('66666666-6666-6666-6666-000000000003','SNM', null, 'Pre-Order menunggu approval', 'CV Distribusi Nusantara - Roma Malkist (stok tidak mencukupi)', 'SO_APPROVAL', '/snm/sales', false, '2026-06-03 11:20:00+07'),
+    ('66666666-6666-6666-6666-000000000004','SNM', null, 'Sales Order disetujui', 'PT Indomarco Prismatama - Rp 438.000.000 telah disetujui.', 'SO_APPROVED', '/snm/sales', true, '2026-06-02 10:05:00+07'),
+    ('66666666-6666-6666-6666-000000000005','SNM', null, 'Sales Invoice diterbitkan', 'PT Indomarco Prismatama - Rp 438.000.000 ditransmisikan ke Finance.', 'INVOICE', '/snm/sales', true, '2026-06-05 09:00:00+07'),
+    ('66666666-6666-6666-6666-000000000006','SNM', null, 'Barang telah diterima customer', 'Pengiriman ke PT Hero Supermarket berstatus Delivered.', 'DELIVERY', '/snm/sales', true, '2026-06-04 10:00:00+07'),
+    ('66666666-6666-6666-6666-000000000007','SNM', null, 'Sales Order ditolak', 'UD Sinar Terang - Rp 240.000.000 ditolak: melebihi batas kredit.', 'SO_REJECTED', '/snm/sales', false, '2026-06-02 09:30:00+07'),
+    ('66666666-6666-6666-6666-000000000008','SNM', null, 'Invoice jatuh tempo', 'Invoice UD Sinar Terang - Rp 240.000.000 telah Overdue.', 'INVOICE', '/snm/sales', false, '2026-06-01 07:00:00+07'),
+    ('66666666-6666-6666-6666-000000000009','SNM', null, 'Delivery Order diterbitkan', 'UD Maju Jaya - DO baru siap diproses gudang.', 'DELIVERY', '/snm/sales', true, '2026-06-01 14:10:00+07'),
+    ('66666666-6666-6666-6666-000000000010','SNM', null, 'Sales Order baru dibuat', 'PT Sumber Alfaria Trijaya - Rp 316.800.000 (auto-approved).', 'INFO', '/snm/sales', true, '2026-06-02 13:05:00+07');
 
 end $$;
 

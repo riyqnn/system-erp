@@ -5,7 +5,7 @@ import { createRouteHandlerClient } from '@/lib/supabase/server'
 export async function GET() {
   try {
     const user = await requireAuth()
-    requireAnyRole(user, ['ADMIN', 'INVENTORY_MANAGER', 'INVENTORY_STAFF', 'INVENTORY'])
+    requireAnyRole(user, ['ADMIN', 'INVENTORY_MANAGER', 'INVENTORY_STAFF', 'INVENTORY', 'PRODUCTION'])
 
     const supabase = await createRouteHandlerClient()
 

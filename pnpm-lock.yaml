@@ -18,11 +18,11 @@ importers:
         specifier: ^9.6.1
         version: 9.6.1(@types/react@19.2.14)(immer@11.1.8)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(three@0.184.0)
       '@supabase/ssr':
-        specifier: ^0.5.0
-        version: 0.5.2(@supabase/supabase-js@2.100.0)
+        specifier: ^0.5.2
+        version: 0.5.2(@supabase/supabase-js@2.108.1)
       '@supabase/supabase-js':
-        specifier: ^2.39.0
-        version: 2.100.0
+        specifier: ^2.108.1
+        version: 2.108.1
       '@tanstack/react-query':
         specifier: ^5.28.4
         version: 5.95.0(react@19.2.3)
@@ -53,6 +53,9 @@ importers:
       recharts:
         specifier: ^3.8.1
         version: 3.8.1(@types/react@19.2.14)(react-dom@19.2.3(react@19.2.3))(react-is@16.13.1)(react@19.2.3)(redux@5.0.1)
+      sweetalert2:
+        specifier: ^11.26.25
+        version: 11.26.25
       tailwind-merge:
         specifier: ^3.5.0
         version: 3.5.0
@@ -84,70 +87,6 @@ importers:
       lint-staged:
         specifier: ^16.4.0
         version: 16.4.0
-      tailwindcss:
-        specifier: ^4
-        version: 4.2.1
-      typescript:
-        specifier: ^5
-        version: 5.9.3
-
-  apps/web:
-    dependencies:
-      '@phosphor-icons/react':
-        specifier: ^2.1.10
-        version: 2.1.10(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      '@supabase/ssr':
-        specifier: ^0.5.0
-        version: 0.5.2(@supabase/supabase-js@2.100.0)
-      '@supabase/supabase-js':
-        specifier: ^2.39.0
-        version: 2.100.0
-      '@tanstack/react-query':
-        specifier: ^5.28.4
-        version: 5.95.0(react@19.2.3)
-      axios:
-        specifier: ^1.6.7
-        version: 1.13.6
-      class-variance-authority:
-        specifier: ^0.7.1
-        version: 0.7.1
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
-      lucide-react:
-        specifier: ^0.577.0
-        version: 0.577.0(react@19.2.3)
-      next:
-        specifier: 16.1.7
-        version: 16.1.7(@babel/core@7.29.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      react:
-        specifier: 19.2.3
-        version: 19.2.3
-      react-dom:
-        specifier: 19.2.3
-        version: 19.2.3(react@19.2.3)
-      tailwind-merge:
-        specifier: ^3.5.0
-        version: 3.5.0
-    devDependencies:
-      '@tailwindcss/postcss':
-        specifier: ^4
-        version: 4.2.1
-      '@types/node':
-        specifier: ^20
-        version: 20.19.37
-      '@types/react':
-        specifier: ^19
-        version: 19.2.14
-      '@types/react-dom':
-        specifier: ^19
-        version: 19.2.3(@types/react@19.2.14)
-      eslint:
-        specifier: ^9
-        version: 9.39.4(jiti@2.6.1)
-      eslint-config-next:
-        specifier: 16.1.7
-        version: 16.1.7(@typescript-eslint/parser@8.57.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
       tailwindcss:
         specifier: ^4
         version: 4.2.1
@@ -595,23 +534,23 @@ packages:
   '@standard-schema/utils@0.3.0':
     resolution: {integrity: sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==}
 
-  '@supabase/auth-js@2.100.0':
-    resolution: {integrity: sha512-pdT3ye3UVRN1Cg0wom6BmyY+XTtp5DiJaYnPi6j8ht5i8Lq8kfqxJMJz9GI9YDKk3w1nhGOPnh6Qz5qpyYm+1w==}
+  '@supabase/auth-js@2.108.1':
+    resolution: {integrity: sha512-Lle5rKU8f9LF3K5dDd8Or8mkkG+ptzRZZWKPVMm9B9UuovH65Ss2+iFnQqRsCqaGouvJEcTWyl0cj2riNrrDLQ==}
     engines: {node: '>=20.0.0'}
 
-  '@supabase/functions-js@2.100.0':
-    resolution: {integrity: sha512-keLg79RPwP+uiwHuxFPTFgDRxPV46LM4j/swjyR2GKJgWniTVSsgiBHfbIBDcrQwehLepy09b/9QSHUywtKRWQ==}
+  '@supabase/functions-js@2.108.1':
+    resolution: {integrity: sha512-fxBRW/A4IG7ADQztVt0NaEy5ysiO1WJ2pbldsnBchrkHuyepX0Krek9qA9T4gUQBVVTCE9Ea4pdsM5hfn3nc4A==}
     engines: {node: '>=20.0.0'}
 
-  '@supabase/phoenix@0.4.0':
-    resolution: {integrity: sha512-RHSx8bHS02xwfHdAbX5Lpbo6PXbgyf7lTaXTlwtFDPwOIw64NnVRwFAXGojHhjtVYI+PEPNSWwkL90f4agN3bw==}
+  '@supabase/phoenix@0.4.2':
+    resolution: {integrity: sha512-YSAGnmDAfuleFCVt3CeurQZAhxRfXWeZIIkwp7NhYzQ1UwW6ePSnzsFAiUm/mbCkfoCf70QQHKW/K6RKh52a4A==}
 
-  '@supabase/postgrest-js@2.100.0':
-    resolution: {integrity: sha512-xYNvNbBJaXOGcrZ44wxwp5830uo1okMHGS8h8dm3u4f0xcZ39yzbryUsubTJW41MG2gbL/6U57cA4Pi6YMZ9pA==}
+  '@supabase/postgrest-js@2.108.1':
+    resolution: {integrity: sha512-9lj2MCPPMgSTaJ5y+amnhb3TWPtMFVlbDn2hmX/VV91xQU4j0AauwfMaBErHBJ+zzsSwjc0jLU+zLIZFLQzfig==}
     engines: {node: '>=20.0.0'}
 
-  '@supabase/realtime-js@2.100.0':
-    resolution: {integrity: sha512-2AZs00zzEF0HuCKY8grz5eCYlwEfVi5HONLZFoNR6aDfxQivl8zdQYNjyFoqN2MZiVhQHD7u6XV/xHwM8mCEHw==}
+  '@supabase/realtime-js@2.108.1':
+    resolution: {integrity: sha512-mHGGqOjwd1XTydcoffUqEMsbFQHUi6A3uhQ0EXr3iqzpLqItxKA9nbN6gIQxrZ7JRRnuUe/iOFPUkYV9Tdc5lg==}
     engines: {node: '>=20.0.0'}
 
   '@supabase/ssr@0.5.2':
@@ -619,12 +558,12 @@ packages:
     peerDependencies:
       '@supabase/supabase-js': ^2.43.4
 
-  '@supabase/storage-js@2.100.0':
-    resolution: {integrity: sha512-d4EeuK6RNIgYNA2MU9kj8lQrLm5AzZ+WwpWjGkii6SADQNIGTC/uiaTRu02XJ5AmFALQfo8fLl9xuCkO6Xw+iQ==}
+  '@supabase/storage-js@2.108.1':
+    resolution: {integrity: sha512-Er0SGGt85iT6ye+SSh98Az6L2CesoZJuyzEZYH2oBOAnIxa9Nn4CtwUC3veGxYggoT56X+3tVuuQeDBP8kR8sg==}
     engines: {node: '>=20.0.0'}
 
-  '@supabase/supabase-js@2.100.0':
-    resolution: {integrity: sha512-r0tlcukejJXJ1m/2eG/Ya5eYs4W8AC7oZfShpG3+SIo/eIU9uIt76ZeYI1SoUwUmcmzlAbgch+HDZDR/toVQPQ==}
+  '@supabase/supabase-js@2.108.1':
+    resolution: {integrity: sha512-V/1hRKLSCJ0zEL+9QFRBUtivvePfOsaAYQmC0HhFNSHC2F3xFs4jSF3YhkLmzex6E4V4FGvmBDOP72D/53NnZA==}
     engines: {node: '>=20.0.0'}
 
   '@swc/helpers@0.5.15':
@@ -804,9 +743,6 @@ packages:
 
   '@types/webxr@0.5.24':
     resolution: {integrity: sha512-h8fgEd/DpoS9CBrjEQXR+dIDraopAEfu4wYVNY2tEPwk60stPWhvZMf4Foo5FakuQ7HFZoa8WceaWFervK2Ovg==}
-
-  '@types/ws@8.18.1':
-    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@typescript-eslint/eslint-plugin@8.57.1':
     resolution: {integrity: sha512-Gn3aqnvNl4NGc6x3/Bqk1AOn0thyTU9bqDRhiRnUWezgvr2OnhYCWCgC8zXXRVqBsIL1pSDt7T9nJUe0oM0kDQ==}
@@ -1510,8 +1446,8 @@ packages:
   fflate@0.6.10:
     resolution: {integrity: sha512-IQrh3lEPM93wVCEczc9SaAOvkmcoQn/G8Bo1e8ZPlY3X3bnAxWaBdvTdvM1hP62iZp0BXWDy4vTAy4fF0+Dlpg==}
 
-  fflate@0.8.2:
-    resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
   file-entry-cache@8.0.0:
     resolution: {integrity: sha512-XXTUwCvisa5oacNGRP9SfNtYBNAMi+RPwBFmblZEF7N7swHYQS6/Zfk7SRwx4D5j3CH211YNRco1DEMNVfZCnQ==}
@@ -2471,6 +2407,9 @@ packages:
     peerDependencies:
       react: '>=17.0'
 
+  sweetalert2@11.26.25:
+    resolution: {integrity: sha512-+hunCOJdJ6FLj04T9YSLvvZXRjsvIkTeTKP2e4VF8CaBias961BTnWiSFAy7F/CM5eq3QK2Rraoc5Gzftslvkg==}
+
   tailwind-merge@3.5.0:
     resolution: {integrity: sha512-I8K9wewnVDkL1NTGoqWmVEIlUcB9gFriAEkXkfCjX5ib8ezGxtR3xD7iZIxrfArjEsH7F1CHD4RFUtxefdqV/A==}
 
@@ -2634,18 +2573,6 @@ packages:
   wrap-ansi@9.0.2:
     resolution: {integrity: sha512-42AtmgqjV+X1VpdOfyTGOYRi0/zsoLqtXQckTmqTeybT+BDIbM/Guxo7x3pE2vtpr1ok6xRqM9OpBe+Jyoqyww==}
     engines: {node: '>=18'}
-
-  ws@8.20.0:
-    resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
 
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
@@ -3132,51 +3059,43 @@ snapshots:
 
   '@standard-schema/utils@0.3.0': {}
 
-  '@supabase/auth-js@2.100.0':
+  '@supabase/auth-js@2.108.1':
     dependencies:
       tslib: 2.8.1
 
-  '@supabase/functions-js@2.100.0':
+  '@supabase/functions-js@2.108.1':
     dependencies:
       tslib: 2.8.1
 
-  '@supabase/phoenix@0.4.0': {}
+  '@supabase/phoenix@0.4.2': {}
 
-  '@supabase/postgrest-js@2.100.0':
+  '@supabase/postgrest-js@2.108.1':
     dependencies:
       tslib: 2.8.1
 
-  '@supabase/realtime-js@2.100.0':
+  '@supabase/realtime-js@2.108.1':
     dependencies:
-      '@supabase/phoenix': 0.4.0
-      '@types/ws': 8.18.1
+      '@supabase/phoenix': 0.4.2
       tslib: 2.8.1
-      ws: 8.20.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
 
-  '@supabase/ssr@0.5.2(@supabase/supabase-js@2.100.0)':
+  '@supabase/ssr@0.5.2(@supabase/supabase-js@2.108.1)':
     dependencies:
-      '@supabase/supabase-js': 2.100.0
+      '@supabase/supabase-js': 2.108.1
       '@types/cookie': 0.6.0
       cookie: 0.7.2
 
-  '@supabase/storage-js@2.100.0':
+  '@supabase/storage-js@2.108.1':
     dependencies:
       iceberg-js: 0.8.1
       tslib: 2.8.1
 
-  '@supabase/supabase-js@2.100.0':
+  '@supabase/supabase-js@2.108.1':
     dependencies:
-      '@supabase/auth-js': 2.100.0
-      '@supabase/functions-js': 2.100.0
-      '@supabase/postgrest-js': 2.100.0
-      '@supabase/realtime-js': 2.100.0
-      '@supabase/storage-js': 2.100.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
+      '@supabase/auth-js': 2.108.1
+      '@supabase/functions-js': 2.108.1
+      '@supabase/postgrest-js': 2.108.1
+      '@supabase/realtime-js': 2.108.1
+      '@supabase/storage-js': 2.108.1
 
   '@swc/helpers@0.5.15':
     dependencies:
@@ -3325,16 +3244,12 @@ snapshots:
       '@tweenjs/tween.js': 23.1.3
       '@types/stats.js': 0.17.4
       '@types/webxr': 0.5.24
-      fflate: 0.8.2
+      fflate: 0.8.3
       meshoptimizer: 1.1.1
 
   '@types/use-sync-external-store@0.0.6': {}
 
   '@types/webxr@0.5.24': {}
-
-  '@types/ws@8.18.1':
-    dependencies:
-      '@types/node': 20.19.37
 
   '@typescript-eslint/eslint-plugin@8.57.1(@typescript-eslint/parser@8.57.1(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)':
     dependencies:
@@ -4182,7 +4097,7 @@ snapshots:
 
   fflate@0.6.10: {}
 
-  fflate@0.8.2: {}
+  fflate@0.8.3: {}
 
   file-entry-cache@8.0.0:
     dependencies:
@@ -5181,6 +5096,8 @@ snapshots:
     dependencies:
       react: 19.2.3
 
+  sweetalert2@11.26.25: {}
+
   tailwind-merge@3.5.0: {}
 
   tailwindcss@4.2.1: {}
@@ -5423,8 +5340,6 @@ snapshots:
       ansi-styles: 6.2.3
       string-width: 7.2.0
       strip-ansi: 7.2.0
-
-  ws@8.20.0: {}
 
   yallist@3.1.1: {}
 

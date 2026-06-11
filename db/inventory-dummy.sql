@@ -39,7 +39,8 @@ INSERT INTO ms_products (product_code, product_name, category, units, minimum_st
 ('PM-005', 'Label Stiker Produk (Rol)',             'PM', 'roll',   3000, FALSE),
 ('PM-006', 'Inner Tray Karton Coklat',             'PM', 'pcs',   15000, FALSE),
 ('PM-007', 'Stretch Film Pallet Wrap',             'PM', 'roll',    800, FALSE),
-('PM-008', 'Karton Box FG Candy/Mint (CTN)',       'PM', 'carton', 4000, FALSE);
+('PM-008', 'Karton Box FG Candy/Mint (CTN)',       'PM', 'carton', 4000, FALSE)
+ON CONFLICT DO NOTHING;
 
 
 -- =====================================================================
@@ -50,7 +51,8 @@ INSERT INTO ms_warehouses (warehouse_code, warehouse_name, location, capacity) V
 ('WH-002', 'Gudang Packaging Material',  'Kawasan Industri Cikande, Serang, Banten',   30000),
 ('WH-003', 'Gudang Produk Jadi A',       'Kawasan Industri Cikande, Serang, Banten',   80000),
 ('WH-004', 'Gudang Produk Jadi B',       'Jl. Tomang Raya No.21, Jakarta Barat',       60000),
-('WH-005', 'Cold Storage / Chiller',     'Kawasan Industri Cikande, Serang, Banten',   10000);
+('WH-005', 'Cold Storage / Chiller',     'Kawasan Industri Cikande, Serang, Banten',   10000)
+ON CONFLICT DO NOTHING;
 
 
 -- =====================================================================
@@ -71,7 +73,8 @@ INSERT INTO ms_suppliers (supplier_code, supplier_name, contact, address) VALUES
 ('SUP-012', 'PT Indesso Aroma (Flavour)',        'Yeni Lestari / 021-8909-5656',     'Jl. Industri Selatan, Bekasi'),
 ('SUP-013', 'PT Catur Wangsa Indah (Karton)',   'Bambang Irawan / 021-5573-0000',   'Jl. Raya Serpong, Tangerang'),
 ('SUP-014', 'PT Favorit Mitra Kimia (Aditif)',  'Nadia Putri / 021-4609-7777',      'Jl. Rungkut Industri, Surabaya'),
-('SUP-015', 'PT Alam Daya Sakti (Garam)',       'Sigit Purnomo / 031-7896-1234',    'Jl. Raya Sidoarjo Km 5, Jawa Timur');
+('SUP-015', 'PT Alam Daya Sakti (Garam)',       'Sigit Purnomo / 031-7896-1234',    'Jl. Raya Sidoarjo Km 5, Jawa Timur')
+ON CONFLICT DO NOTHING;
 
 
 -- =====================================================================
@@ -144,7 +147,8 @@ INSERT INTO ms_bom (fg_product_id, rm_product_id, qty_required) VALUES
 (10, 11, 0.5500),
 (10, 18, 0.1200),  -- Mentega
 (10, 12, 0.2200),
-(10, 23, 1.0000);
+(10, 23, 1.0000)
+ON CONFLICT DO NOTHING;
 
 
 -- =====================================================================
@@ -190,7 +194,8 @@ INSERT INTO tr_purchase_requisition (pr_code, product_id, qty_requested, request
 ('PR-202605-003', 22,  4000, '2026-05-06 08:00:00', 'user_inv02', 'Pending',   NULL),
 ('PR-202605-004', 18,  3000, '2026-05-06 09:00:00', 'user_inv01', 'Pending',   NULL),
 ('PR-202605-005', 14,  5000, '2026-05-07 08:30:00', 'user_inv02', 'Pending',   'Susu skim restock bulk'),
-('PR-202606-001', 11, 21000, '2026-06-02 08:00:00', 'user_inv01', 'Pending',   'Planning Juni');
+('PR-202606-001', 11, 21000, '2026-06-02 08:00:00', 'user_inv01', 'Pending',   'Planning Juni')
+ON CONFLICT DO NOTHING;
 
 
 -- =====================================================================
@@ -236,7 +241,8 @@ INSERT INTO tr_goods_receipt (gr_code, pr_id, supplier_id, product_id, warehouse
 ('GR-202606-001', NULL, 1, 11, 1, 10000,'BT-RM001-2606A', NULL,        '2026-06-02 09:00:00', 'user_inv01', 'Accepted', 0,   'Partial delivery awal bulan'),
 ('GR-202606-002', NULL, 2, 12, 1,  6000,'BT-RM002-2606A', NULL,        '2026-06-02 10:00:00', 'user_inv02', 'Accepted', 0,   NULL),
 ('GR-202606-003', NULL, 5, 15, 1,  1500,'BT-RM005-2606A', NULL,        '2026-06-03 08:30:00', 'user_inv03', 'Accepted', 0,   NULL),
-('GR-202606-004', NULL, 7, 24, 2, 15000,'BT-PM004-2606A', NULL,        '2026-06-03 09:00:00', 'user_inv02', 'Accepted', 0,   NULL);
+('GR-202606-004', NULL, 7, 24, 2, 15000,'BT-PM004-2606A', NULL,        '2026-06-03 09:00:00', 'user_inv02', 'Accepted', 0,   NULL)
+ON CONFLICT DO NOTHING;
 
 
 -- =====================================================================
@@ -262,7 +268,8 @@ INSERT INTO tr_production_request (prd_code, product_id, qty_requested, request_
 ('PRD-202605-001', 3,  2500, '2026-05-13 08:00:00', 'user_inv02', 'In Progress', 'Slai O lai Mei'),
 ('PRD-202605-002', 6,  2800, '2026-05-14 09:00:00', 'user_inv03', 'In Progress', 'Torabika Mei'),
 ('PRD-202605-003', 1,  3500, '2026-05-15 08:00:00', 'user_inv01', 'In Progress', 'Roma Marie Mei batch besar'),
-('PRD-202606-001', 4,  4000, '2026-06-02 08:00:00', 'user_inv02', 'Pending',     'Choki-Choki Juni — menunggu cocoa');
+('PRD-202606-001', 4,  4000, '2026-06-02 08:00:00', 'user_inv02', 'Pending',     'Choki-Choki Juni — menunggu cocoa')
+ON CONFLICT DO NOTHING;
 
 
 -- =====================================================================
@@ -314,7 +321,8 @@ INSERT INTO tr_goods_issue (issue_code, product_id, warehouse_id, batch_number, 
 ('ISS-202605-002', 20, 1, 'BT-RM010-2602A',    5, 'Production', 'PRD-202605-001', '2026-05-14 07:35:00', 'user_inv02'),
 ('ISS-202605-003', 16, 1, 'BT-RM006-2605A',   50, 'Production', 'PRD-202605-002', '2026-05-15 07:30:00', 'user_inv03'),
 ('ISS-202605-004', 17, 5, 'BT-RM007-2603A',   56, 'Production', 'PRD-202605-002', '2026-05-15 07:35:00', 'user_inv03'),
-('ISS-202605-005', 11, 1, 'BT-RM001-2605A', 1925, 'Production', 'PRD-202605-003', '2026-05-16 07:30:00', 'user_inv01');
+('ISS-202605-005', 11, 1, 'BT-RM001-2605A', 1925, 'Production', 'PRD-202605-003', '2026-05-16 07:30:00', 'user_inv01')
+ON CONFLICT DO NOTHING;
 
 
 -- =====================================================================
@@ -355,7 +363,8 @@ INSERT INTO tr_delivery_order (do_code, customer_id, customer_name, product_id, 
 ('DO-202604-006', 'CUST-012', 'PT Carrefour Indonesia',       4, 1200, '2026-04-24 08:00:00', '2026-04-26 09:00:00', 'Jl. Lebak Bulus, Jakarta Selatan',        'Delivered', 'user_inv03'),
 ('DO-202603-006', 'CUST-013', 'CV Makmur Sentosa',            7,  350, '2026-03-25 09:00:00', '2026-03-27 09:00:00', 'Jl. Raya Bekasi Km.23, Bekasi',           'Delivered', 'user_inv02'),
 ('DO-202603-007', 'CUST-007', 'PT Charoen Pokphand Retail',   3,  700, '2026-03-25 10:00:00', '2026-03-27 10:00:00', 'Jl. Daan Mogot, Tangerang',               'Void',      NULL),
-('DO-202604-007', 'CUST-002', 'PT Sumber Alfaria Trijaya',    8,  800, '2026-04-25 08:00:00', '2026-04-27 09:00:00', 'Jl. M. H. Thamrin, Tangerang',            'Delivered', 'user_inv01');
+('DO-202604-007', 'CUST-002', 'PT Sumber Alfaria Trijaya',    8,  800, '2026-04-25 08:00:00', '2026-04-27 09:00:00', 'Jl. M. H. Thamrin, Tangerang',            'Delivered', 'user_inv01')
+ON CONFLICT DO NOTHING;
 
 
 -- =====================================================================
@@ -432,7 +441,8 @@ INSERT INTO tr_stock_balance (product_id, warehouse_id, batch_number, quantity, 
 (5, 4,  'BT-FG005-2603A',  1500, '2027-03-31', 'Available'),
 (9, 4,  'BT-FG009-2603A',  2500, '2027-03-31', 'Available'),
 (4, 4,  'BT-FG004-2604A',  1800, '2027-04-30', 'Available'),
-(6, 4,  'BT-FG006-2604A',   800, '2027-04-30', 'Available');
+(6, 4,  'BT-FG006-2604A',   800, '2027-04-30', 'Available')
+ON CONFLICT DO NOTHING;
 
 
 -- =====================================================================
@@ -531,7 +541,7 @@ INSERT INTO tr_stock_movements (product_id, warehouse_id, type, quantity, balanc
 
 -- ADJ (stock opname correction)
 (22, 2, 'IN',  300,  7300, 'ADJ-202602-001', 'ADJ', '2026-02-28 16:00:00'),
-(26, 2, 'OUT', 500, 10000, 'ADJ-202603-001', 'ADJ', '2026-03-31 16:00:00');
+(26, 2, 'OUT', 500, 10000, 'ADJ-202603-001', 'ADJ', '2026-03-31 16:00:00');  -- tr_stock_movements has no UNIQUE constraint, so ON CONFLICT not needed here
 
 
 -- ─────────────────────────────────────────────────────────────────────

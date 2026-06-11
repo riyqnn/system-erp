@@ -14,6 +14,7 @@ import {
   Image as ImageIcon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Swal from "sweetalert2";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PRODUCT_MOCK_DETAILS } from "./mock-details";
@@ -73,17 +74,29 @@ export default function ProductsPage() {
   }, []);
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this product? This might fail if the product is already used in transactions.")) return;
+    const result = await Swal.fire({
+      title: "Are you sure?",
+      text: "This might fail if the product is already used in transactions.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#64748b",
+      confirmButtonText: "Yes, delete it!"
+    });
+    
+    if (!result.isConfirmed) return;
+    
     try {
       const res = await fetch(`/api/inventory/products?id=${id}`, { method: "DELETE" });
       if (res.ok) {
         setData(data.filter((p) => p.product_id !== id));
+        Swal.fire("Deleted!", "Product has been deleted.", "success");
       } else {
         const json = await res.json();
-        alert(`Failed to delete: ${json.error}`);
+        Swal.fire("Error", `Failed to delete: ${json.error}`, "error");
       }
     } catch {
-      alert("An error occurred while deleting.");
+      Swal.fire("Error", "An error occurred while deleting.", "error");
     }
   };
 
@@ -102,12 +115,13 @@ export default function ProductsPage() {
       if (res.ok) {
         setShowAddModal(false);
         fetchData(); // Refresh list to get new product with stock info
+        Swal.fire("Success", "Product created successfully", "success");
       } else {
         const json = await res.json();
-        alert(`Failed to create: ${json.error}`);
+        Swal.fire("Error", `Failed to create: ${json.error}`, "error");
       }
     } catch {
-      alert("An error occurred while creating product.");
+      Swal.fire("Error", "An error occurred while creating product.", "error");
     } finally {
       setIsSubmitting(false);
     }

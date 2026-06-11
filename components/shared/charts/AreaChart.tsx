@@ -11,6 +11,7 @@ interface AreaChartProps {
   showTooltip?: boolean
   gradient?: boolean
   smooth?: boolean
+  valueFormatter?: (value: number) => string
 }
 
 export function AreaChart({
@@ -22,6 +23,7 @@ export function AreaChart({
   showTooltip = true,
   gradient = true,
   smooth = true,
+  valueFormatter,
 }: AreaChartProps) {
   const [isVisible, setIsVisible] = useState(false)
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
@@ -46,7 +48,7 @@ export function AreaChart({
   }, [])
 
   const maxValue = Math.max(...data.map(d => Math.max(d.value, d.secondary || 0)))
-  const padding = { top: 20, right: 20, bottom: 40, left: 50 }
+  const padding = { top: 20, right: 20, bottom: 40, left: 65 }
   const chartWidth = 1000
   const chartHeight = height - padding.top - padding.bottom
 
@@ -91,6 +93,8 @@ export function AreaChart({
   // Area fill paths
   const primaryAreaPath = `${primaryPath} L ${getX(data.length - 1)} ${height - padding.bottom} L ${getX(0)} ${height - padding.bottom} Z`
   const secondaryAreaPath = `${secondaryPath} L ${getX(data.length - 1)} ${height - padding.bottom} L ${getX(0)} ${height - padding.bottom} Z`
+
+  const formatVal = valueFormatter || ((v) => v.toLocaleString())
 
   return (
     <div ref={chartRef} className="w-full relative" style={{ height }}>
@@ -145,7 +149,7 @@ export function AreaChart({
                     textAnchor="end"
                     className="text-[10px] fill-slate-400 font-medium"
                   >
-                    {value.toLocaleString()}
+                    {formatVal(value)}
                   </text>
                 </g>
               )
@@ -228,9 +232,9 @@ export function AreaChart({
               {showTooltip && isHovered && (
                 <g className="animate-in fade-in slide-in-from-top-2 duration-200">
                   <rect
-                    x={x - 50}
+                    x={x - 60}
                     y={y - 55}
-                    width={100}
+                    width={120}
                     height={40}
                     rx="8"
                     fill="white"
@@ -252,7 +256,7 @@ export function AreaChart({
                     textAnchor="middle"
                     className="text-xs fill-slate-900 font-bold"
                   >
-                    {item.value.toLocaleString()}
+                    {formatVal(item.value)}
                   </text>
                 </g>
               )}
@@ -273,7 +277,7 @@ export function AreaChart({
 
       {/* Y-axis line */}
       <div
-        className="absolute left-[50px] top-0 bottom-8 w-px bg-slate-100"
+        className="absolute left-[65px] top-0 bottom-8 w-px bg-slate-100"
         style={{ top: padding.top }}
       />
     </div>
