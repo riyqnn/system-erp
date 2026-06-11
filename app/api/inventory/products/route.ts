@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
       .from('ms_products')
       .select('*')
       .order('product_name', { ascending: true })
+      .limit(1000) // Added limit to prevent memory crash
 
     if (category) {
       query = query.eq('category', category)
@@ -40,9 +41,25 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const supabase = await createRouteHandlerClient()
 
+    // Explicitly destructure to prevent Mass Assignment Vulnerability
+    const { product_code, product_name, category, units, minimum_stock, expiry_flag } = body
+
+    if (!product_code || !product_name || !category || !units) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+
+    const payload = {
+      product_code,
+      product_name,
+      category,
+      units,
+      minimum_stock: minimum_stock ? Number(minimum_stock) : 0,
+      expiry_flag: Boolean(expiry_flag)
+    }
+
     const { data, error } = await supabase
       .from('ms_products')
-      .insert([body])
+      .insert([payload])
       .select()
       .single()
 

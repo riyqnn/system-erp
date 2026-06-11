@@ -1,10 +1,11 @@
+ 
 /**
  * @fileoverview Service Layer untuk Modul Finance PT. Mayora Indah Tbk.
  * Mengabstraksikan interaksi data antara Supabase (PostgreSQL) dan Mock Database lokal.
  * Enforces business rules: balanced journal entries, three-way matching, payment approvals.
  */
 
-import { mockDb, Akun, Jurnal, JurnalDetail, PurchaseOrder, GoodsReceipt, PurchaseInvoice, Hutang, PermintaanPembayaran, Piutang, TransaksiKas, BiayaProduksi, HppCalculation, LaporanPersediaan, PenerimaanPiutang } from './financeMockDb';
+import { mockDb, Akun, Jurnal, PurchaseOrder, GoodsReceipt, PurchaseInvoice, Hutang, PermintaanPembayaran, Piutang, TransaksiKas, BiayaProduksi, HppCalculation, LaporanPersediaan, PenerimaanPiutang } from './financeMockDb';
 export { mockDb };
 export type { PenerimaanPiutang };
 import { createRouteHandlerClient } from '@/lib/supabase/server';
@@ -450,7 +451,7 @@ export async function verifikasiDanBuatHutang(
       const supabase = await createRouteHandlerClient();
 
       // 1. Insert Purchase Invoice
-      const { data: inv, error: iError } = await supabase
+      const { error: iError } = await supabase
         .from('tr_purchase_invoice')
         .insert([{
           no_invoice: noInvoice,

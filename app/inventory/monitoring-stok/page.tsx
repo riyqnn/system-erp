@@ -1,315 +1,264 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useState } from "react";
-import { 
-  AlertTriangle, 
-  Search, 
-  Filter, 
-  ArrowRight, 
-  CheckCircle2, 
-  X, 
-  Send,
-  Loader2,
-  Box,
-  Layers,
-  Activity
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  Search,
+  RefreshCw,
+  X,
+  ArrowUpDown,
+  Building2,
+  Package,
+  AlertTriangle,
+  Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-const LOW_STOCK_ITEMS = [
-  { id: "FG-001", name: "Kopiko Blister", actual: 1200, safety: 2000, max: 8000, status: "Critical" },
-  { id: "FG-005", name: "Beng-Beng ShareIt", actual: 850, safety: 1500, max: 5000, status: "Low" },
-  { id: "RM-102", name: "Cocoa Powder", actual: 300, safety: 500, max: 2000, status: "Low" },
-];
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+interface StockMonitoringData {
+  product_id: number;
+  product_code: string;
+  product_name: string;
+  category: string;
+  units: string;
+  minimum_stock: number;
+  warehouse_id: number;
+  warehouse_code: string;
+  warehouse_name: string;
+  available_qty: number;
+  reserved_qty: number;
+  quarantine_qty: number;
+  nearest_expiry: string | null;
+}
 
-const BOM_DATA = [
-  { id: "RM-01", name: "Sugar", required: 500, available: 5000, status: "Ready" },
-  { id: "RM-02", name: "Coffee Extract", required: 200, available: 150, status: "Shortage" },
-  { id: "RM-03", name: "Packaging Foil", required: 1000, available: 12000, status: "Ready" },
-];
+const CATEGORY_COLORS: Record<string, string> = {
+  FG: "bg-blue-100 text-blue-700",
+  RM: "bg-emerald-100 text-emerald-700",
+  PM: "bg-amber-100 text-amber-700",
+};
 
-export default function InventoryDashboard() {
-  const [selectedItem, setSelectedItem] = useState<any>(null);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+/* ------------------------------------------------------------------ */
+/*  Page Component                                                     */
+/* ------------------------------------------------------------------ */
+export default function StockMonitoringPage() {
+  const [data, setData] = useState<StockMonitoringData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [warehouseFilter, setWarehouseFilter] = useState("All");
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortAsc, setSortAsc] = useState(true);
 
-  const [reqQty, setReqQty] = useState("");
-  const [checkingBom, setCheckingBom] = useState(false);
-  const [bomChecked, setBomChecked] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  /* ── Fetch Data ────────────────────────────────────────────────── */
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/inventory/stock-monitoring");
+      if (res.ok) {
+        const json = await res.json();
+        setData(json.data || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch stock monitoring data:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const openItem = (item: any) => {
-    setSelectedItem(item);
-    setReqQty("");
-    setBomChecked(false);
-    setIsSuccess(false);
-    setIsDrawerOpen(true);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  /* ── Sort & Filter ─────────────────────────────────────────────── */
+  const toggleSort = (col: string) => {
+    if (sortBy === col) setSortAsc(!sortAsc);
+    else { setSortBy(col); setSortAsc(true); }
   };
 
-  const handleCheckBOM = () => {
-    setCheckingBom(true);
-    setTimeout(() => {
-      setCheckingBom(false);
-      setBomChecked(true);
-    }, 1500);
-  };
+  const uniqueWarehouses = Array.from(new Set(data.map(d => d.warehouse_name)));
 
-  const handleSubmit = () => {
-    setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
-      setIsSuccess(true);
-      setTimeout(() => {
-        setIsDrawerOpen(false);
-      }, 2000);
-    }, 1200);
-  };
+  const filtered = data
+    .filter((d) => {
+      const matchSearch =
+        d.product_name.toLowerCase().includes(search.toLowerCase()) ||
+        d.product_code.toLowerCase().includes(search.toLowerCase());
+      const matchCat = categoryFilter === "All" || d.category === categoryFilter;
+      const matchWH = warehouseFilter === "All" || d.warehouse_name === warehouseFilter;
+      // Only show rows that actually have stock to avoid clutter
+      const hasStock = d.available_qty > 0 || d.reserved_qty > 0 || d.quarantine_qty > 0;
+      return matchSearch && matchCat && matchWH && hasStock;
+    })
+    .sort((a, b) => {
+      if (!sortBy) return 0;
+      if (sortBy === "product_name") {
+        return sortAsc ? a.product_name.localeCompare(b.product_name) : b.product_name.localeCompare(a.product_name);
+      }
+      if (sortBy === "available_qty") {
+        return sortAsc ? a.available_qty - b.available_qty : b.available_qty - a.available_qty;
+      }
+      if (sortBy === "total_qty") {
+        const totalA = a.available_qty + a.reserved_qty + a.quarantine_qty;
+        const totalB = b.available_qty + b.reserved_qty + b.quarantine_qty;
+        return sortAsc ? totalA - totalB : totalB - totalA;
+      }
+      return 0;
+    });
 
+  const totalAvailable = data.reduce((a, d) => a + d.available_qty, 0);
+  const totalReserved = data.reduce((a, d) => a + d.reserved_qty, 0);
+  const totalQuarantine = data.reduce((a, d) => a + d.quarantine_qty, 0);
+
+  /* ── Render ───────────────────────────────────────────────────── */
   return (
-    <div className="space-y-6">
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="border-slate-200 shadow-sm">
-          <CardContent className="p-6 flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
-              <AlertTriangle className="w-6 h-6 text-[#EE4444]" />
-            </div>
-            <div>
-              <p className="text-sm text-slate-500 font-medium">Items Below Safety Stock</p>
-              <h3 className="text-2xl font-semibold text-slate-900 mt-1">12 Items</h3>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-slate-200 shadow-sm">
-          <CardContent className="p-6 flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
-              <Box className="w-6 h-6 text-slate-600" />
-            </div>
-            <div>
-              <p className="text-sm text-slate-500 font-medium">Total Inventory Value</p>
-              <h3 className="text-2xl font-semibold text-slate-900 mt-1">Rp 4.2B</h3>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-slate-200 shadow-sm">
-          <CardContent className="p-6 flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
-              <Activity className="w-6 h-6 text-green-600" />
-            </div>
-            <div>
-              <p className="text-sm text-slate-500 font-medium">Pending Movements</p>
-              <h3 className="text-2xl font-semibold text-slate-900 mt-1">45 DO / 12 GR</h3>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="space-y-6 max-w-[1400px] mx-auto px-6 pb-12">
+      <div className="flex items-end justify-between pt-2">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Stock Monitoring</h1>
+          <p className="text-sm text-slate-500 mt-1">Detailed inventory balance across all warehouses</p>
+        </div>
+        <Button variant="outline" className="h-10 px-5 gap-2 bg-white">
+          <Download className="w-4 h-4" /> Export Report
+        </Button>
       </div>
 
-      
-      <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden bg-white">
-        <CardHeader className="border-b border-slate-100 pb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-lg font-medium text-slate-900">Safety Stock Monitoring</CardTitle>
-              <CardDescription className="mt-1">Automated alert for items falling below minimum threshold (UC-INV-001).</CardDescription>
-            </div>
-            <div className="flex space-x-2">
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <Input placeholder="Search items..." className="pl-9 w-64 bg-slate-50 border-slate-200 h-9" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[
+          { label: "Total Available", value: totalAvailable, color: "text-emerald-600", bg: "bg-emerald-50", icon: Package },
+          { label: "Total Reserved", value: totalReserved, color: "text-blue-600", bg: "bg-blue-50", icon: Package },
+          { label: "Total Quarantine", value: totalQuarantine, color: "text-amber-600", bg: "bg-amber-50", icon: AlertTriangle },
+        ].map((kpi, i) => (
+          <Card key={i} className="border-slate-200 shadow-sm">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className={`w-11 h-11 rounded-xl ${kpi.bg} flex items-center justify-center`}>
+                <kpi.icon className={`w-5 h-5 ${kpi.color}`} />
               </div>
-              <Button variant="outline" size="sm" className="h-9 border-slate-200">
-                <Filter className="w-4 h-4 mr-2" />
-                Filter
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
+              <div>
+                <p className="text-xs text-slate-500 font-medium">{kpi.label}</p>
+                <p className={`text-xl font-bold ${kpi.color} tabular-nums`}>{kpi.value.toLocaleString()}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[240px] max-w-sm">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Input placeholder="Search Product Code or Name..." className="pl-9 h-10 bg-white" value={search} onChange={(e) => setSearch(e.target.value)} />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        
+        <select 
+          className="h-10 px-3 border border-slate-200 rounded-md text-sm bg-white outline-none"
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+        >
+          <option value="All">All Categories</option>
+          <option value="FG">FG (Finished Goods)</option>
+          <option value="RM">RM (Raw Materials)</option>
+          <option value="PM">PM (Packaging Materials)</option>
+        </select>
+
+        <select 
+          className="h-10 px-3 border border-slate-200 rounded-md text-sm bg-white outline-none"
+          value={warehouseFilter}
+          onChange={(e) => setWarehouseFilter(e.target.value)}
+        >
+          <option value="All">All Warehouses</option>
+          {uniqueWarehouses.map(w => <option key={w} value={w}>{w}</option>)}
+        </select>
+
+        <Button variant="outline" size="icon" onClick={fetchData} className="ml-auto h-10 w-10 text-slate-500" disabled={loading}>
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      <Card className="border-slate-200 shadow-sm overflow-hidden">
         <CardContent className="p-0">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-slate-50/50 text-slate-500 font-medium border-b border-slate-100">
-              <tr>
-                <th className="px-6 py-4">Item Code & Name</th>
-                <th className="px-6 py-4 text-right">Actual Balance</th>
-                <th className="px-6 py-4 text-right">Safety Stock</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {LOW_STOCK_ITEMS.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
-                  <td className="px-6 py-4">
-                    <div className="font-medium text-slate-900">{item.id}</div>
-                    <div className="text-slate-500 text-xs mt-0.5">{item.name}</div>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <span className="text-[#EE4444] font-semibold">{item.actual.toLocaleString()}</span>
-                  </td>
-                  <td className="px-6 py-4 text-right text-slate-600">
-                    {item.safety.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-red-50 text-[#EE4444]">
-                      {item.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <Button 
-                      size="sm" 
-                      onClick={() => openItem(item)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity bg-white text-slate-700 border-slate-200 hover:bg-slate-50 shadow-sm"
-                      variant="outline"
-                    >
-                      Request <ArrowRight className="w-3 h-3 ml-2" />
-                    </Button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
+                <tr>
+                  <th className="px-6 py-4 font-medium">
+                    <button onClick={() => toggleSort("product_name")} className="flex items-center gap-1.5 hover:text-slate-900">
+                      Product <ArrowUpDown className="w-3.5 h-3.5" />
+                    </button>
+                  </th>
+                  <th className="px-6 py-4 font-medium">Warehouse</th>
+                  <th className="px-6 py-4 font-medium text-right">
+                    <button onClick={() => toggleSort("available_qty")} className="flex items-center gap-1.5 ml-auto hover:text-slate-900">
+                      Available <ArrowUpDown className="w-3.5 h-3.5" />
+                    </button>
+                  </th>
+                  <th className="px-6 py-4 font-medium text-right">Reserved</th>
+                  <th className="px-6 py-4 font-medium text-right">Quarantine</th>
+                  <th className="px-6 py-4 font-medium text-right">
+                    <button onClick={() => toggleSort("total_qty")} className="flex items-center gap-1.5 ml-auto hover:text-slate-900">
+                      Total <ArrowUpDown className="w-3.5 h-3.5" />
+                    </button>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {loading ? (
+                  <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
+                    <RefreshCw className="w-6 h-6 mx-auto mb-3 animate-spin opacity-50" /><p>Loading stock data...</p>
+                  </td></tr>
+                ) : filtered.length === 0 ? (
+                  <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
+                    <Building2 className="w-10 h-10 mx-auto mb-3 opacity-30" /><p className="text-sm font-medium">No stock data found</p>
+                  </td></tr>
+                ) : (
+                  filtered.map((d) => {
+                    const total = d.available_qty + d.reserved_qty + d.quarantine_qty;
+                    return (
+                      <tr key={`${d.product_id}-${d.warehouse_id}`} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${CATEGORY_COLORS[d.category]}`}>
+                              {d.category}
+                            </span>
+                            <div>
+                              <p className="font-medium text-slate-900">{d.product_name}</p>
+                              <p className="text-xs text-slate-400">{d.product_code}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-slate-700 text-xs">
+                          {d.warehouse_name}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className={`font-semibold tabular-nums ${d.available_qty <= d.minimum_stock ? 'text-red-600' : 'text-emerald-700'}`}>
+                            {d.available_qty.toLocaleString()}
+                          </span>
+                          <span className="text-slate-400 text-[10px] ml-1">{d.units}</span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="font-medium text-slate-700 tabular-nums">{d.reserved_qty > 0 ? d.reserved_qty.toLocaleString() : '-'}</span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="font-medium text-amber-700 tabular-nums">{d.quarantine_qty > 0 ? d.quarantine_qty.toLocaleString() : '-'}</span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="font-bold text-slate-900 tabular-nums">{total.toLocaleString()}</span>
+                          <span className="text-slate-400 text-[10px] ml-1">{d.units}</span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
-
-      
-      {isDrawerOpen && (
-        <>
-          <div 
-            className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-40 transition-opacity"
-            onClick={() => setIsDrawerOpen(false)}
-          />
-          <div className="fixed inset-y-0 right-0 w-[500px] bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300 border-l border-slate-200">
-            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-white">
-              <div>
-                <h2 className="text-lg font-medium text-slate-900">Production Request</h2>
-                <p className="text-sm text-slate-500 mt-1">Issue a request to manufacturing</p>
-              </div>
-              <button 
-                onClick={() => setIsDrawerOpen(false)}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              
-              <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="font-semibold text-slate-900 text-lg">{selectedItem?.id}</h3>
-                    <p className="text-slate-500 text-sm">{selectedItem?.name}</p>
-                  </div>
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-red-50 text-[#EE4444]">
-                    Deficit: {selectedItem?.safety - selectedItem?.actual} units
-                  </span>
-                </div>
-                
-                <div className="space-y-4 mt-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Requested Quantity
-                    </label>
-                    <div className="relative">
-                      <Input 
-                        type="number"
-                        placeholder="e.g. 5000"
-                        className="h-12 text-lg font-medium pl-4"
-                        value={reqQty}
-                        onChange={(e) => setReqQty(e.target.value)}
-                      />
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">
-                        Units
-                      </div>
-                    </div>
-                    {Number(reqQty) + selectedItem?.actual > selectedItem?.max && (
-                      <p className="text-xs text-[#EE4444] mt-2 animate-in fade-in slide-in-from-top-1">
-                        Warning: Request exceeds remaining bin capacity (Max: {selectedItem?.max}).
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              
-              {reqQty && Number(reqQty) > 0 && (
-                <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-medium text-slate-900">BOM Verification</h4>
-                    {!bomChecked && !checkingBom && (
-                      <Button size="sm" variant="outline" onClick={handleCheckBOM} className="h-8 text-xs border-slate-200">
-                        <Layers className="w-3 h-3 mr-2" /> Verify Materials
-                      </Button>
-                    )}
-                  </div>
-
-                  {checkingBom && (
-                    <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 flex flex-col items-center justify-center text-slate-500 space-y-3">
-                      <Loader2 className="w-6 h-6 animate-spin text-[#EE4444]" />
-                      <span className="text-sm font-medium">Calculating BOM Requirements...</span>
-                    </div>
-                  )}
-
-                  {bomChecked && (
-                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                      <div className="p-3 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                        <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Material</span>
-                        <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Status</span>
-                      </div>
-                      <div className="divide-y divide-slate-100">
-                        {BOM_DATA.map((mat) => (
-                          <div key={mat.id} className="p-4 flex items-center justify-between">
-                            <div>
-                              <div className="text-sm font-medium text-slate-900">{mat.name}</div>
-                              <div className="text-xs text-slate-500 mt-0.5">Req: {mat.required} / Avail: {mat.available}</div>
-                            </div>
-                            {mat.status === "Ready" ? (
-                              <div className="flex items-center text-green-600 text-xs font-medium bg-green-50 px-2 py-1 rounded-md">
-                                <div className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2"></div>
-                                Ready
-                              </div>
-                            ) : (
-                              <div className="flex items-center text-[#EE4444] text-xs font-medium bg-red-50 px-2 py-1 rounded-md">
-                                <div className="w-1.5 h-1.5 rounded-full bg-[#EE4444] mr-2"></div>
-                                Shortage
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      <div className="p-3 border-t border-slate-100 bg-red-50/50 flex justify-between items-center">
-                        <span className="text-xs text-[#EE4444] font-medium">Material shortage detected.</span>
-                        <Button size="sm" className="h-7 text-xs bg-white text-[#EE4444] hover:bg-white/80 border border-red-200 shadow-sm">
-                          Create PR
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            
-            <div className="p-6 border-t border-slate-100 bg-slate-50">
-              <Button 
-                className={`w-full h-12 text-base transition-all duration-300 ${isSuccess ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-[#EE4444] hover:bg-[#D43B3B] text-white shadow-[0_4px_14px_rgba(238,68,68,0.39)] hover:shadow-[0_6px_20px_rgba(238,68,68,0.23)]'}`}
-                disabled={!reqQty || checkingBom || isSubmitting || isSuccess || (Number(reqQty) + selectedItem?.actual > selectedItem?.max)}
-                onClick={handleSubmit}
-              >
-                {isSubmitting ? (
-                  <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</>
-                ) : isSuccess ? (
-                  <><CheckCircle2 className="w-5 h-5 mr-2" /> Request Sent</>
-                ) : (
-                  <><Send className="w-4 h-4 mr-2" /> Submit Production Request</>
-                )}
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }
