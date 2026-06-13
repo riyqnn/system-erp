@@ -102,7 +102,7 @@ export default function GeneralLedgerPage() {
   const [tanggalJurnal, setTanggalJurnal] = useState(new Date().toISOString().substring(0, 10))
   const [keteranganJurnal, setKeteranganJurnal] = useState('')
   const [refNumber, setRefNumber] = useState('JE-2026-0004')
-  const [currency, setCurrency] = useState('USD')
+  const [currency, setCurrency] = useState('IDR')
   const [formDetails, setFormDetails] = useState<JurnalDetail[]>([
     { akun_id: 0, debet: 0, kredit: 0 },
     { akun_id: 0, debet: 0, kredit: 0 }
@@ -146,8 +146,8 @@ export default function GeneralLedgerPage() {
     const savedFinalizedAt = localStorage.getItem('gl_report_finalized_at')
     const savedDistributedAt = localStorage.getItem('gl_report_distributed_at')
 
-    if (savedRole) setUserRole(savedRole as any)
-    if (savedStatus) setReportStatus(savedStatus as any)
+    if (savedRole === 'GL_OFFICER' || savedRole === 'MANAGEMENT') setUserRole(savedRole)
+    if (savedStatus === 'DRAFT' || savedStatus === 'FINALIZED' || savedStatus === 'DISTRIBUTED') setReportStatus(savedStatus)
     if (savedNote) setDecisionNote(savedNote)
     if (savedFinalizedAt) setFinalizedAt(savedFinalizedAt)
     if (savedDistributedAt) setDistributedAt(savedDistributedAt)
@@ -416,7 +416,7 @@ export default function GeneralLedgerPage() {
         <div className="xl:col-span-2">
           <GlassCard className="p-6 space-y-6">
             <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-red-50 border border-red-100 text-red-650 shadow-sm">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-red-50 border border-red-100 text-red-600 shadow-sm">
                 <FileText className="w-4 h-4" />
               </div>
               <h2 className="text-base font-bold text-slate-800">
@@ -542,7 +542,7 @@ export default function GeneralLedgerPage() {
                             <button
                               type="button"
                               onClick={() => removeFormRow(index)}
-                              className="p-1.5 text-slate-400 hover:text-red-650 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                              className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                             >
                               <X className="w-4 h-4" />
                             </button>
@@ -558,7 +558,7 @@ export default function GeneralLedgerPage() {
                     <button
                       type="button"
                       onClick={addFormRow}
-                      className="text-xs font-bold text-red-650 hover:text-red-750 hover:underline flex items-center gap-1.5 cursor-pointer pl-1"
+                      className="text-xs font-bold text-red-600 hover:text-red-700 hover:underline flex items-center gap-1.5 cursor-pointer pl-1"
                     >
                       <Plus className="w-3.5 h-3.5" /> + Add Line
                     </button>
@@ -587,7 +587,7 @@ export default function GeneralLedgerPage() {
                       </div>
                     ) : (
                       <div className="bg-red-50 text-red-700 border border-red-200/55 rounded-full px-3 py-1 text-xs font-semibold flex items-center gap-1.5">
-                        <X className="w-4 h-4 text-red-650" /> Unbalanced
+                        <X className="w-4 h-4 text-red-600" /> Unbalanced
                       </div>
                     )}
                   </div>
@@ -599,7 +599,7 @@ export default function GeneralLedgerPage() {
                     variant="outline"
                     disabled={reportStatus !== 'DRAFT'}
                     onClick={() => showNotif('success', 'Draft entri jurnal disimpan.')}
-                    className="h-10 px-4 text-xs font-semibold border-slate-200 text-slate-605 hover:bg-slate-50 hover:text-slate-800 rounded-xl cursor-pointer"
+                    className="h-10 px-4 text-xs font-semibold border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800 rounded-xl cursor-pointer"
                   >
                     Save Draft
                   </Button>
@@ -608,7 +608,7 @@ export default function GeneralLedgerPage() {
                     disabled={!isBalance || loading || reportStatus !== 'DRAFT'}
                     className={`h-10 px-5 text-xs font-semibold text-white rounded-xl shadow-md transition-all cursor-pointer ${
                       reportStatus === 'DRAFT' && isBalance
-                        ? 'bg-red-650 hover:bg-red-750 shadow-red-100'
+                        ? 'bg-red-600 hover:bg-red-700 shadow-red-100'
                         : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
                     }`}
                   >
@@ -624,7 +624,7 @@ export default function GeneralLedgerPage() {
         <div className="xl:col-span-1">
           <GlassCard className="p-6 space-y-6">
             <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-red-50 border border-red-100 text-red-650 shadow-sm">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-red-50 border border-red-100 text-red-600 shadow-sm">
                 <FileSpreadsheet className="w-4 h-4" />
               </div>
               <h2 className="text-base font-bold text-slate-800">
@@ -644,8 +644,8 @@ export default function GeneralLedgerPage() {
                     onClick={() => setSelectedReportType('neraca')}
                     className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all duration-205 ${
                       selectedReportType === 'neraca'
-                        ? 'border-red-600 bg-red-50/10 font-bold text-slate-905 shadow-sm'
-                        : 'border-slate-205 hover:border-slate-350 hover:bg-slate-50/50 text-slate-600'
+                        ? 'border-red-600 bg-red-50/10 font-bold text-slate-900 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/50 text-slate-600'
                     }`}
                   >
                     <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
@@ -655,14 +655,14 @@ export default function GeneralLedgerPage() {
                     </div>
                     <span className="text-xs">Balance Sheet</span>
                   </div>
-
+ 
                   {/* Profit & Loss */}
                   <div
                     onClick={() => setSelectedReportType('labarugi')}
                     className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all duration-205 ${
                       selectedReportType === 'labarugi'
-                        ? 'border-red-600 bg-red-50/10 font-bold text-slate-905 shadow-sm'
-                        : 'border-slate-205 hover:border-slate-350 hover:bg-slate-50/50 text-slate-600'
+                        ? 'border-red-600 bg-red-50/10 font-bold text-slate-900 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/50 text-slate-600'
                     }`}
                   >
                     <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
@@ -672,14 +672,14 @@ export default function GeneralLedgerPage() {
                     </div>
                     <span className="text-xs">Profit & Loss (Income Statement)</span>
                   </div>
-
+ 
                   {/* Trial Balance */}
                   <div
                     onClick={() => setSelectedReportType('trial')}
                     className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all duration-205 ${
                       selectedReportType === 'trial'
-                        ? 'border-red-600 bg-red-50/10 font-bold text-slate-905 shadow-sm'
-                        : 'border-slate-205 hover:border-slate-350 hover:bg-slate-50/50 text-slate-600'
+                        ? 'border-red-600 bg-red-50/10 font-bold text-slate-900 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/50 text-slate-600'
                     }`}
                   >
                     <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
@@ -727,7 +727,7 @@ export default function GeneralLedgerPage() {
                     showNotif('success', `PDF Laporan Keuangan untuk periode ${reportPeriod} berhasil dibuat.`)
                     setShowReportPreview(true)
                   }}
-                  className="w-full py-2.5 border border-red-200 text-red-650 hover:bg-red-50 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm"
+                  className="w-full py-2.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm"
                 >
                   <Download className="w-4 h-4" />
                   Generate PDF
@@ -752,7 +752,7 @@ export default function GeneralLedgerPage() {
                     : 'Neraca Saldo (Trial Balance)'}
               </h2>
               <p className="text-[11px] text-slate-500 font-semibold">
-                Periode Ending: <span className="font-mono text-slate-700">{reportPeriod}</span> | Cost Center: <span className="text-slate-750 font-bold">{costCenter}</span>
+                Periode Ending: <span className="font-mono text-slate-700">{reportPeriod}</span> | Cost Center: <span className="text-slate-700 font-bold">{costCenter}</span>
               </p>
             </div>
 
@@ -765,7 +765,7 @@ export default function GeneralLedgerPage() {
               </button>
               <button
                 onClick={() => setShowReportPreview(false)}
-                className="p-1.5 text-slate-400 hover:text-red-650 hover:bg-slate-50 rounded-xl cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-slate-50 rounded-xl cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -888,7 +888,7 @@ export default function GeneralLedgerPage() {
                     </div>
                   </div>
 
-                  <div className={`p-4 rounded-2xl flex justify-between items-center font-bold text-xs border ${labaRugiBersih >= 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-950' : 'bg-red-50 border-red-100 text-red-955'}`}>
+                  <div className={`p-4 rounded-2xl flex justify-between items-center font-bold text-xs border ${labaRugiBersih >= 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-950' : 'bg-red-50 border-red-100 text-red-900'}`}>
                     <span className="tracking-wide">LABA BERSIH TAHUN BERJALAN</span>
                     <span className="font-mono text-sm">{formatRupiah(labaRugiBersih)}</span>
                   </div>
@@ -947,7 +947,7 @@ export default function GeneralLedgerPage() {
             className="px-6 py-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center cursor-pointer hover:bg-slate-50/80 transition-all"
           >
             <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-              <UserCheck className="w-4 h-4 text-red-650" /> Siklus Otorisasi Laporan Keuangan
+              <UserCheck className="w-4 h-4 text-red-600" /> Siklus Otorisasi Laporan Keuangan
             </h3>
             <span className="text-xs font-bold text-slate-400">
               Otorisasi: {reportStatus}
@@ -959,7 +959,7 @@ export default function GeneralLedgerPage() {
               {/* Left side: Role status & History log */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200/50">
-                  <span className="text-xs font-semibold text-slate-550">Role Simulasi Aktif:</span>
+                  <span className="text-xs font-semibold text-slate-500">Role Simulasi Aktif:</span>
                   <span className="text-xs font-bold text-slate-700">
                     {userRole === 'GL_OFFICER' ? 'Staf GL (Officer)' : 'Pimpinan (Management)'}
                   </span>
@@ -1047,7 +1047,7 @@ export default function GeneralLedgerPage() {
                             : "Tulis rekomendasi, catatan evaluasi, atau disposisi persetujuan laporan keuangan..."
                     }
                     className={`w-full min-h-[90px] p-3 text-xs border rounded-xl focus:outline-none transition-all duration-300 font-medium ${reportStatus === 'FINALIZED' && userRole === 'MANAGEMENT'
-                        ? 'border-slate-200 focus:border-slate-350 bg-white text-slate-700 shadow-sm'
+                        ? 'border-slate-200 focus:border-slate-300 bg-white text-slate-700 shadow-sm'
                         : 'border-slate-100 bg-slate-50/50 text-slate-400 cursor-not-allowed'
                       }`}
                   />
@@ -1060,7 +1060,7 @@ export default function GeneralLedgerPage() {
                         onClick={() => handleUpdateStatus('FINALIZED')}
                         disabled={userRole !== 'GL_OFFICER'}
                         className={`w-full py-2 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${userRole === 'GL_OFFICER'
-                            ? 'bg-red-650 hover:bg-red-750 text-white shadow-md'
+                            ? 'bg-red-600 hover:bg-red-700 text-white shadow-md'
                             : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200/50'
                           }`}
                       >
@@ -1081,7 +1081,7 @@ export default function GeneralLedgerPage() {
                         onClick={() => handleUpdateStatus('DISTRIBUTED')}
                         disabled={userRole !== 'MANAGEMENT'}
                         className={`w-full py-2 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${userRole === 'MANAGEMENT'
-                            ? 'bg-red-650 hover:bg-red-750 text-white shadow-md'
+                            ? 'bg-red-600 hover:bg-red-700 text-white shadow-md'
                             : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200/50'
                           }`}
                       >
@@ -1089,7 +1089,7 @@ export default function GeneralLedgerPage() {
                         Setujui & Distribusikan
                       </button>
                       {userRole !== 'MANAGEMENT' && (
-                        <p className="text-[9px] text-center text-amber-655 font-bold mt-1">
+                        <p className="text-[9px] text-center text-amber-600 font-bold mt-1">
                           * Ganti role ke Pimpinan untuk memberikan Otorisasi.
                         </p>
                       )}
@@ -1102,7 +1102,7 @@ export default function GeneralLedgerPage() {
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                         Laporan Keuangan Telah Resmi Didistribusikan
                       </p>
-                      <p className="text-[9px] text-emerald-650 font-semibold">
+                      <p className="text-[9px] text-emerald-600 font-semibold">
                         Transaksi dikunci secara permanen untuk periode berjalan.
                       </p>
                     </div>
@@ -1110,7 +1110,7 @@ export default function GeneralLedgerPage() {
 
                   <button
                     onClick={handleResetReport}
-                    className="w-full py-1.5 px-3 rounded-lg text-slate-400 hover:text-slate-655 hover:bg-slate-50 border border-dashed border-slate-200 hover:border-slate-350 text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                    className="w-full py-1.5 px-3 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 border border-dashed border-slate-200 hover:border-slate-300 text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
                   >
                     <RefreshCw className="w-3 h-3" />
                     Reset Siklus Laporan (Simulasi)
