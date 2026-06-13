@@ -380,14 +380,6 @@ export default function AccountPayablePage() {
               Pimpinan
             </button>
           </div>
-
-          <Button
-            onClick={() => setIsRequestOpen(true)}
-            className="h-9 gap-2 text-xs font-semibold text-white rounded-2xl cursor-pointer bg-red-650 hover:bg-red-750 shadow-[0_2px_10px_rgba(220,38,38,0.2)]"
-          >
-            <Plus className="w-4 h-4" />
-            New Payment Request
-          </Button>
         </div>
       </div>
 
@@ -548,14 +540,28 @@ export default function AccountPayablePage() {
           </GlassCard>
 
           {/* Initiate Payment Request Dashed Card (Always Shown below Table as per mockup) */}
-          <div className="relative border border-dashed border-slate-350 rounded-3xl p-8 flex flex-col items-center justify-center text-center bg-white/40 space-y-4 min-h-[200px]">
-            {/* Top Right Match PO/GR Button (Where the hand-drawn blue circle is) */}
-            <div className="absolute right-6 top-6">
+          <div className="relative border border-dashed border-slate-300 rounded-3xl p-8 flex flex-col items-center justify-center text-center bg-white/40 space-y-4 min-h-[200px]">
+            {/* Top Right Action Buttons (Moved & grouped at the blue circle area) */}
+            <div className="absolute right-6 top-6 flex items-center gap-2">
               <Button
                 onClick={() => setIsMatchingOpen(true)}
-                className="h-9 gap-1.5 text-xs font-bold text-white rounded-xl bg-red-650 hover:bg-red-750 shadow-sm cursor-pointer"
+                variant="outline"
+                className="h-9 gap-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border-slate-200 rounded-xl cursor-pointer"
               >
                 <FileCheck2 className="w-4 h-4" /> Match PO/GR
+              </Button>
+              <Button
+                onClick={() => {
+                  const pendingAp = filteredHutang.filter(h => h.status !== 'LUNAS');
+                  if (pendingAp.length > 0) {
+                    setSelectedHutang(pendingAp[0]);
+                    setJumlahBayarPengajuan(pendingAp[0].sisa_pembayaran);
+                  }
+                  setIsRequestOpen(true);
+                }}
+                className="h-9 gap-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer shadow-sm shadow-red-100"
+              >
+                <Plus className="w-4 h-4" /> New Payment Request
               </Button>
             </div>
 
@@ -568,19 +574,6 @@ export default function AccountPayablePage() {
                 Compile verified invoices and submit a new payment request (UC-AP-03) for managerial review and treasury processing.
               </p>
             </div>
-            <Button
-              onClick={() => {
-                const pendingAp = filteredHutang.filter(h => h.status !== 'LUNAS');
-                if (pendingAp.length > 0) {
-                  setSelectedHutang(pendingAp[0]);
-                  setJumlahBayarPengajuan(pendingAp[0].sisa_pembayaran);
-                }
-                setIsRequestOpen(true);
-              }}
-              className="px-5 py-2.5 rounded-2xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 shadow-[0_2px_10px_rgba(220,38,38,0.2)] cursor-pointer"
-            >
-              + Create Request
-            </Button>
           </div>
 
         </div>
