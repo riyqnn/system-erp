@@ -243,6 +243,7 @@ class FinanceMockDb {
     this.permintaanPembayaranList = [
       { id_permintaan: 1, no_permintaan: 'PMT-202606-00001', hutang_id: 1, jumlah_bayar: 100000000, metode_pembayaran: 'TRANSFER', keterangan: 'Pembayaran Tahap 1 Tepung Terigu Bogasari', status: 'MENUNGGU_PERSETUJUAN', created_at: '2026-06-03T10:00:00Z' },
       { id_permintaan: 2, no_permintaan: 'PMT-202606-00002', hutang_id: 2, jumlah_bayar: 225000000, metode_pembayaran: 'TRANSFER', keterangan: 'Pelunasan Pembelian Gula Gulaku', status: 'MENUNGGU_PERSETUJUAN', created_at: '2026-06-04T08:30:00Z' },
+      { id_permintaan: 3, no_permintaan: 'PMT-202606-00003', hutang_id: 1, jumlah_bayar: 65000000, metode_pembayaran: 'TRANSFER', keterangan: 'Biaya Konsultasi Apex Consulting', status: 'DISETUJUI', created_at: '2026-06-05T09:00:00Z' },
     ];
 
     // Seed Piutang (AR)
