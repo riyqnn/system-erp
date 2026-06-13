@@ -2,14 +2,14 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { 
-  CreditCard, 
-  CheckSquare, 
-  FileCheck2, 
-  Plus, 
-  Send, 
-  Trash2, 
-  AlertCircle, 
+import {
+  CreditCard,
+  CheckSquare,
+  FileCheck2,
+  Plus,
+  Send,
+  Trash2,
+  AlertCircle,
   CheckCircle,
   HelpCircle,
   FileSpreadsheet,
@@ -110,6 +110,7 @@ function GlassCard({
 }
 
 export default function AccountPayablePage() {
+  const [userRole, setUserRole] = useState<'AP_STAFF' | 'MANAGEMENT'>('AP_STAFF')
   const [hutangList, setHutangList] = useState<Hutang[]>([])
   const [poList, setPoList] = useState<PurchaseOrder[]>([])
   const [grList, setGrList] = useState<GoodsReceipt[]>([])
@@ -120,6 +121,18 @@ export default function AccountPayablePage() {
   // Modals Toggles
   const [isMatchingOpen, setIsMatchingOpen] = useState(false)
   const [isRequestOpen, setIsRequestOpen] = useState(false)
+
+  useEffect(() => {
+    const savedRole = localStorage.getItem('ap_user_role')
+    if (savedRole) {
+      setUserRole(savedRole as any)
+    }
+  }, [])
+
+  const handleUpdateRole = (role: 'AP_STAFF' | 'MANAGEMENT') => {
+    setUserRole(role)
+    localStorage.setItem('ap_user_role', role)
+  }
 
   // Matching Form States
   const [noInvoiceInput, setNoInvoiceInput] = useState('')
@@ -181,7 +194,7 @@ export default function AccountPayablePage() {
     const po = poList.find(p => p.no_po === poNo)
     if (po) {
       setSupplierIdInput(po.supplier_id)
-      
+
       // Auto-select corresponding GR if available
       const matchingGr = grList.find(g => g.product_id === po.product_id && g.supplier_id === po.supplier_id)
       if (matchingGr) {
@@ -318,7 +331,7 @@ export default function AccountPayablePage() {
 
   const pendingPO = poList.length
 
-  const filteredHutang = (hutangList || []).filter(h => 
+  const filteredHutang = (hutangList || []).filter(h =>
     h.supplier_name.toLowerCase().includes(searchSup.toLowerCase()) || h.no_invoice.includes(searchSup)
   )
 
@@ -326,7 +339,7 @@ export default function AccountPayablePage() {
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
-      
+
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
         <div className="space-y-2">
@@ -346,14 +359,28 @@ export default function AccountPayablePage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3 self-start md:self-auto">
-          <Button
-            onClick={() => setIsRequestOpen(true)}
-            className="h-9 gap-2 text-xs font-semibold text-white rounded-2xl cursor-pointer bg-red-600 hover:bg-red-700 shadow-[0_2px_10px_rgba(220,38,38,0.2)]"
-          >
-            <Plus className="w-4 h-4" />
-            New Payment Request
-          </Button>
+        <div className="flex flex-wrap items-center gap-3 self-start md:self-auto">
+          {/* Simulated Role Switcher */}
+          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-2xl border border-slate-200/50">
+            <button
+              onClick={() => handleUpdateRole('AP_STAFF')}
+              className={`px-3 py-1.5 text-[11px] font-bold rounded-xl transition-all cursor-pointer ${userRole === 'AP_STAFF'
+                  ? 'bg-white text-slate-800 shadow-sm border border-slate-200/30'
+                  : 'text-slate-500 hover:text-slate-800'
+                }`}
+            >
+              Staf AP
+            </button>
+            <button
+              onClick={() => handleUpdateRole('MANAGEMENT')}
+              className={`px-3 py-1.5 text-[11px] font-bold rounded-xl transition-all cursor-pointer ${userRole === 'MANAGEMENT'
+                  ? 'bg-white text-slate-800 shadow-sm border border-slate-200/30'
+                  : 'text-slate-500 hover:text-slate-800'
+                }`}
+            >
+              Pimpinan
+            </button>
+          </div>
         </div>
       </div>
 
@@ -432,32 +459,33 @@ export default function AccountPayablePage() {
 
       {/* Main Grid Section */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
+
         {/* Left Columns: Invoice Verification Table and Action Card */}
-        <div className="xl:col-span-2 space-y-6">
-          
+        <div className={`${userRole === 'MANAGEMENT' ? 'xl:col-span-2' : 'xl:col-span-3'} space-y-6`}>
+
           {/* Invoice Verification Table Card */}
           <GlassCard>
             <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-base font-semibold text-slate-800">Invoice Verification (UC-AP-01)</h3>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-4">
                 <div className="relative">
                   <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
-                  <Input 
-                    placeholder="Search Supplier / Inv..." 
+                  <Input
+                    placeholder="Search Supplier / Inv..."
                     value={searchSup}
                     onChange={(e) => setSearchSup(e.target.value)}
                     className="pl-8 pr-4 h-8 text-xs font-medium w-[180px] bg-slate-50/50 border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-lg"
                   />
                 </div>
-                <Button
-                  onClick={() => setIsMatchingOpen(true)}
-                  className="h-8 gap-1.5 text-xs font-bold text-white rounded-lg bg-red-600 hover:bg-red-700 cursor-pointer"
+                <button
+                  type="button"
+                  onClick={() => showNotif('success', 'Semua invoice ditampilkan.')}
+                  className="text-xs font-bold text-red-650 hover:text-red-750 hover:underline cursor-pointer"
                 >
-                  <FileCheck2 className="w-3.5 h-3.5" /> Match PO/GR
-                </Button>
+                  View All &gt;
+                </button>
               </div>
             </div>
 
@@ -501,7 +529,7 @@ export default function AccountPayablePage() {
                               Verify
                             </button>
                           ) : (
-                            <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md">Verified</span>
+                            <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md">Paid</span>
                           )}
                         </TableCell>
                       </TableRow>
@@ -512,8 +540,32 @@ export default function AccountPayablePage() {
             </div>
           </GlassCard>
 
-          {/* Initiate Payment Request Dashed Card */}
-          <div className="border border-dashed border-slate-300 rounded-3xl p-8 flex flex-col items-center justify-center text-center bg-white/40 space-y-4">
+          {/* Initiate Payment Request Dashed Card (Always Shown below Table as per mockup) */}
+          <div className="relative border border-dashed border-slate-300 rounded-3xl p-8 flex flex-col items-center justify-center text-center bg-white/40 space-y-4 min-h-[200px]">
+            {/* Top Right Action Buttons (Moved & grouped at the blue circle area) */}
+            <div className="absolute right-6 top-6 flex items-center gap-2">
+              <Button
+                onClick={() => setIsMatchingOpen(true)}
+                variant="outline"
+                className="h-9 gap-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border-slate-200 rounded-xl cursor-pointer"
+              >
+                <FileCheck2 className="w-4 h-4" /> Match PO/GR
+              </Button>
+              <Button
+                onClick={() => {
+                  const pendingAp = filteredHutang.filter(h => h.status !== 'LUNAS');
+                  if (pendingAp.length > 0) {
+                    setSelectedHutang(pendingAp[0]);
+                    setJumlahBayarPengajuan(pendingAp[0].sisa_pembayaran);
+                  }
+                  setIsRequestOpen(true);
+                }}
+                className="h-9 gap-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer shadow-sm shadow-red-100"
+              >
+                <Plus className="w-4 h-4" /> New Payment Request
+              </Button>
+            </div>
+
             <div className="w-12 h-12 rounded-full bg-red-50 text-[#800000] flex items-center justify-center">
               <Send className="w-5 h-5" />
             </div>
@@ -523,118 +575,108 @@ export default function AccountPayablePage() {
                 Compile verified invoices and submit a new payment request (UC-AP-03) for managerial review and treasury processing.
               </p>
             </div>
-            <Button
-              onClick={() => {
-                if (filteredHutang.filter(h => h.status !== 'LUNAS').length > 0) {
-                  setSelectedHutang(filteredHutang.filter(h => h.status !== 'LUNAS')[0]);
-                  setJumlahBayarPengajuan(filteredHutang.filter(h => h.status !== 'LUNAS')[0].sisa_pembayaran);
-                }
-                setIsRequestOpen(true);
-              }}
-              className="px-5 py-2.5 rounded-2xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 shadow-[0_2px_10px_rgba(220,38,38,0.2)] cursor-pointer"
-            >
-              Create Request
-            </Button>
           </div>
 
         </div>
 
         {/* Right Side: Payment Review (UC-AP-04) Sidebar */}
-        <div className="xl:col-span-1">
-          <GlassCard className="h-full flex flex-col">
-            <div className="px-6 py-5 border-b border-slate-100">
-              <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
-                <CheckSquare className="w-5 h-5 text-red-600" /> Payment Review (UC-AP-04)
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">Pending your approval</p>
-            </div>
+        {userRole === 'MANAGEMENT' && (
+          <div className="xl:col-span-1">
+            <GlassCard className="h-full flex flex-col">
+              <div className="px-6 py-5 border-b border-slate-100">
+                <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                  <CheckSquare className="w-5 h-5 text-red-600" /> Payment Review (UC-AP-04)
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">Pending your approval</p>
+              </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {pendingReviews.length === 0 ? (
-                // Fallback Mock data from screenshot if no active pending requests exist in API
-                <>
-                  <div className="border border-red-100 bg-red-50/20 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
-                    <div className="space-y-1">
-                      <div className="flex justify-between items-start">
-                        <span className="font-mono text-[10px] font-bold text-slate-400">PRQ-2023-110</span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {pendingReviews.length === 0 ? (
+                  // Fallback Mock data from screenshot if no active pending requests exist in API
+                  <>
+                    <div className="border border-red-100 bg-red-50/20 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-start">
+                          <span className="font-mono text-[10px] font-bold text-slate-400">PRQ-2023-110</span>
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
+                        </div>
+                        <p className="text-xs font-semibold text-slate-700">Batched IT hardware purchases</p>
                       </div>
-                      <p className="text-xs font-semibold text-slate-700">Batched IT hardware purchases</p>
-                    </div>
-                    <div className="flex justify-between items-end mt-4">
-                      <p className="text-base font-bold text-slate-800">Rp 675.000.000</p>
-                      <div className="flex gap-1">
-                        <button className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer">
-                          <X className="w-4 h-4" />
-                        </button>
-                        <button className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm">
-                          <Check className="w-4 h-4" />
-                        </button>
+                      <div className="flex justify-between items-end mt-4">
+                        <p className="text-base font-bold text-slate-800">Rp 675.000.000</p>
+                        <div className="flex gap-1">
+                          <button className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer">
+                            <X className="w-4 h-4" />
+                          </button>
+                          <button className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm">
+                            <Check className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="border border-red-100 bg-red-50/20 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
-                    <div className="space-y-1">
-                      <div className="flex justify-between items-start">
-                        <span className="font-mono text-[10px] font-bold text-slate-400">PRQ-2023-112</span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
+                    <div className="border border-red-100 bg-red-50/20 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-start">
+                          <span className="font-mono text-[10px] font-bold text-slate-400">PRQ-2023-112</span>
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
+                        </div>
+                        <p className="text-xs font-semibold text-slate-700">Q3 Office Lease Payment</p>
                       </div>
-                      <p className="text-xs font-semibold text-slate-700">Q3 Office Lease Payment</p>
-                    </div>
-                    <div className="flex justify-between items-end mt-4">
-                      <p className="text-base font-bold text-slate-800">Rp 1.807.500.000</p>
-                      <div className="flex gap-1">
-                        <button className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer">
-                          <X className="w-4 h-4" />
-                        </button>
-                        <button className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm">
-                          <Check className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                pendingReviews.map((pmt) => (
-                  <div key={pmt.id_permintaan} className="border border-slate-100 bg-slate-50/30 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
-                    <div className="space-y-1">
-                      <div className="flex justify-between items-start">
-                        <span className="font-mono text-[10px] font-bold text-slate-400">{pmt.no_permintaan}</span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
-                      </div>
-                      <p className="text-xs font-semibold text-slate-700">{pmt.keterangan}</p>
-                      <p className="text-[10px] text-slate-400">Invoice: {pmt.tr_hutang?.no_invoice} ({pmt.tr_hutang?.supplier_name})</p>
-                    </div>
-                    <div className="flex justify-between items-end mt-4">
-                      <p className="text-base font-bold text-slate-800">Rp {pmt.jumlah_bayar.toLocaleString()}</p>
-                      <div className="flex gap-1.5">
-                        <button 
-                          onClick={() => handleReviewAction(pmt.id_permintaan, 'DITOLAK')}
-                          className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => handleReviewAction(pmt.id_permintaan, 'DISETUJUI')}
-                          className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
+                      <div className="flex justify-between items-end mt-4">
+                        <p className="text-base font-bold text-slate-800">Rp 1.807.500.000</p>
+                        <div className="flex gap-1">
+                          <button className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer">
+                            <X className="w-4 h-4" />
+                          </button>
+                          <button className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm">
+                            <Check className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
+                  </>
+                ) : (
+                  pendingReviews.map((pmt) => (
+                    <div key={pmt.id_permintaan} className="border border-slate-100 bg-slate-50/30 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-start">
+                          <span className="font-mono text-[10px] font-bold text-slate-400">{pmt.no_permintaan}</span>
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
+                        </div>
+                        <p className="text-xs font-semibold text-slate-700">{pmt.keterangan}</p>
+                        <p className="text-[10px] text-slate-400">Invoice: {pmt.tr_hutang?.no_invoice} ({pmt.tr_hutang?.supplier_name})</p>
+                      </div>
+                      <div className="flex justify-between items-end mt-4">
+                        <p className="text-base font-bold text-slate-800">Rp {pmt.jumlah_bayar.toLocaleString()}</p>
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={() => handleReviewAction(pmt.id_permintaan, 'DITOLAK')}
+                            className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleReviewAction(pmt.id_permintaan, 'DISETUJUI')}
+                            className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
 
-            <div className="p-4 border-t border-slate-100 text-center bg-slate-50/50">
-              <Link href="/finance/treasury" className="text-xs font-semibold text-red-600 hover:underline">
-                View all pending requests
-              </Link>
-            </div>
-          </GlassCard>
-        </div>
+              <div className="p-4 border-t border-slate-100 text-center bg-slate-50/50">
+                <Link href="/finance/treasury" className="text-xs font-semibold text-red-600 hover:underline">
+                  View all pending requests
+                </Link>
+              </div>
+            </GlassCard>
+          </div>
+        )}
 
       </div>
 
@@ -650,7 +692,7 @@ export default function AccountPayablePage() {
               <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <FileCheck2 className="w-5 h-5 text-red-600" /> Three-Way Matching Validator
               </h3>
-              <button 
+              <button
                 onClick={() => setIsMatchingOpen(false)}
                 className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
               >
@@ -661,11 +703,11 @@ export default function AccountPayablePage() {
             <form onSubmit={handleMatchingSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
               <div>
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Nomor Invoice Baru</label>
-                <Input 
-                  placeholder="PINV-202606-9901" 
+                <Input
+                  placeholder="PINV-202606-9901"
                   value={noInvoiceInput}
                   onChange={(e) => setNoInvoiceInput(e.target.value)}
-                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1" 
+                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1"
                   required
                 />
               </div>
@@ -703,21 +745,21 @@ export default function AccountPayablePage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">ID Supplier</label>
-                  <Input 
+                  <Input
                     type="number"
                     value={supplierIdInput || ''}
                     onChange={(e) => setSupplierIdInput(Number(e.target.value))}
-                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 bg-slate-50" 
+                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 bg-slate-50"
                     required
                   />
                 </div>
                 <div>
                   <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jumlah Tagihan (IDR)</label>
-                  <Input 
-                    type="number" 
+                  <Input
+                    type="number"
                     value={jumlahInput || ''}
                     onChange={(e) => setJumlahInput(Number(e.target.value))}
-                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 font-bold" 
+                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 font-bold"
                     required
                   />
                 </div>
@@ -726,38 +768,38 @@ export default function AccountPayablePage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tanggal Invoice</label>
-                  <Input 
-                    type="date" 
+                  <Input
+                    type="date"
                     value={tanggalInvoiceInput}
                     onChange={(e) => setTanggalInvoiceInput(e.target.value)}
-                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl text-xs font-medium mt-1" 
+                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl text-xs font-medium mt-1"
                     required
                   />
                 </div>
                 <div>
                   <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jatuh Tempo</label>
-                  <Input 
-                    type="date" 
+                  <Input
+                    type="date"
                     value={dueDateInput}
                     onChange={(e) => setDueDateInput(e.target.value)}
-                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl text-xs font-medium mt-1" 
+                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl text-xs font-medium mt-1"
                     required
                   />
                 </div>
               </div>
 
               <div className="flex gap-2 pt-4">
-                <Button 
-                  type="button" 
+                <Button
+                  type="button"
                   onClick={() => setIsMatchingOpen(false)}
                   variant="ghost"
                   className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
                 >
                   Batal
                 </Button>
-                <Button 
-                  type="submit" 
-                  disabled={loading} 
+                <Button
+                  type="submit"
+                  disabled={loading}
                   className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer"
                 >
                   {loading ? 'Memverifikasi...' : 'Simpan Hutang'}
@@ -776,7 +818,7 @@ export default function AccountPayablePage() {
               <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <CheckSquare className="w-5 h-5 text-red-600" /> Form Pengajuan Pembayaran
               </h3>
-              <button 
+              <button
                 onClick={() => setIsRequestOpen(false)}
                 className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
               >
@@ -836,12 +878,12 @@ export default function AccountPayablePage() {
 
                 <div>
                   <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Diajukan (IDR)</label>
-                  <Input 
-                    type="number" 
+                  <Input
+                    type="number"
                     value={jumlahBayarPengajuan || ''}
                     onChange={(e) => setJumlahBayarPengajuan(Number(e.target.value))}
                     max={selectedHutang?.sisa_pembayaran || 0}
-                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 font-bold" 
+                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 font-bold"
                     required
                   />
                 </div>
@@ -849,27 +891,27 @@ export default function AccountPayablePage() {
 
               <div>
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Keterangan / Alasan Diajukan</label>
-                <textarea 
+                <textarea
                   value={keteranganPengajuan}
                   onChange={(e) => setKeteranganPengajuan(e.target.value)}
-                  className="w-full min-h-[80px] p-3 text-xs font-medium border border-slate-200 rounded-xl focus:outline-none focus:border-slate-300 mt-1" 
+                  className="w-full min-h-[80px] p-3 text-xs font-medium border border-slate-200 rounded-xl focus:outline-none focus:border-slate-300 mt-1"
                   placeholder="Contoh: Pelunasan sisa pembelian bahan kemasan Cikande"
                   required
                 />
               </div>
 
               <div className="flex gap-2 pt-4">
-                <Button 
-                  type="button" 
+                <Button
+                  type="button"
                   onClick={() => setIsRequestOpen(false)}
                   variant="ghost"
                   className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
                 >
                   Batal
                 </Button>
-                <Button 
-                  type="submit" 
-                  disabled={loading || !selectedHutang} 
+                <Button
+                  type="submit"
+                  disabled={loading || !selectedHutang}
                   className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer"
                 >
                   {loading ? 'Mengirim...' : 'Kirim Pengajuan'}

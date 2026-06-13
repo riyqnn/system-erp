@@ -2,20 +2,19 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { 
-  Receipt, 
-  Send, 
-  Wallet, 
-  Clock, 
-  CheckCircle, 
-  AlertCircle, 
-  Filter, 
+import {
+  Receipt,
+  Send,
+  Wallet,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  Filter,
   Calendar,
   UserCheck,
   AlertTriangle,
   MoreVertical,
   Download,
-  Plus,
   Search,
   ChevronRight,
   FileText,
@@ -88,7 +87,7 @@ export default function AccountReceivablePage() {
   const [selectedPiutang, setSelectedPiutang] = useState<Piutang | null>(null)
   const [selectedAkunKas, setSelectedAkunKas] = useState<number>(0)
   const [jumlahBayar, setJumlahBayar] = useState<number>(0)
-  
+
   // Search & Filter
   const [searchCust, setSearchCust] = useState('')
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'BELUM_LUNAS' | 'LUNAS' | 'OVERDUE'>('ALL')
@@ -105,7 +104,7 @@ export default function AccountReceivablePage() {
       const coaJson = await coaRes.json()
       if (coaJson.data) {
         // Filter only cash and bank accounts (1001, 1002, 1003)
-        const kasAkuns = coaJson.data.filter((a: Akun) => 
+        const kasAkuns = coaJson.data.filter((a: Akun) =>
           a.kode_akun === '1001' || a.kode_akun === '1002' || a.kode_akun === '1003'
         )
         setAkunList(kasAkuns)
@@ -229,12 +228,12 @@ export default function AccountReceivablePage() {
   const priorityInvoices = piutangList
     .filter(p => p.status !== 'LUNAS')
     .sort((a, b) => b.sisa_pembayaran - a.sisa_pembayaran)
-  
+
   const priorityInv = priorityInvoices[0] || null
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
-      
+
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
         <div className="space-y-2">
@@ -262,14 +261,6 @@ export default function AccountReceivablePage() {
           >
             <Download className="w-4 h-4 text-slate-400" />
             Export Report
-          </Button>
-
-          <Button
-            onClick={() => showNotif('success', 'Silakan gunakan modul Sales & Marketing (SnM) untuk membuat Invoice Penjualan baru.')}
-            className="h-9 gap-2 text-xs font-semibold text-white rounded-2xl cursor-pointer bg-red-600 hover:bg-red-700 shadow-[0_2px_10px_rgba(220,38,38,0.2)]"
-          >
-            <Plus className="w-4 h-4" />
-            New Invoice
           </Button>
         </div>
       </div>
@@ -346,7 +337,7 @@ export default function AccountReceivablePage() {
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
+
         {/* Left Side: Table of Accounts Receivable (2/3 width) */}
         <div className="xl:col-span-2">
           <GlassCard className="h-full">
@@ -354,13 +345,13 @@ export default function AccountReceivablePage() {
               <div className="space-y-0.5">
                 <h3 className="text-base font-semibold text-slate-800">Payment Monitoring & Verification</h3>
               </div>
-              
+
               {/* Search & Filter Toolbar */}
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
                   <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
-                  <Input 
-                    placeholder="Search Customer / Inv..." 
+                  <Input
+                    placeholder="Search Customer / Inv..."
                     value={searchCust}
                     onChange={(e) => setSearchCust(e.target.value)}
                     className="pl-8 pr-4 h-8 text-xs font-medium w-[180px] bg-slate-50/50 border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-lg"
@@ -502,28 +493,28 @@ export default function AccountReceivablePage() {
 
                   <div className="space-y-1">
                     <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jumlah Pembayaran Diterima (IDR)</label>
-                    <Input 
-                      type="number" 
+                    <Input
+                      type="number"
                       value={jumlahBayar || ''}
                       onChange={(e) => setJumlahBayar(Number(e.target.value))}
                       max={selectedPiutang.sisa_pembayaran}
-                      className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl font-bold h-10" 
+                      className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl font-bold h-10"
                       required
                     />
                   </div>
 
                   <div className="flex gap-2 pt-2">
-                    <Button 
-                      type="button" 
-                      onClick={() => setSelectedPiutang(null)} 
+                    <Button
+                      type="button"
+                      onClick={() => setSelectedPiutang(null)}
                       variant="ghost"
                       className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50"
                     >
                       Batal
                     </Button>
-                    <Button 
-                      type="submit" 
-                      disabled={loading} 
+                    <Button
+                      type="submit"
+                      disabled={loading}
                       className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer shadow-[0_2px_10px_rgba(220,38,38,0.2)]"
                     >
                       {loading ? 'Memproses...' : 'Catat Pelunasan'}
@@ -537,18 +528,18 @@ export default function AccountReceivablePage() {
             // VERIFICATION & DEBT AGING SIDEBAR (IMAGE 1)
             // ==========================================
             <div className="space-y-6">
-              
+
               {/* Priority Verification Banner (Image 1 Red banner) */}
               <div className="bg-[#800000] text-white rounded-3xl p-6 relative overflow-hidden shadow-sm flex flex-col justify-between min-h-[180px]">
                 {/* Large checkmark logo watermark */}
                 <div className="absolute right-0 bottom-0 opacity-10 translate-x-2 translate-y-4">
                   <CheckCircle className="w-40 h-40" />
                 </div>
-                
+
                 <div className="space-y-2 z-10">
                   <h4 className="text-base font-bold">Priority Verification</h4>
                   <p className="text-xs text-red-100 leading-relaxed font-light">
-                    {priorityInv 
+                    {priorityInv
                       ? "1 large invoice requires immediate manual verification."
                       : "No invoices require manual verification."}
                   </p>
