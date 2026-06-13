@@ -715,6 +715,13 @@ export async function eksekusiPembayaranTreasury(
     try {
       const supabase = await createRouteHandlerClient();
 
+      // Cek kecukupan saldo kas/bank pembayar
+      const { data: akunKas } = await supabase.from('ms_akun').select('*').eq('id_akun', akunKasId).single();
+      if (!akunKas) throw new Error('Rekening kas/bank tidak ditemukan');
+      if (Number(akunKas.saldo_berjalan) < pmt.jumlah_bayar) {
+        throw new Error('Saldo rekening kas/bank tidak mencukupi untuk melakukan pembayaran ini.');
+      }
+
       // Ambil Hutang terkait
       const { data: hutang } = await supabase.from('tr_hutang').select('*').eq('id_hutang', pmt.hutang_id).single();
       if (!hutang) throw new Error('Hutang tidak ditemukan');
@@ -773,6 +780,12 @@ export async function eksekusiPembayaranTreasury(
   }
 
   // Fallback ke Mock DB
+  const akunKas = mockDb.akunList.find((a) => a.id_akun === akunKasId);
+  if (!akunKas) throw new Error('Rekening kas/bank tidak ditemukan');
+  if (akunKas.saldo_berjalan < pmt.jumlah_bayar) {
+    throw new Error('Saldo rekening kas/bank tidak mencukupi untuk melakukan pembayaran ini.');
+  }
+
   const hutang = mockDb.hutangList.find((h) => h.id_hutang === pmt.hutang_id);
   if (!hutang) throw new Error('Hutang tidak ditemukan');
 

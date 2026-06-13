@@ -21,7 +21,7 @@ export async function verifyAuthForRoute(request: NextRequest, allowedRoles: str
     // Fallback Mock User untuk pengujian lokal tanpa database Supabase
     const { searchParams } = new URL(request.url);
     const mockRole = searchParams.get('mock_role')?.toUpperCase() || 'ADMIN';
-    
+
     return {
       id: '00000000-0000-0000-0000-000000000000',
       email: 'staff.finance@mayora.co.id',

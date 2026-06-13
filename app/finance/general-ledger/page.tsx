@@ -1,27 +1,37 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { 
-  Book, 
-  List, 
-  Plus, 
-  Trash2, 
-  CheckCircle2, 
-  AlertCircle, 
-  Search, 
-  Filter, 
-  Printer, 
+import {
+  Book,
+  List,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  AlertCircle,
+  Search,
+  Filter,
+  Printer,
   FileSpreadsheet,
   ArrowRightLeft,
   DollarSign,
   X,
   PlusCircle,
-  FileText
+  FileText,
+  Lock,
+  Unlock,
+  Send,
+  History,
+  UserCheck,
+  RefreshCw,
+  Download,
+  Check,
+  FileQuestion
 } from 'lucide-react'
 import { CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+
 
 const BRAND_RED = '#dc2626'
 
@@ -88,10 +98,12 @@ export default function GeneralLedgerPage() {
   const [reportSubTab, setReportSubTab] = useState<'neraca' | 'labarugi'>('neraca')
   const [akunList, setAkunList] = useState<Akun[]>([])
   const [jurnalList, setJurnalList] = useState<Jurnal[]>([])
-  
+
   // State Form Jurnal Baru
   const [tanggalJurnal, setTanggalJurnal] = useState(new Date().toISOString().substring(0, 10))
   const [keteranganJurnal, setKeteranganJurnal] = useState('')
+  const [refNumber, setRefNumber] = useState('JE-2026-0004')
+  const [currency, setCurrency] = useState('USD')
   const [formDetails, setFormDetails] = useState<JurnalDetail[]>([
     { akun_id: 0, debet: 0, kredit: 0 },
     { akun_id: 0, debet: 0, kredit: 0 }
@@ -104,6 +116,73 @@ export default function GeneralLedgerPage() {
   // Notification States
   const [notif, setNotif] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // Layout View States 
+  const [selectedReportType, setSelectedReportType] = useState<'neraca' | 'labarugi' | 'trial'>('neraca')
+  const [reportPeriod, setReportPeriod] = useState('June 2026')
+  const [costCenter, setCostCenter] = useState('Consolidated (All)')
+  const [showReportPreview, setShowReportPreview] = useState(true)
+  const [showHistory, setShowHistory] = useState(true)
+  const [showCoa, setShowCoa] = useState(false)
+
+  // Simulated Role Switcher
+  const [userRole, setUserRole] = useState<'GL_OFFICER' | 'MANAGEMENT'>('GL_OFFICER')
+
+  const handleUpdateRole = (role: 'GL_OFFICER' | 'MANAGEMENT') => {
+    setUserRole(role)
+    localStorage.setItem('gl_user_role', role)
+  }
+
+  // Financial Report Lifecycle States
+  const [reportStatus, setReportStatus] = useState<'DRAFT' | 'FINALIZED' | 'DISTRIBUTED'>('DRAFT')
+  const [decisionNote, setDecisionNote] = useState('')
+  const [finalizedAt, setFinalizedAt] = useState<string | null>(null)
+  const [distributedAt, setDistributedAt] = useState<string | null>(null)
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    const savedRole = localStorage.getItem('gl_user_role')
+    const savedStatus = localStorage.getItem('gl_report_status')
+    const savedNote = localStorage.getItem('gl_report_decision_note')
+    const savedFinalizedAt = localStorage.getItem('gl_report_finalized_at')
+    const savedDistributedAt = localStorage.getItem('gl_report_distributed_at')
+
+    if (savedRole) setUserRole(savedRole as any)
+    if (savedStatus) setReportStatus(savedStatus as any)
+    if (savedNote) setDecisionNote(savedNote)
+    if (savedFinalizedAt) setFinalizedAt(savedFinalizedAt)
+    if (savedDistributedAt) setDistributedAt(savedDistributedAt)
+  }, [])
+
+  const handleUpdateStatus = (newStatus: 'DRAFT' | 'FINALIZED' | 'DISTRIBUTED') => {
+    setReportStatus(newStatus)
+    localStorage.setItem('gl_report_status', newStatus)
+
+    const nowStr = new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })
+    if (newStatus === 'FINALIZED') {
+      setFinalizedAt(nowStr)
+      localStorage.setItem('gl_report_finalized_at', nowStr)
+    } else if (newStatus === 'DISTRIBUTED') {
+      setDistributedAt(nowStr)
+      localStorage.setItem('gl_report_distributed_at', nowStr)
+    } else if (newStatus === 'DRAFT') {
+      setFinalizedAt(null)
+      setDistributedAt(null)
+      localStorage.removeItem('gl_report_finalized_at')
+      localStorage.removeItem('gl_report_distributed_at')
+    }
+  }
+
+  const handleUpdateDecisionNote = (note: string) => {
+    setDecisionNote(note)
+    localStorage.setItem('gl_report_decision_note', note)
+  }
+
+  const handleResetReport = () => {
+    handleUpdateStatus('DRAFT')
+    handleUpdateDecisionNote('')
+    showNotif('success', 'Status laporan keuangan berhasil direset ke Draft.')
+  }
 
   // Fetch Data
   const loadData = async () => {
@@ -172,6 +251,10 @@ export default function GeneralLedgerPage() {
   // Post Jurnal
   const handlePostJurnal = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (reportStatus !== 'DRAFT') {
+      showNotif('error', 'Tidak dapat memposting jurnal. Laporan keuangan periode berjalan telah difinalisasi atau didistribusikan.')
+      return
+    }
     if (!isBalance) {
       showNotif('error', 'Jurnal tidak balance! Total Debet dan Kredit harus sama dan lebih besar dari 0.')
       return
@@ -250,9 +333,31 @@ export default function GeneralLedgerPage() {
   // Adjust ekuitas in neraca with net profit
   const totalPasiva = totalKewajiban + totalEkuitas + labaRugiBersih
 
+  // 3. TRIAL BALANCE
+  const trialList = akunList.map(a => {
+    const isDebet = a.saldo_normal === 'DEBET'
+    return {
+      id_akun: a.id_akun,
+      kode_akun: a.kode_akun,
+      nama_akun: a.nama_akun,
+      debet: isDebet ? a.saldo_berjalan : 0,
+      kredit: !isDebet ? a.saldo_berjalan : 0
+    }
+  })
+  const totalTrialDebet = trialList.reduce((sum, a) => sum + a.debet, 0)
+  const totalTrialKredit = trialList.reduce((sum, a) => sum + a.kredit, 0)
+
+  // Format amount based on currency selection
+  const formatAmount = (val: number) => {
+    if (currency === 'USD') {
+      return '$' + (val / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    }
+    return 'Rp ' + val.toLocaleString('id-ID')
+  }
+
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
-      
+
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
         <div className="space-y-2">
@@ -260,7 +365,7 @@ export default function GeneralLedgerPage() {
             <div className="w-1 h-8 rounded-full bg-red-600" style={{ width: '4px', backgroundColor: '#dc2626' }} />
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.25em]" style={{ color: '#dc2626' }}>
-                Finance Module
+                FINANCE MODULE
               </p>
               <h1 className="text-3xl font-bold tracking-tight text-slate-800">
                 General Ledger
@@ -272,24 +377,48 @@ export default function GeneralLedgerPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3 self-start md:self-auto">
+        <div className="flex flex-wrap items-center gap-3 self-start md:self-auto">
+          {/* Outlined Cetak Button */}
           <Button
-            variant="ghost"
-            size="sm"
-            className="h-9 gap-2 hover:bg-slate-100 text-xs font-semibold text-slate-600 rounded-2xl cursor-pointer border border-slate-200"
+            variant="outline"
+            className="h-9 gap-2 text-xs font-semibold rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800 cursor-pointer"
+            onClick={() => showNotif('success', 'Mencetak dokumen...')}
           >
-            <Printer className="w-4 h-4 text-slate-400" />
+            <Printer className="w-4 h-4" />
             Cetak
           </Button>
 
+          {/* Outlined Export Excel Button */}
           <Button
-            variant="ghost"
-            size="sm"
-            className="h-9 gap-2 hover:bg-slate-100 text-xs font-semibold text-slate-600 rounded-2xl cursor-pointer border border-slate-200"
+            variant="outline"
+            className="h-9 gap-2 text-xs font-semibold rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800 cursor-pointer"
+            onClick={() => showNotif('success', 'Mengekspor data ke Excel...')}
           >
-            <FileSpreadsheet className="w-4 h-4 text-slate-400" />
+            <FileSpreadsheet className="w-4 h-4" />
             Export Excel
           </Button>
+
+          {/* Simulated Role Selector */}
+          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-2xl border border-slate-200/50">
+            <button
+              onClick={() => handleUpdateRole('GL_OFFICER')}
+              className={`px-3 py-1.5 text-[11px] font-bold rounded-xl transition-all cursor-pointer ${userRole === 'GL_OFFICER'
+                  ? 'bg-white text-slate-800 shadow-sm border border-slate-200/30'
+                  : 'text-slate-500 hover:text-slate-800'
+                }`}
+            >
+              Staf GL
+            </button>
+            <button
+              onClick={() => handleUpdateRole('MANAGEMENT')}
+              className={`px-3 py-1.5 text-[11px] font-bold rounded-xl transition-all cursor-pointer ${userRole === 'MANAGEMENT'
+                  ? 'bg-white text-slate-800 shadow-sm border border-slate-200/30'
+                  : 'text-slate-500 hover:text-slate-800'
+                }`}
+            >
+              Pimpinan
+            </button>
+          </div>
         </div>
       </div>
 
@@ -301,167 +430,209 @@ export default function GeneralLedgerPage() {
         </div>
       )}
 
-      {/* Main Tab Container */}
-      <GlassCard>
-        
-        {/* Navigation Tabs Header */}
-        <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl border border-slate-200/50 w-full sm:w-auto">
-            <button 
-              onClick={() => setActiveTab('jurnal')}
-              className={`flex-1 sm:flex-initial px-4 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-                activeTab === 'jurnal' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Jurnal & Posting
-            </button>
-            <button 
-              onClick={() => setActiveTab('coa')}
-              className={`flex-1 sm:flex-initial px-4 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-                activeTab === 'coa' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Daftar Akun (COA)
-            </button>
-            <button 
-              onClick={() => setActiveTab('laporan')}
-              className={`flex-1 sm:flex-initial px-4 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-                activeTab === 'laporan' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              Laporan Keuangan
-            </button>
-          </div>
-        </div>
+      {/* Tabs Container */}
+      <div className="flex border-b border-slate-200">
+        <button
+          onClick={() => setActiveTab('jurnal')}
+          className={`pb-3 px-6 text-sm font-bold border-b-2 transition-all cursor-pointer ${activeTab === 'jurnal'
+              ? 'border-red-600 text-red-650 font-extrabold'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+        >
+          Jurnal & Posting
+        </button>
+        <button
+          onClick={() => setActiveTab('coa')}
+          className={`pb-3 px-6 text-sm font-bold border-b-2 transition-all cursor-pointer ${activeTab === 'coa'
+              ? 'border-red-600 text-red-650 font-extrabold'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+        >
+          Daftar Akun (COA)
+        </button>
+        <button
+          onClick={() => setActiveTab('laporan')}
+          className={`pb-3 px-6 text-sm font-bold border-b-2 transition-all cursor-pointer ${activeTab === 'laporan'
+              ? 'border-red-600 text-red-650 font-extrabold'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+            }`}
+        >
+          Laporan Keuangan
+        </button>
+      </div>
 
-        {/* ==========================================================
-            TAB 1: JURNAL & POSTING
-            ========================================================== */}
-        {activeTab === 'jurnal' && (
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 p-6">
-            
-            {/* Left: Posting Jurnal Manual Form (1/3 width) */}
-            <div className="xl:col-span-1 border border-slate-100 bg-slate-50/20 rounded-2xl p-5 space-y-4">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                <PlusCircle className="w-5 h-5 text-red-600" /> Posting Jurnal Manual
-              </h3>
-              
-              <form onSubmit={handlePostJurnal} className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tanggal Transaksi</label>
-                  <Input 
-                    type="date" 
-                    value={tanggalJurnal} 
-                    onChange={(e) => setTanggalJurnal(e.target.value)}
-                    className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 h-9" 
-                    required
-                  />
-                </div>
+      {/* Tab 1: Jurnal & Posting */}
+      {activeTab === 'jurnal' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-                <div>
-                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Keterangan Jurnal</label>
-                  <textarea 
-                    value={keteranganJurnal}
-                    onChange={(e) => setKeteranganJurnal(e.target.value)}
-                    className="w-full min-h-[60px] p-2.5 text-xs font-medium border border-slate-200 rounded-xl focus:outline-none focus:border-slate-300 mt-1" 
-                    placeholder="Deskripsi transaksi..."
-                    required
-                  />
-                </div>
-
-                {/* Dynamic Entry Rows */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Baris Detail Jurnal</label>
-                    <button 
-                      type="button" 
-                      onClick={addFormRow} 
-                      className="px-2 py-1 text-[10px] font-bold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3 h-3" /> Tambah Baris
-                    </button>
-                  </div>
-
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                    {formDetails.map((detail, index) => (
-                      <div key={index} className="flex gap-2 items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                        <div className="flex-1 space-y-1.5">
-                          <select 
-                            value={detail.akun_id}
-                            onChange={(e) => handleDetailChange(index, 'akun_id', e.target.value)}
-                            className="w-full text-xs font-bold p-1.5 border border-slate-200 rounded-lg focus:outline-none bg-white text-slate-700"
-                            required
-                          >
-                            <option value={0}>-- PILIH AKUN --</option>
-                            {akunList.map((a) => (
-                              <option key={a.id_akun} value={a.id_akun}>{a.kode_akun} - {a.nama_akun}</option>
-                            ))}
-                          </select>
-                          <div className="flex gap-2">
-                            <Input 
-                              type="number" 
-                              placeholder="Debet" 
-                              value={detail.debet || ''} 
-                              onChange={(e) => handleDetailChange(index, 'debet', e.target.value)}
-                              className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-lg text-xs font-semibold h-8"
-                            />
-                            <Input 
-                              type="number" 
-                              placeholder="Kredit" 
-                              value={detail.kredit || ''} 
-                              onChange={(e) => handleDetailChange(index, 'kredit', e.target.value)}
-                              className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-lg text-xs font-semibold h-8"
-                            />
-                          </div>
-                        </div>
-                        <button 
-                          type="button" 
-                          onClick={() => removeFormRow(index)}
-                          className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Status Verification indicator */}
-                <div className={`p-3.5 rounded-xl border space-y-1.5 ${isBalance ? 'bg-emerald-50/50 border-emerald-100 text-emerald-900' : 'bg-red-50/50 border-red-100 text-red-900'}`}>
-                  <div className="flex justify-between text-[11px] font-semibold">
-                    <span>Total Debet:</span>
-                    <span className="font-mono">{formatRupiah(totalDebet)}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px] font-semibold">
-                    <span>Total Kredit:</span>
-                    <span className="font-mono">{formatRupiah(totalKredit)}</span>
-                  </div>
-                  <div className="border-t border-slate-200/50 my-1.5" />
-                  <div className="flex items-center justify-between text-[10px] font-bold">
-                    <span>Status Balance:</span>
-                    <span className={`px-2 py-0.5 rounded-md text-[9px] uppercase font-bold text-white ${isBalance ? 'bg-emerald-600' : 'bg-red-600'}`}>
-                      {isBalance ? 'SEIMBANG' : 'TIDAK BALANCE'}
-                    </span>
-                  </div>
-                </div>
-
-                <Button 
-                  type="submit" 
-                  disabled={!isBalance || loading} 
-                  className="w-full text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer py-2.5"
-                >
-                  {loading ? 'Memproses...' : 'Posting Jurnal'}
-                </Button>
-              </form>
+          {/* Left card (1/3 width): POSTING JURNAL MANUAL */}
+          <div className="lg:col-span-1 bg-white border border-slate-200/80 shadow-[0_4px_20px_rgba(0,0,0,0.02)] rounded-[24px] p-6 space-y-6">
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-red-50 border border-red-100 text-red-600 shadow-sm">
+                <FileText className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-800">
+                  POSTING JURNAL MANUAL
+                </h2>
+              </div>
             </div>
 
-            {/* Right: Histori Entri Jurnal (2/3 width) */}
-            <div className="xl:col-span-2">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <Book className="w-5 h-5 text-red-600" /> Histori Jurnal Buku Besar
+            <form onSubmit={handlePostJurnal} className="space-y-4">
+              {/* Posting Date */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Tanggal Posting
+                </label>
+                <Input
+                  type="date"
+                  value={tanggalJurnal}
+                  onChange={(e) => setTanggalJurnal(e.target.value)}
+                  disabled={reportStatus !== 'DRAFT'}
+                  className="w-full h-10 px-3.5 text-xs font-semibold border border-slate-200 rounded-xl focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-60"
+                  required
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Keterangan
+                </label>
+                <textarea
+                  value={keteranganJurnal}
+                  onChange={(e) => setKeteranganJurnal(e.target.value)}
+                  disabled={reportStatus !== 'DRAFT'}
+                  className="w-full min-h-[70px] p-3.5 text-xs font-semibold border border-slate-200 rounded-2xl focus:outline-none focus:border-slate-350 disabled:opacity-60 disabled:bg-slate-50 text-slate-700"
+                  placeholder={reportStatus !== 'DRAFT' ? "Jurnal dikunci karena laporan keuangan telah difinalisasi." : "Tulis rincian transaksi..."}
+                  required
+                />
+              </div>
+
+              {/* Account Details Stack */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-450">Detail Transaksi</span>
+                </div>
+
+                <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+                  {formDetails.map((detail, index) => (
+                    <div key={index} className="p-3 border border-slate-100 bg-slate-50/30 rounded-xl space-y-2 relative animate-[fadeIn_0.2s_ease-out]">
+                      {/* Account select on top */}
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Akun</label>
+                        <select
+                          value={detail.akun_id}
+                          onChange={(e) => handleDetailChange(index, 'akun_id', e.target.value)}
+                          disabled={reportStatus !== 'DRAFT'}
+                          className="w-full text-xs font-bold p-2 border border-slate-250/70 rounded-lg focus:outline-none bg-white text-slate-700 disabled:opacity-60"
+                          required
+                        >
+                          <option value={0}>-- PILIH AKUN --</option>
+                          {akunList.map((a) => (
+                            <option key={a.id_akun} value={a.id_akun}>{a.kode_akun} - {a.nama_akun}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Debet / Kredit side-by-side, delete on the right */}
+                      <div className="flex items-end gap-2">
+                        <div className="flex-1">
+                          <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Debet</label>
+                          <Input
+                            type="number"
+                            placeholder="0.00"
+                            value={detail.debet || ''}
+                            onChange={(e) => handleDetailChange(index, 'debet', e.target.value)}
+                            disabled={reportStatus !== 'DRAFT'}
+                            className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-lg text-xs font-bold h-8 text-right disabled:opacity-60"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Kredit</label>
+                          <Input
+                            type="number"
+                            placeholder="0.00"
+                            value={detail.kredit || ''}
+                            onChange={(e) => handleDetailChange(index, 'kredit', e.target.value)}
+                            disabled={reportStatus !== 'DRAFT'}
+                            className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-lg text-xs font-bold h-8 text-right disabled:opacity-60"
+                          />
+                        </div>
+                        {formDetails.length > 2 && reportStatus === 'DRAFT' && (
+                          <button
+                            type="button"
+                            onClick={() => removeFormRow(index)}
+                            className="p-1.5 text-slate-450 hover:text-red-650 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer mb-0.5"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add row trigger */}
+                {reportStatus === 'DRAFT' && (
+                  <button
+                    type="button"
+                    onClick={addFormRow}
+                    className="text-xs font-bold text-red-650 hover:text-red-750 hover:underline flex items-center gap-1 cursor-pointer pl-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Tambah Baris
+                  </button>
+                )}
+              </div>
+
+              {/* Red Border Box showing totals and balanced badge */}
+              <div className="p-4 border-2 border-red-100 bg-red-50/10 rounded-2xl space-y-2.5">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-semibold text-slate-500">Total Debet:</span>
+                  <span className="font-mono font-bold text-slate-800">{formatRupiah(totalDebet)}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-semibold text-slate-500">Total Kredit:</span>
+                  <span className="font-mono font-bold text-slate-800">{formatRupiah(totalKredit)}</span>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+                  <span className="text-xs font-bold text-slate-700">Status Balance:</span>
+                  {isBalance ? (
+                    <div className="bg-emerald-50 text-emerald-700 border border-emerald-250/20 rounded-full px-2.5 py-0.5 text-[10px] font-bold flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-600" /> Balanced
+                    </div>
+                  ) : (
+                    <div className="bg-red-50 text-red-700 border border-red-250/20 rounded-full px-2.5 py-0.5 text-[10px] font-bold flex items-center gap-1">
+                      <X className="w-3 h-3 text-red-600" /> Unbalanced
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Full-width Posting Jurnal button */}
+              <button
+                type="submit"
+                disabled={!isBalance || loading || reportStatus !== 'DRAFT'}
+                className={`w-full py-3 text-xs font-bold text-white rounded-xl shadow-sm cursor-pointer transition-all ${reportStatus === 'DRAFT' && isBalance
+                    ? 'bg-red-650 hover:bg-red-750'
+                    : 'bg-slate-200 border border-slate-300 text-slate-400 cursor-not-allowed shadow-none'
+                  }`}
+              >
+                {loading ? 'Processing...' : 'Posting Jurnal'}
+              </button>
+            </form>
+          </div>
+
+          {/* Right card (2/3 width): HISTORI JURNAL BUKU BESAR */}
+          <div className="lg:col-span-2 bg-white border border-slate-200/80 shadow-[0_4px_20px_rgba(0,0,0,0.02)] rounded-[24px] overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                <Book className="w-4 h-4 text-red-650" /> Histori Jurnal Buku Besar
               </h3>
-              
-              <div className="border border-slate-100 rounded-2xl overflow-hidden">
+            </div>
+
+            <div className="p-6">
+              <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
                 <Table>
                   <TableHeader className="bg-slate-50/50">
                     <TableRow className="border-b border-slate-100">
@@ -518,260 +689,764 @@ export default function GeneralLedgerPage() {
               </div>
             </div>
           </div>
-        )}
 
-        {/* ==========================================================
-            TAB 2: DAFTAR AKUN (COA)
-            ========================================================== */}
-        {activeTab === 'coa' && (
-          <div className="p-6 space-y-6">
-            
-            {/* Filter COA row */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                <Input 
-                  placeholder="Cari kode atau nama akun..." 
-                  value={searchCoa}
-                  onChange={(e) => setSearchCoa(e.target.value)}
-                  className="pl-9 pr-4 h-9 border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl min-w-[240px]"
-                />
-              </div>
+        </div>
+      )}
 
-              {/* Kategori Filters buttons */}
-              <div className="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-2xl border border-slate-200/50">
-                {['ALL', 'ASET', 'KEWAJIBAN', 'EKUITAS', 'PENDAPATAN', 'BEBAN'].map((kat) => (
-                  <button
-                    key={kat}
-                    onClick={() => setFilterKategori(kat)}
-                    className={`px-3.5 py-1 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-                      filterKategori === kat ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    {kat}
-                  </button>
-                ))}
-              </div>
+      {/* Tab 2: Daftar Akun (COA) */}
+      {activeTab === 'coa' && (
+        <div className="bg-white border border-slate-200/80 shadow-[0_4px_20px_rgba(0,0,0,0.02)] rounded-[24px] p-6 space-y-4">
+
+          {/* Filter and search bar */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+              <Input
+                placeholder="Cari kode atau nama akun..."
+                value={searchCoa}
+                onChange={(e) => setSearchCoa(e.target.value)}
+                className="pl-9 pr-4 h-9 border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl min-w-[240px]"
+              />
             </div>
 
-            <div className="border border-slate-100 rounded-2xl overflow-hidden">
-              <Table>
-                <TableHeader className="bg-slate-50/50">
-                  <TableRow className="border-b border-slate-100">
-                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-36 text-center">Kode Akun</TableHead>
-                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Nama Rekening Akun</TableHead>
-                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-40">Kategori</TableHead>
-                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-32">Saldo Normal</TableHead>
-                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right w-52">Saldo Berjalan</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody className="text-xs text-slate-700">
-                  {filteredAkun.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-12 font-semibold text-slate-400">
-                        Akun tidak ditemukan.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredAkun.map((a) => {
-                      const badgeMap = {
-                        ASET: "bg-blue-50 text-blue-700 border-blue-100",
-                        KEWAJIBAN: "bg-orange-50 text-orange-700 border-orange-100",
-                        EKUITAS: "bg-purple-50 text-purple-700 border-purple-100",
-                        PENDAPATAN: "bg-emerald-50 text-emerald-700 border-emerald-100",
-                        BEBAN: "bg-red-50 text-red-700 border-red-100"
-                      }
-                      return (
-                        <TableRow key={a.id_akun} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
-                          <TableCell className="font-mono font-bold text-slate-800 px-6 py-4 text-center">{a.kode_akun}</TableCell>
-                          <TableCell className="font-bold text-slate-800 px-6 py-4">{a.nama_akun}</TableCell>
-                          <TableCell className="text-center px-6 py-4">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold border uppercase ${badgeMap[a.kategori]}`}>
-                              {a.kategori}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-center font-semibold text-slate-400 px-6 py-4">{a.saldo_normal}</TableCell>
-                          <TableCell className="text-right font-mono font-bold text-slate-800 px-6 py-4">{formatRupiah(a.saldo_berjalan)}</TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
+            <div className="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-2xl border border-slate-200/50">
+              {['ALL', 'ASET', 'KEWAJIBAN', 'EKUITAS', 'PENDAPATAN', 'BEBAN'].map((kat) => (
+                <button
+                  key={kat}
+                  onClick={() => setFilterKategori(kat)}
+                  className={`px-3.5 py-1 text-xs font-semibold rounded-xl transition-all cursor-pointer ${filterKategori === kat ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                >
+                  {kat}
+                </button>
+              ))}
             </div>
           </div>
-        )}
 
-        {/* ==========================================================
-            TAB 3: LAPORAN KEUANGAN
-            ========================================================== */}
-        {activeTab === 'laporan' && (
-          <div className="p-6 space-y-6">
-            
-            {/* Sub Tabs Neraca / Laba Rugi */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-4">
-              <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl border border-slate-200/50 w-full sm:w-auto">
-                <button 
-                  onClick={() => setReportSubTab('neraca')}
-                  className={`flex-1 sm:flex-initial px-4 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-                    reportSubTab === 'neraca' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  Neraca (Balance Sheet)
-                </button>
-                <button 
-                  onClick={() => setReportSubTab('labarugi')}
-                  className={`flex-1 sm:flex-initial px-4 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-                    reportSubTab === 'labarugi' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  Laba Rugi (Income Statement)
-                </button>
-              </div>
-              <div className="text-xs font-bold text-slate-500 bg-slate-50 border border-slate-100 px-3 py-2 rounded-xl">
-                Periode Laporan: <span className="font-mono text-slate-700">Juni 2026</span>
-              </div>
-            </div>
+          <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+            <Table>
+              <TableHeader className="bg-slate-50/50">
+                <TableRow className="border-b border-slate-100">
+                  <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-36 text-center">Kode Akun</TableHead>
+                  <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Nama Rekening Akun</TableHead>
+                  <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-40">Kategori</TableHead>
+                  <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-32">Saldo Normal</TableHead>
+                  <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right w-52">Saldo Berjalan</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="text-xs text-slate-700">
+                {filteredAkun.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-12 font-semibold text-slate-400">
+                      Akun tidak ditemukan.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredAkun.map((a) => {
+                    const badgeMap = {
+                      ASET: "bg-blue-50 text-blue-700 border-blue-100",
+                      KEWAJIBAN: "bg-orange-50 text-orange-700 border-orange-100",
+                      EKUITAS: "bg-purple-50 text-purple-700 border-purple-100",
+                      PENDAPATAN: "bg-emerald-50 text-emerald-700 border-emerald-100",
+                      BEBAN: "bg-red-50 text-red-700 border-red-100"
+                    }
+                    return (
+                      <TableRow key={a.id_akun} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
+                        <TableCell className="font-mono font-bold text-slate-800 px-6 py-4 text-center">{a.kode_akun}</TableCell>
+                        <TableCell className="font-bold text-slate-800 px-6 py-4">{a.nama_akun}</TableCell>
+                        <TableCell className="text-center px-6 py-4">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold border uppercase ${badgeMap[a.kategori]}`}>
+                            {a.kategori}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-center font-semibold text-slate-400 px-6 py-4">{a.saldo_normal}</TableCell>
+                        <TableCell className="text-right font-mono font-bold text-slate-800 px-6 py-4">{formatRupiah(a.saldo_berjalan)}</TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
 
-            {reportSubTab === 'neraca' ? (
-              // Balance Sheet
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                
-                {/* Left side: Assets */}
-                <div className="border border-slate-100 rounded-2xl p-5 bg-slate-50/10 flex flex-col justify-between min-h-[400px]">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3 uppercase text-center tracking-wider">AKTIVA (ASET)</h3>
-                    <div className="space-y-2 mt-3 max-h-[350px] overflow-y-auto pr-1">
-                      {asetList.map((a) => (
-                        <div key={a.id_akun} className="flex justify-between items-center py-2.5 border-b border-slate-100/50 text-xs">
-                          <div>
-                            <p className="text-[10px] font-bold text-slate-400">{a.kode_akun}</p>
-                            <p className="font-semibold text-slate-700">{a.nama_akun}</p>
-                          </div>
-                          <p className="font-mono font-bold text-slate-800">
-                            {formatRupiah(a.saldo_normal === 'DEBET' ? a.saldo_berjalan : -a.saldo_berjalan)}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
+      {/* Tab 3: Laporan Keuangan */}
+      {activeTab === 'laporan' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          {/* Left card (2/3 width): Generated report preview and report lifecycle status panel */}
+          <div className="lg:col-span-2 space-y-6">
+
+            {/* 1. Generated Report Preview Card */}
+            {showReportPreview && (
+              <div className="border border-slate-200 bg-white rounded-[24px] p-6 shadow-[0_4px_20px_rgba(0,0,0,0.01)] space-y-6">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                  <div className="space-y-1">
+                    <h2 className="text-base font-bold text-slate-800 uppercase tracking-wide">
+                      {selectedReportType === 'neraca'
+                        ? 'Neraca (Balance Sheet)'
+                        : selectedReportType === 'labarugi'
+                          ? 'Laba Rugi (Income Statement)'
+                          : 'Neraca Saldo (Trial Balance)'}
+                    </h2>
+                    <p className="text-[11px] text-slate-500 font-semibold">
+                      Periode Ending: <span className="font-mono text-slate-700">{reportPeriod}</span> | Cost Center: <span className="text-slate-750 font-bold">{costCenter}</span>
+                    </p>
                   </div>
-                  <div className="mt-6 border-t-2 border-slate-300 pt-4 flex justify-between items-center font-bold text-slate-800 text-xs">
-                    <span>TOTAL AKTIVA / ASET</span>
-                    <span className="font-mono text-sm">{formatRupiah(totalAset)}</span>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleResetReport()}
+                      className="px-3 py-1.5 hover:bg-slate-100 text-[10px] font-bold text-slate-500 rounded-xl border border-slate-200 cursor-pointer"
+                    >
+                      Reset State
+                    </button>
+                    <button
+                      onClick={() => setShowReportPreview(false)}
+                      className="p-1.5 text-slate-450 hover:text-slate-650 hover:bg-slate-50 rounded-xl cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
 
-                {/* Right side: Pasiva */}
-                <div className="border border-slate-100 rounded-2xl p-5 bg-slate-50/10 flex flex-col justify-between min-h-[400px]">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3 uppercase text-center tracking-wider">PASIVA (KEWAJIBAN & EKUITAS)</h3>
-                    
-                    {/* Liabilities */}
-                    <div className="mt-3">
-                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">1. KEWAJIBAN (HUTANG)</h4>
-                      <div className="space-y-1 pl-2 border-l border-slate-100">
-                        {kewajibanList.map((a) => (
-                          <div key={a.id_akun} className="flex justify-between items-center py-2 border-b border-slate-100/50 text-xs">
-                            <span className="font-semibold text-slate-700">{a.nama_akun}</span>
-                            <span className="font-mono font-bold text-slate-800">
-                              {formatRupiah(a.saldo_normal === 'KREDIT' ? a.saldo_berjalan : -a.saldo_berjalan)}
-                            </span>
+                <div className="space-y-6">
+                  {/* Balance Sheet (Neraca) */}
+                  {selectedReportType === 'neraca' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Left side: Assets */}
+                      <div className="border border-slate-100 rounded-2xl p-5 bg-slate-50/10 flex flex-col justify-between min-h-[400px]">
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3 uppercase text-center tracking-wider">AKTIVA (ASET)</h3>
+                          <div className="space-y-2 mt-3 max-h-[350px] overflow-y-auto pr-1">
+                            {asetList.map((a) => (
+                              <div key={a.id_akun} className="flex justify-between items-center py-2.5 border-b border-slate-100/50 text-xs">
+                                <div>
+                                  <p className="text-[10px] font-bold text-slate-400">{a.kode_akun}</p>
+                                  <p className="font-semibold text-slate-700">{a.nama_akun}</p>
+                                </div>
+                                <p className="font-mono font-bold text-slate-800">
+                                  {formatRupiah(a.saldo_normal === 'DEBET' ? a.saldo_berjalan : -a.saldo_berjalan)}
+                                </p>
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        </div>
+                        <div className="mt-6 border-t-2 border-slate-300 pt-4 flex justify-between items-center font-bold text-slate-800 text-xs">
+                          <span>TOTAL AKTIVA / ASET</span>
+                          <span className="font-mono text-sm">{formatRupiah(totalAset)}</span>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Equity */}
-                    <div className="mt-4">
-                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">2. EKUITAS (MODAL)</h4>
-                      <div className="space-y-1 pl-2 border-l border-slate-100">
-                        {ekuitasList.map((a) => (
-                          <div key={a.id_akun} className="flex justify-between items-center py-2 border-b border-slate-100/50 text-xs">
-                            <span className="font-semibold text-slate-700">{a.nama_akun}</span>
-                            <span className="font-mono font-bold text-slate-800">
-                              {formatRupiah(a.saldo_normal === 'KREDIT' ? a.saldo_berjalan : -a.saldo_berjalan)}
-                            </span>
+                      {/* Right side: Pasiva */}
+                      <div className="border border-slate-100 rounded-2xl p-5 bg-slate-50/10 flex flex-col justify-between min-h-[400px]">
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3 uppercase text-center tracking-wider">PASIVA (KEWAJIBAN & EKUITAS)</h3>
+                          <div className="mt-3">
+                            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">1. KEWAJIBAN (HUTANG)</h4>
+                            <div className="space-y-1 pl-2 border-l border-slate-100">
+                              {kewajibanList.map((a) => (
+                                <div key={a.id_akun} className="flex justify-between items-center py-2 border-b border-slate-100/50 text-xs">
+                                  <span className="font-semibold text-slate-700">{a.nama_akun}</span>
+                                  <span className="font-mono font-bold text-slate-800">
+                                    {formatRupiah(a.saldo_normal === 'KREDIT' ? a.saldo_berjalan : -a.saldo_berjalan)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))}
-                        
-                        {/* Current Profit adjustment row */}
-                        <div className="flex justify-between items-center py-2 border-b border-slate-100/50 text-xs bg-slate-50/50 px-2 rounded-lg mt-1.5 border border-slate-200/50">
-                          <span className="font-bold text-slate-700">Laba Bersih Tahun Berjalan</span>
-                          <span className="font-mono font-bold text-slate-800">
-                            {formatRupiah(labaRugiBersih)}
-                          </span>
+
+                          <div className="mt-4">
+                            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">2. EKUITAS (MODAL)</h4>
+                            <div className="space-y-1 pl-2 border-l border-slate-100">
+                              {ekuitasList.map((a) => (
+                                <div key={a.id_akun} className="flex justify-between items-center py-2 border-b border-slate-100/50 text-xs">
+                                  <span className="font-semibold text-slate-700">{a.nama_akun}</span>
+                                  <span className="font-mono font-bold text-slate-800">
+                                    {formatRupiah(a.saldo_normal === 'KREDIT' ? a.saldo_berjalan : -a.saldo_berjalan)}
+                                  </span>
+                                </div>
+                              ))}
+                              <div className="flex justify-between items-center py-2 border-b border-slate-100/50 text-xs bg-slate-50/50 px-2 rounded-lg mt-1.5 border border-slate-200/50">
+                                <span className="font-bold text-slate-700">Laba Bersih Tahun Berjalan</span>
+                                <span className="font-mono font-bold text-slate-800">
+                                  {formatRupiah(labaRugiBersih)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-6 border-t-2 border-slate-300 pt-4 flex justify-between items-center font-bold text-slate-800 text-xs">
+                          <span>TOTAL PASIVA</span>
+                          <span className="font-mono text-sm">{formatRupiah(totalPasiva)}</span>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div className="mt-6 border-t-2 border-slate-300 pt-4 flex justify-between items-center font-bold text-slate-800 text-xs">
-                    <span>TOTAL PASIVA</span>
-                    <span className="font-mono text-sm">{formatRupiah(totalPasiva)}</span>
-                  </div>
-                </div>
-
-              </div>
-            ) : (
-              // Income statement
-              <div className="max-w-3xl mx-auto border border-slate-100 rounded-2xl p-6 bg-slate-50/10 space-y-6">
-                <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3 uppercase text-center tracking-wider">LAPORAN LABA RUGI</h3>
-                
-                <div className="space-y-6 text-xs">
-                  {/* Revenue */}
-                  <div>
-                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1 mb-2">I. PENDAPATAN OPERASIONAL</h4>
-                    <div className="space-y-2 pl-4">
-                      {pendapatanList.map((a) => (
-                        <div key={a.id_akun} className="flex justify-between items-center py-1">
-                          <span className="font-semibold text-slate-700">{a.nama_akun}</span>
-                          <span className="font-mono font-bold text-slate-800">
-                            {formatRupiah(a.saldo_normal === 'KREDIT' ? a.saldo_berjalan : -a.saldo_berjalan)}
-                          </span>
+                  {/* Laba Rugi (Profit & Loss) */}
+                  {selectedReportType === 'labarugi' && (
+                    <div className="border border-slate-100 rounded-2xl p-6 bg-slate-50/10 space-y-6">
+                      <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3 uppercase text-center tracking-wider">LAPORAN LABA RUGI</h3>
+                      <div className="space-y-6 text-xs">
+                        <div>
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1 mb-2">I. PENDAPATAN OPERASIONAL</h4>
+                          <div className="space-y-2 pl-4">
+                            {pendapatanList.map((a) => (
+                              <div key={a.id_akun} className="flex justify-between items-center py-1">
+                                <span className="font-semibold text-slate-700">{a.nama_akun}</span>
+                                <span className="font-mono font-bold text-slate-800">
+                                  {formatRupiah(a.saldo_normal === 'KREDIT' ? a.saldo_berjalan : -a.saldo_berjalan)}
+                                </span>
+                              </div>
+                            ))}
+                            <div className="flex justify-between items-center font-bold text-slate-800 border-t border-slate-200 pt-2.5 mt-2">
+                              <span>TOTAL PENDAPATAN</span>
+                              <span className="font-mono">{formatRupiah(totalPendapatan)}</span>
+                            </div>
+                          </div>
                         </div>
-                      ))}
-                      <div className="flex justify-between items-center font-bold text-slate-800 border-t border-slate-200 pt-2.5 mt-2">
-                        <span>TOTAL PENDAPATAN</span>
-                        <span className="font-mono">{formatRupiah(totalPendapatan)}</span>
+
+                        <div>
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1 mb-2">II. BEBAN OPERASIONAL & BIAYA</h4>
+                          <div className="space-y-2 pl-4">
+                            {bebanList.map((a) => (
+                              <div key={a.id_akun} className="flex justify-between items-center py-1">
+                                <span className="font-semibold text-slate-700">{a.nama_akun}</span>
+                                <span className="font-mono font-bold text-slate-800">
+                                  {formatRupiah(a.saldo_normal === 'DEBET' ? a.saldo_berjalan : -a.saldo_berjalan)}
+                                </span>
+                              </div>
+                            ))}
+                            <div className="flex justify-between items-center font-bold text-slate-800 border-t border-slate-200 pt-2.5 mt-2">
+                              <span>TOTAL BEBAN OPERASIONAL</span>
+                              <span className="font-mono">{formatRupiah(totalBeban)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className={`p-4 rounded-2xl flex justify-between items-center font-bold text-xs border ${labaRugiBersih >= 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-950' : 'bg-red-50 border-red-100 text-red-955'}`}>
+                          <span className="tracking-wide">LABA BERSIH TAHUN BERJALAN</span>
+                          <span className="font-mono text-sm">{formatRupiah(labaRugiBersih)}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Expenses */}
-                  <div>
-                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-1 mb-2">II. BEBAN OPERASIONAL & BIAYA</h4>
-                    <div className="space-y-2 pl-4">
-                      {bebanList.map((a) => (
-                        <div key={a.id_akun} className="flex justify-between items-center py-1">
-                          <span className="font-semibold text-slate-700">{a.nama_akun}</span>
-                          <span className="font-mono font-bold text-slate-800">
-                            {formatRupiah(a.saldo_normal === 'DEBET' ? a.saldo_berjalan : -a.saldo_berjalan)}
-                          </span>
-                        </div>
-                      ))}
-                      <div className="flex justify-between items-center font-bold text-slate-800 border-t border-slate-200 pt-2.5 mt-2">
-                        <span>TOTAL BEBAN OPERASIONAL</span>
-                        <span className="font-mono">{formatRupiah(totalBeban)}</span>
+                  {/* Trial Balance (Neraca Saldo) */}
+                  {selectedReportType === 'trial' && (
+                    <div className="border border-slate-100 rounded-2xl p-6 bg-slate-50/10 space-y-6">
+                      <h3 className="text-sm font-bold text-slate-700 border-b border-slate-100 pb-3 uppercase text-center tracking-wider">NERACA SALDO (TRIAL BALANCE)</h3>
+                      <div className="border border-slate-200/50 rounded-xl overflow-hidden bg-white shadow-sm">
+                        <Table>
+                          <TableHeader className="bg-slate-50/50">
+                            <TableRow className="border-b border-slate-100">
+                              <TableHead className="font-bold text-slate-500 text-[10px] px-4 py-2.5 text-center">Kode Akun</TableHead>
+                              <TableHead className="font-bold text-slate-500 text-[10px] px-4 py-2.5">Nama Akun</TableHead>
+                              <TableHead className="font-bold text-slate-500 text-[10px] px-4 py-2.5 text-right w-40">Debet</TableHead>
+                              <TableHead className="font-bold text-slate-500 text-[10px] px-4 py-2.5 text-right w-40">Kredit</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody className="text-xs text-slate-700">
+                            {trialList.map((t) => (
+                              <TableRow key={t.id_akun} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
+                                <TableCell className="font-mono font-semibold px-4 py-2 text-center text-slate-500">{t.kode_akun}</TableCell>
+                                <TableCell className="font-bold px-4 py-2 text-slate-800">{t.nama_akun}</TableCell>
+                                <TableCell className="text-right font-mono font-semibold px-4 py-2 text-slate-700">
+                                  {t.debet > 0 ? formatRupiah(t.debet) : '—'}
+                                </TableCell>
+                                <TableCell className="text-right font-mono font-semibold px-4 py-2 text-slate-700">
+                                  {t.kredit > 0 ? formatRupiah(t.kredit) : '—'}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                            <TableRow className="bg-slate-50/80 border-t-2 border-slate-350 font-bold text-slate-800">
+                              <TableCell colSpan={2} className="px-4 py-3 uppercase tracking-wider">TOTAL NERACA SALDO</TableCell>
+                              <TableCell className="text-right font-mono px-4 py-3">{formatRupiah(totalTrialDebet)}</TableCell>
+                              <TableCell className="text-right font-mono px-4 py-3">{formatRupiah(totalTrialKredit)}</TableCell>
+                            </TableRow>
+                          </TableBody>
+                        </Table>
                       </div>
                     </div>
-                  </div>
-
-                  {/* Profit Result box */}
-                  <div className={`p-4 rounded-2xl flex justify-between items-center font-bold text-xs border ${
-                    labaRugiBersih >= 0 
-                      ? 'bg-emerald-50 border-emerald-100 text-emerald-950' 
-                      : 'bg-red-50 border-red-100 text-red-950'
-                  }`}>
-                    <span className="tracking-wide">LABA BERSIH TAHUN BERJALAN</span>
-                    <span className="font-mono text-sm">{formatRupiah(labaRugiBersih)}</span>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
-          </div>
-        )}
 
-      </GlassCard>
+            {/* 2. Report Lifecycle Status Panel */}
+            <div className="border border-slate-200 bg-white rounded-[24px] p-6 shadow-[0_4px_20px_rgba(0,0,0,0.01)] space-y-6">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider mb-1">
+                  Status & Siklus Otorisasi Laporan
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Pantau alur persetujuan, otorisasi, dan catatan keputusan pimpinan untuk laporan keuangan.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                {/* Left side: Role status & History log */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200/50">
+                    <span className="text-xs font-semibold text-slate-500">Role Simulasi Aktif:</span>
+                    <span className="text-xs font-bold text-slate-700">
+                      {userRole === 'GL_OFFICER' ? 'Staf GL (Officer)' : 'Pimpinan (Management)'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Status Laporan Keuangan</label>
+                    <div>
+                      {reportStatus === 'DRAFT' && (
+                        <span className="inline-block px-3 py-1.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200/50 uppercase tracking-wide">
+                          Draft Laporan
+                        </span>
+                      )}
+                      {reportStatus === 'FINALIZED' && (
+                        <span className="inline-block px-3 py-1.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200/50 uppercase tracking-wide">
+                          Finalized (Siap Review)
+                        </span>
+                      )}
+                      {reportStatus === 'DISTRIBUTED' && (
+                        <span className="inline-block px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/50 uppercase tracking-wide">
+                          Distributed (Resmi)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <p className="font-semibold text-xs text-slate-600 flex items-center gap-1.5">
+                      <History className="w-4 h-4 text-slate-400" />
+                      Jejak Otorisasi Bulanan
+                    </p>
+                    <div className="space-y-2 text-[11px] pl-1">
+                      <div className="flex items-center gap-2 text-slate-500">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                        <span>Sistem men-generate Draf Laporan Keuangan otomatis</span>
+                      </div>
+                      {finalizedAt ? (
+                        <div className="flex flex-col text-slate-500 pl-3">
+                          <span className="font-medium text-slate-700">✓ Laporan di-finalisasi oleh Staf GL</span>
+                          <span className="text-[10px] text-slate-400">{finalizedAt}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-slate-400 pl-3">
+                          <span>— Menunggu Finalisasi oleh Staf GL</span>
+                        </div>
+                      )}
+                      {distributedAt ? (
+                        <div className="flex flex-col text-slate-500 pl-3">
+                          <span className="font-medium text-emerald-600">✓ Disetujui & didistribusikan oleh Pimpinan</span>
+                          <span className="text-[10px] text-slate-400">{distributedAt}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-slate-400 pl-3">
+                          <span>— Menunggu Otorisasi & Distribusi Pimpinan</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right side: Decision notes & Action buttons */}
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Catatan Keputusan Pimpinan
+                      </label>
+                      {reportStatus === 'DISTRIBUTED' ? (
+                        <Lock className="w-3.5 h-3.5 text-slate-400" />
+                      ) : (
+                        <Unlock className="w-3.5 h-3.5 text-slate-400" />
+                      )}
+                    </div>
+                    <textarea
+                      value={decisionNote}
+                      onChange={(e) => handleUpdateDecisionNote(e.target.value)}
+                      disabled={reportStatus !== 'FINALIZED' || userRole !== 'MANAGEMENT'}
+                      placeholder={
+                        reportStatus === 'DRAFT'
+                          ? "Catatan dapat diisi setelah draf laporan keuangan difinalisasi."
+                          : reportStatus === 'DISTRIBUTED'
+                            ? "Laporan resmi telah didistribusikan. Catatan keputusan dikunci."
+                            : userRole !== 'MANAGEMENT'
+                              ? "Hanya Pimpinan yang dapat mengedit catatan keputusan ini."
+                              : "Tulis rekomendasi, catatan evaluasi, atau disposisi persetujuan laporan keuangan..."
+                      }
+                      className={`w-full min-h-[90px] p-3 text-xs border rounded-xl focus:outline-none transition-all duration-300 font-medium ${reportStatus === 'FINALIZED' && userRole === 'MANAGEMENT'
+                          ? 'border-slate-200 focus:border-slate-350 bg-white text-slate-700 shadow-sm'
+                          : 'border-slate-100 bg-slate-50/50 text-slate-400 cursor-not-allowed'
+                        }`}
+                    />
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {/* Finalize Action (GL Staff) */}
+                    {reportStatus === 'DRAFT' && (
+                      <div>
+                        <button
+                          onClick={() => handleUpdateStatus('FINALIZED')}
+                          disabled={userRole !== 'GL_OFFICER'}
+                          className={`w-full py-2 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${userRole === 'GL_OFFICER'
+                              ? 'bg-red-650 hover:bg-red-750 text-white shadow-md'
+                              : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200/50'
+                            }`}
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          Finalisasi Laporan
+                        </button>
+                        {userRole !== 'GL_OFFICER' && (
+                          <p className="text-[9px] text-center text-amber-600 font-bold mt-1">
+                            * Ganti role ke Staf GL untuk melakukan Finalisasi.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Distribute Action (Management) */}
+                    {reportStatus === 'FINALIZED' && (
+                      <div>
+                        <button
+                          onClick={() => handleUpdateStatus('DISTRIBUTED')}
+                          disabled={userRole !== 'MANAGEMENT'}
+                          className={`w-full py-2 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${userRole === 'MANAGEMENT'
+                              ? 'bg-red-650 hover:bg-red-750 text-white shadow-md'
+                              : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200/50'
+                            }`}
+                        >
+                          <Send className="w-4 h-4" />
+                          Setujui & Distribusikan
+                        </button>
+                        {userRole !== 'MANAGEMENT' && (
+                          <p className="text-[9px] text-center text-amber-600 font-bold mt-1">
+                            * Ganti role ke Pimpinan untuk memberikan Otorisasi.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Distributed Info (Locked) */}
+                    {reportStatus === 'DISTRIBUTED' && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-center space-y-0.5">
+                        <p className="text-xs font-bold text-emerald-800 flex items-center justify-center gap-1">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          Laporan Keuangan Telah Resmi Didistribusikan
+                        </p>
+                        <p className="text-[9px] text-emerald-650 font-semibold">
+                          Transaksi dikunci secara permanen untuk periode berjalan.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Simulator Reset */}
+                    <button
+                      onClick={handleResetReport}
+                      className="w-full py-1.5 px-3 rounded-lg text-slate-400 hover:text-slate-650 hover:bg-slate-50 border border-dashed border-slate-200 hover:border-slate-350 text-[10px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      Reset Siklus Laporan (Simulasi)
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
+          {/* Right card (1/3 width): Financial Reports Control Card */}
+          <div className="lg:col-span-1 bg-white border border-slate-200/80 shadow-[0_4px_20px_rgba(0,0,0,0.02)] rounded-[24px] p-6 space-y-6">
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-red-50 border border-red-100 text-red-655 shadow-sm">
+                <FileSpreadsheet className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-800">
+                  Financial Reports
+                </h2>
+              </div>
+            </div>
+
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Tipe Laporan
+                </label>
+
+                <div className="space-y-2">
+                  {/* Balance Sheet */}
+                  <div
+                    onClick={() => setSelectedReportType('neraca')}
+                    className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all duration-200 ${selectedReportType === 'neraca'
+                        ? 'border-red-200 bg-red-50/5 shadow-sm font-bold text-slate-800'
+                        : 'border-slate-200 hover:border-slate-350 hover:bg-slate-50/50 text-slate-600'
+                      }`}
+                  >
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedReportType === 'neraca' ? 'border-red-650 bg-white' : 'border-slate-300'
+                      }`}>
+                      {selectedReportType === 'neraca' && <div className="w-2 h-2 rounded-full bg-red-655" />}
+                    </div>
+                    <span className="text-xs">Balance Sheet (Neraca)</span>
+                  </div>
+
+                  {/* Profit & Loss */}
+                  <div
+                    onClick={() => setSelectedReportType('labarugi')}
+                    className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all duration-200 ${selectedReportType === 'labarugi'
+                        ? 'border-red-200 bg-red-50/5 shadow-sm font-bold text-slate-800'
+                        : 'border-slate-200 hover:border-slate-350 hover:bg-slate-50/50 text-slate-600'
+                      }`}
+                  >
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedReportType === 'labarugi' ? 'border-red-650 bg-white' : 'border-slate-300'
+                      }`}>
+                      {selectedReportType === 'labarugi' && <div className="w-2 h-2 rounded-full bg-red-655" />}
+                    </div>
+                    <span className="text-xs">Profit & Loss (Laba Rugi)</span>
+                  </div>
+
+                  {/* Trial Balance */}
+                  <div
+                    onClick={() => setSelectedReportType('trial')}
+                    className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all duration-200 ${selectedReportType === 'trial'
+                        ? 'border-red-200 bg-red-50/5 shadow-sm font-bold text-slate-800'
+                        : 'border-slate-200 hover:border-slate-350 hover:bg-slate-50/50 text-slate-600'
+                      }`}
+                  >
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedReportType === 'trial' ? 'border-red-655 bg-white' : 'border-slate-300'
+                      }`}>
+                      {selectedReportType === 'trial' && <div className="w-2 h-2 rounded-full bg-red-655" />}
+                    </div>
+                    <span className="text-xs">Trial Balance (Neraca Saldo)</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Period Ending
+                </label>
+                <Input
+                  type="text"
+                  value={reportPeriod}
+                  onChange={(e) => setReportPeriod(e.target.value)}
+                  placeholder="e.g. June 2026"
+                  className="w-full h-10 px-3.5 text-xs font-semibold border border-slate-200 rounded-xl focus-visible:ring-0 focus-visible:ring-offset-0"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Cost Center / Divisi
+                </label>
+                <select
+                  value={costCenter}
+                  onChange={(e) => setCostCenter(e.target.value)}
+                  className="w-full h-10 px-3.5 text-xs font-semibold border border-slate-200 rounded-xl focus:outline-none bg-white text-slate-700"
+                >
+                  <option value="Consolidated (All)">Consolidated (All)</option>
+                  <option value="Divisi Food">Divisi Food</option>
+                  <option value="Divisi Beverage">Divisi Beverage</option>
+                </select>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    showNotif('success', `PDF Laporan Keuangan untuk periode ${reportPeriod} berhasil dibuat.`)
+                    setShowReportPreview(true)
+                  }}
+                  className="w-full py-2.5 border border-red-200 text-red-650 hover:bg-red-50 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
+                >
+                  <Download className="w-4 h-4" />
+                  Generate PDF
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* Secondary Accordion Cards (History & COA) */}
+      <div className="space-y-6">
+
+        {/* Buku Besar & Histori Jurnal */}
+        <div className="bg-white border border-slate-200/80 shadow-[0_4px_20px_rgba(0,0,0,0.02)] rounded-[24px] overflow-hidden">
+          <div
+            onClick={() => setShowHistory(!showHistory)}
+            className="px-6 py-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center cursor-pointer hover:bg-slate-50/80 transition-all"
+          >
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+              <Book className="w-4 h-4" style={{ color: '#800000' }} /> Histori Jurnal Buku Besar
+            </h3>
+            <span className="text-xs font-bold text-slate-400">
+              {showHistory ? 'Sembunyikan' : 'Tampilkan'}
+            </span>
+          </div>
+
+          {showHistory && (
+            <div className="p-6">
+              <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                <Table>
+                  <TableHeader className="bg-slate-50/50">
+                    <TableRow className="border-b border-slate-100">
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-28 text-center">No Jurnal</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-24 text-center">Tanggal</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Keterangan / Rincian Akun</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right w-36">Debet</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right w-36">Kredit</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="text-xs text-slate-700">
+                    {jurnalList.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-12 font-semibold text-slate-400">
+                          Belum ada histori jurnal tercatat.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      jurnalList.map((j) => (
+                        <React.Fragment key={j.id_jurnal}>
+                          {/* Jurnal Header Row */}
+                          <TableRow className="bg-slate-50/50 border-t border-slate-100">
+                            <TableCell className="font-mono font-bold text-slate-800 px-6 py-3 text-center">{j.no_jurnal}</TableCell>
+                            <TableCell className="font-semibold text-slate-500 px-6 py-3 text-center">
+                              {new Date(j.tanggal).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </TableCell>
+                            <TableCell className="font-bold text-slate-800 px-6 py-3 uppercase" colSpan={3}>
+                              {j.keterangan}
+                            </TableCell>
+                          </TableRow>
+                          {/* Detail Rows */}
+                          {j.tr_jurnal_detail.map((jd, idx) => (
+                            <TableRow key={idx} className="border-b border-slate-100 hover:bg-slate-50/10 transition-colors">
+                              <TableCell />
+                              <TableCell />
+                              <TableCell className="px-6 py-2.5">
+                                <span className={jd.kredit > 0 ? "ml-8 text-slate-500 font-medium" : "text-slate-800 font-semibold"}>
+                                  {jd.kode_akun} - {jd.nama_akun}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right font-mono font-semibold text-slate-700 px-6 py-2.5">
+                                {jd.debet > 0 ? formatRupiah(jd.debet) : '—'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono font-semibold text-slate-700 px-6 py-2.5">
+                                {jd.kredit > 0 ? formatRupiah(jd.kredit) : '—'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </React.Fragment>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Daftar Akun (COA) */}
+        <div className="bg-white border border-slate-200/80 shadow-[0_4px_20px_rgba(0,0,0,0.02)] rounded-[24px] overflow-hidden">
+          <div
+            onClick={() => setShowCoa(!showCoa)}
+            className="px-6 py-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center cursor-pointer hover:bg-slate-50/80 transition-all"
+          >
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+              <List className="w-4 h-4" style={{ color: '#800000' }} /> Daftar Akun (COA / Chart of Accounts)
+            </h3>
+            <span className="text-xs font-bold text-slate-400">
+              {showCoa ? 'Sembunyikan' : 'Tampilkan'}
+            </span>
+          </div>
+
+          {showCoa && (
+            <div className="p-6 space-y-4">
+
+              {/* Filter COA row */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                  <Input
+                    placeholder="Cari kode atau nama akun..."
+                    value={searchCoa}
+                    onChange={(e) => setSearchCoa(e.target.value)}
+                    className="pl-9 pr-4 h-9 border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl min-w-[240px]"
+                  />
+                </div>
+
+                {/* Kategori Filters buttons */}
+                <div className="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-2xl border border-slate-200/50">
+                  {['ALL', 'ASET', 'KEWAJIBAN', 'EKUITAS', 'PENDAPATAN', 'BEBAN'].map((kat) => (
+                    <button
+                      key={kat}
+                      onClick={() => setFilterKategori(kat)}
+                      className={`px-3.5 py-1 text-xs font-semibold rounded-xl transition-all cursor-pointer ${filterKategori === kat ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                    >
+                      {kat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                <Table>
+                  <TableHeader className="bg-slate-50/50">
+                    <TableRow className="border-b border-slate-100">
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-36 text-center">Kode Akun</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Nama Rekening Akun</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-40">Kategori</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-32">Saldo Normal</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right w-52">Saldo Berjalan</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="text-xs text-slate-700">
+                    {filteredAkun.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-12 font-semibold text-slate-400">
+                          Akun tidak ditemukan.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredAkun.map((a) => {
+                        const badgeMap = {
+                          ASET: "bg-blue-50 text-blue-700 border-blue-100",
+                          KEWAJIBAN: "bg-orange-50 text-orange-700 border-orange-100",
+                          EKUITAS: "bg-purple-50 text-purple-700 border-purple-100",
+                          PENDAPATAN: "bg-emerald-50 text-emerald-700 border-emerald-100",
+                          BEBAN: "bg-red-50 text-red-700 border-red-100"
+                        }
+                        return (
+                          <TableRow key={a.id_akun} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
+                            <TableCell className="font-mono font-bold text-slate-800 px-6 py-4 text-center">{a.kode_akun}</TableCell>
+                            <TableCell className="font-bold text-slate-800 px-6 py-4">{a.nama_akun}</TableCell>
+                            <TableCell className="text-center px-6 py-4">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold border uppercase ${badgeMap[a.kategori]}`}>
+                                {a.kategori}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center font-semibold text-slate-400 px-6 py-4">{a.saldo_normal}</TableCell>
+                            <TableCell className="text-right font-mono font-bold text-slate-800 px-6 py-4">{formatRupiah(a.saldo_berjalan)}</TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+
+            </div>
+          )}
+        </div>
+
+      </div>
 
     </div>
   )
