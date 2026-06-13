@@ -124,8 +124,8 @@ export default function AccountPayablePage() {
 
   useEffect(() => {
     const savedRole = localStorage.getItem('ap_user_role')
-    if (savedRole) {
-      setUserRole(savedRole as any)
+    if (savedRole === 'AP_STAFF' || savedRole === 'MANAGEMENT') {
+      setUserRole(savedRole)
     }
   }, [])
 
@@ -482,7 +482,7 @@ export default function AccountPayablePage() {
                 <button
                   type="button"
                   onClick={() => showNotif('success', 'Semua invoice ditampilkan.')}
-                  className="text-xs font-bold text-red-650 hover:text-red-750 hover:underline cursor-pointer"
+                  className="text-xs font-bold text-red-600 hover:text-red-700 hover:underline cursor-pointer"
                 >
                   View All &gt;
                 </button>

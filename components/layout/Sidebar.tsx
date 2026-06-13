@@ -28,6 +28,9 @@ import {
   Wrench,
   CalendarCheck,
   CheckSquare,
+  FileText,
+  Handshake,
+  Scales,
 } from '@phosphor-icons/react'
 
 interface SubItem {
