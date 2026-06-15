@@ -23,10 +23,10 @@ import { Input } from "@/components/ui/input";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface GIReqData {
-  issue_id: number;
+  issue_id: string | number;
   issue_code: string;
-  product_id: number;
-  warehouse_id: number;
+  product_id: string | number;
+  warehouse_id: string | number;
   batch_number: string;
   quantity: number;
   purpose: string;
@@ -44,7 +44,7 @@ interface GIReqData {
 }
 
 interface ProductOption {
-  product_id: number;
+  product_id: string | number;
   product_code: string;
   product_name: string;
   category: string;
@@ -52,7 +52,7 @@ interface ProductOption {
 }
 
 interface WarehouseOption {
-  warehouse_id: number;
+  warehouse_id: string | number;
   warehouse_code: string;
   warehouse_name: string;
 }
@@ -130,8 +130,8 @@ export default function MaterialHandoverPage() {
 
       const payload = {
         issue_code: issCode,
-        product_id: Number(form.product_id),
-        warehouse_id: Number(form.warehouse_id),
+        product_id: form.product_id,
+        warehouse_id: form.warehouse_id,
         quantity: Number(form.quantity),
         batch_number: form.batch_number,
         purpose: form.purpose,

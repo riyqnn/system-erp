@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -56,13 +57,13 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch price negotiations',
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )
     }
 
-    const negotiations = (data || []).map((item: any) => ({
+    const negotiations = (data || []).map((item: AnyObject) => ({
       id: item.id,
       negotiationNo: item.negotiation_number,
 
@@ -254,7 +255,7 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const updatePayload: Record<string, any> = {}
+    const updatePayload: AnyObject = {}
 
     if (supplierResponsePrice !== undefined) {
       updatePayload.supplier_response_price =
@@ -286,7 +287,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json(
         {
           message: 'Failed to update price negotiation',
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )

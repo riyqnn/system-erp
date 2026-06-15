@@ -24,9 +24,9 @@ import { Input } from "@/components/ui/input";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface PRData {
-  purchase_request_id: number;
+  purchase_request_id: string | number;
   pr_code: string;
-  product_id: number;
+  product_id: string | number;
   qty_requested: number;
   request_date: string;
   requested_by: string;
@@ -40,7 +40,7 @@ interface PRData {
 }
 
 interface ProductOption {
-  product_id: number;
+  product_id: string | number;
   product_code: string;
   product_name: string;
   category: string;
@@ -137,7 +137,7 @@ export default function PurchaseRequisitionPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pr_code: prCode,
-          product_id: Number(form.product_id),
+          product_id: form.product_id,
           qty_requested: Number(form.qty_requested),
           request_date: now.toISOString(),
           requested_by: "user_inv01",
@@ -194,7 +194,7 @@ export default function PurchaseRequisitionPage() {
   const processedCount = data.filter((d) => d.status === "Processed").length;
   const totalQty = data.reduce((a, d) => a + d.qty_requested, 0);
 
-  const selectedProduct = products.find((p) => p.product_id === Number(form.product_id));
+  const selectedProduct = products.find((p) => String(p.product_id) === String(form.product_id));
 
   /* ── Render ───────────────────────────────────────────────────── */
   return (
@@ -311,11 +311,11 @@ export default function PurchaseRequisitionPage() {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((pr) => {
+                  filtered.map((pr, idx) => {
                     const cfg = STATUS_CONFIG[pr.status] || STATUS_CONFIG.Pending;
                     const StatusIcon = cfg.icon;
                     return (
-                      <tr key={pr.purchase_request_id} className="hover:bg-slate-50/50 transition-colors">
+                      <tr key={`${pr.purchase_request_id}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4">
                           <span className="font-mono font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-xs">
                             {pr.pr_code}

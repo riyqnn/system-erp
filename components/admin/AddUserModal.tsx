@@ -5,17 +5,11 @@ import { Shield, User as UserIcon, CheckCircle2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { AdminFormCard, AdminFormSection, AdminFormField, AdminToggle, AdminButton } from './AdminFormCard'
 
-interface Role {
-  id: string
-  name: string
-  description: string | null
-}
-
 interface AddUserModalProps {
   open: boolean
   onClose: () => void
   onSuccess: () => void
-  roles: Role[]
+  roles: string[]
 }
 
 export function AddUserModal({ open, onClose, onSuccess, roles }: AddUserModalProps) {
@@ -23,9 +17,10 @@ export function AddUserModal({ open, onClose, onSuccess, roles }: AddUserModalPr
   const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     full_name: '',
+    username: '',
     email: '',
     password: '',
-    role_id: '',
+    role: '',
     is_active: false,
   })
 
@@ -34,9 +29,10 @@ export function AddUserModal({ open, onClose, onSuccess, roles }: AddUserModalPr
     if (open) {
       setFormData({
         full_name: '',
+        username: '',
         email: '',
         password: '',
-        role_id: '',
+        role: '',
         is_active: false,
       })
       setError('')
@@ -48,8 +44,8 @@ export function AddUserModal({ open, onClose, onSuccess, roles }: AddUserModalPr
     setLoading(true)
     setError('')
 
-    if (!formData.full_name || !formData.email || !formData.password || !formData.role_id) {
-      setError('All fields are required')
+    if (!formData.username || !formData.email || !formData.password || !formData.role) {
+      setError('Username, email, password, and role are required')
       setLoading(false)
       return
     }
@@ -64,7 +60,10 @@ export function AddUserModal({ open, onClose, onSuccess, roles }: AddUserModalPr
       const response = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          status: formData.is_active ? 'ACTIVE' : 'INACTIVE',
+        }),
       })
 
       const data = await response.json()
@@ -102,13 +101,26 @@ export function AddUserModal({ open, onClose, onSuccess, roles }: AddUserModalPr
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <AdminFormField
                   label="Full Name"
-                  required
                   hint="Enter the user's complete name"
                 >
                   <Input
                     value={formData.full_name}
                     onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                     placeholder="e.g. John Smith"
+                    disabled={loading}
+                    className="border-slate-200 focus:border-red-500 focus:ring-red-500"
+                  />
+                </AdminFormField>
+
+                <AdminFormField
+                  label="Username"
+                  required
+                  hint="Unique username for the system"
+                >
+                  <Input
+                    value={formData.username}
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                    placeholder="e.g. john.smith"
                     required
                     disabled={loading}
                     className="border-slate-200 focus:border-red-500 focus:ring-red-500"
@@ -154,16 +166,16 @@ export function AddUserModal({ open, onClose, onSuccess, roles }: AddUserModalPr
                   hint="Assign user role and permissions"
                 >
                   <select
-                    value={formData.role_id}
-                    onChange={(e) => setFormData({ ...formData, role_id: e.target.value })}
+                    value={formData.role}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                     required
                     disabled={loading}
                     className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:border-red-500 focus-visible:ring-2 focus-visible:ring-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <option value="">Select a role</option>
                     {roles.map(role => (
-                      <option key={role.id} value={role.id}>
-                        {role.name} {role.description && `- ${role.description}`}
+                      <option key={role} value={role}>
+                        {role}
                       </option>
                     ))}
                   </select>
@@ -188,7 +200,7 @@ export function AddUserModal({ open, onClose, onSuccess, roles }: AddUserModalPr
                     <div className="flex-1">
                       <p className="text-sm font-medium text-slate-700">Role-based Permissions</p>
                       <p className="text-xs text-slate-500 mt-1">
-                        User will inherit all permissions from their assigned role ({roles.find(r => r.id === formData.role_id)?.name || 'Not selected'})
+                        User will inherit all permissions from their assigned role ({formData.role || 'Not selected'})
                       </p>
                     </div>
                   </div>

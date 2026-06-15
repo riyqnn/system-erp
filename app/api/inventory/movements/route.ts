@@ -10,11 +10,11 @@ export async function GET() {
     const supabase = await createRouteHandlerClient()
 
     const { data, error } = await supabase
-      .from('tr_stock_movements')
+      .from('tr_stock_movement')
       .select(`
         *,
-        ms_products (product_code, product_name, units),
-        ms_warehouses (warehouse_name)
+        ms_product (product_id, product_name, uom),
+        ms_warehouse (warehouse_name)
       `)
       .order('movement_date', { ascending: false })
 

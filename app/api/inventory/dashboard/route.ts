@@ -22,27 +22,27 @@ export async function GET() {
       supabase.from('vw_stock_summary').select('*'),
       
       // B. Pending Purchase Requisitions
-      supabase.from('tr_purchase_requisition').select('*', { count: 'exact', head: true }).eq('status', 'Pending'),
+      supabase.from('tr_purchase_requisition').select('*', { count: 'exact', head: true }).eq('status', 'PENDING'),
       
       // C. Pending Production Requests
-      supabase.from('tr_production_request').select('*', { count: 'exact', head: true }).eq('status', 'Pending'),
+      supabase.from('tr_production_request').select('*', { count: 'exact', head: true }).eq('status', 'PENDING'),
       
       // D. Critical Stock (from warehouse view)
       supabase.from('vw_stock_per_warehouse')
         .select('*'),
 
       // E. Recent Activity (Movements)
-      supabase.from('tr_stock_movements')
+      supabase.from('tr_stock_movement')
         .select(`
           movement_date,
           type,
           quantity,
           reference_id,
           reference_type,
-          ms_products!inner (
-            product_code,
+          ms_product!inner (
+            product_id,
             product_name,
-            units
+            uom
           )
         `)
         .order('movement_date', { ascending: false })
@@ -131,10 +131,10 @@ export async function GET() {
     interface CriticalStockItem {
       available_qty: number;
       minimum_stock: number;
-      product_code: string;
+      product_id: string;
       product_name: string;
       category: string;
-      warehouse_code: string;
+      warehouse_id: string;
     }
 
     // --- CRITICAL STOCK ---
@@ -150,13 +150,13 @@ export async function GET() {
       else if (pct > 2) status = 'overstock'
 
       return {
-        code: item.product_code,
+        code: item.product_id,
         name: item.product_name,
         current: item.available_qty,
         safety: item.minimum_stock,
         max: item.minimum_stock * 3, // Mock max capacity
         category: item.category,
-        location: item.warehouse_code,
+        location: item.warehouse_id,
         status: status,
         trend: pct < 0.5 ? 'down' : 'stable'
       }
@@ -167,7 +167,7 @@ export async function GET() {
       reference_type: string;
       reference_id: string;
       quantity: number;
-      ms_products: { product_code: string; product_name: string; units: string } | { product_code: string; product_name: string; units: string }[];
+      ms_product: { product_id: string; product_name: string; uom: string } | { product_id: string; product_name: string; uom: string }[];
     }
 
     // --- RECENT ACTIVITY ---
@@ -181,17 +181,17 @@ export async function GET() {
       else if (act.reference_type === 'GI') typeStr = 'issue'
       else if (act.reference_type === 'DO') typeStr = 'transfer'
 
-      // act.ms_products is a single object or array depending on the join
+      // act.ms_product is a single object or array depending on the join
       // Supabase inner join returns single object or array based on schema. It should be single object.
-      const product = Array.isArray(act.ms_products) ? act.ms_products[0] : act.ms_products
+      const product = Array.isArray(act.ms_product) ? act.ms_product[0] : act.ms_product
 
       return {
         timestamp: `${hours}:${mins}`,
         type: typeStr,
-        itemCode: product?.product_code || 'Unknown',
+        itemCode: product?.product_id || 'Unknown',
         itemName: product?.product_name || 'Unknown Item',
         quantity: act.quantity,
-        uom: product?.units || 'pcs',
+        uom: product?.uom || 'pcs',
         reference: act.reference_id || 'System Update',
         performer: 'System' // We don't track user in movement table currently
       }
@@ -204,7 +204,15 @@ export async function GET() {
       recentActivity: formattedActivity.length > 0 ? formattedActivity : null
     })
 
-  } catch (error) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (error: any) {
+    console.error('[DASHBOARD ERROR DETAILS]: ' + JSON.stringify({
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+      code: error?.code,
+      stack: error?.stack
+    }));
     const msg = error instanceof Error ? error.message : 'Internal server error';
     const status = (error as { statusCode?: number })?.statusCode || 500;
     return NextResponse.json({ error: msg }, { status });

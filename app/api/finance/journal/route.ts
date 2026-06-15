@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
         tanggal,
         keterangan,
         status: 'POSTED',
-        created_by: user.id
+        created_by: String(user.user_id)
       },
       details.map((d: { akun_id: number | string; debet?: number; kredit?: number }) => ({
         akun_id: Number(d.akun_id),

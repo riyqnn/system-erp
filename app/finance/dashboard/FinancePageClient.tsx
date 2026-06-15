@@ -3,32 +3,21 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
-  TrendingUp,
-  ClipboardList,
   ArrowRight,
   ArrowUpRight,
   ArrowDownRight,
-  Filter,
+  Funnel,
   Download,
-  Wallet,
   Receipt,
   ArrowUp,
   ArrowDown,
   FileText,
   Briefcase,
-  CheckCircle,
-  Clock,
-  ArrowRightLeft,
+  ArrowsLeftRight,
   Coins,
-  Book,
-  Calculator,
-  CreditCard,
   Building,
-  BarChart3,
-  Search,
-  Bell,
-  MessageSquare
-} from "lucide-react"
+  ChartBar
+} from '@phosphor-icons/react'
 import { CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { AreaChart, DonutChart, MultiBarChart } from "@/components/shared/charts"
@@ -230,7 +219,7 @@ interface InvoiceItemProps {
   index?: number;
 }
 
-function InvoiceItem({ code, name, amount, dueDate, type, status, index = 0 }: InvoiceItemProps) {
+function InvoiceItem({ code, name, amount, dueDate, type, status }: InvoiceItemProps) {
   const statusConfig = {
     overdue: { bg: "bg-red-50 text-red-700", dot: "bg-red-500", label: "Overdue" },
     pending: { bg: "bg-orange-50 text-orange-700", dot: "bg-orange-500", label: "Pending" },
@@ -282,7 +271,7 @@ const transactionTypeConfig = {
   disbursement: { icon: ArrowDown, color: "red", bg: "bg-red-50", iconColor: "text-red-600", sign: "-" },
   payroll: { icon: Briefcase, color: "purple", bg: "bg-purple-50", iconColor: "text-purple-600", sign: "-" },
   tax: { icon: FileText, color: "orange", bg: "bg-orange-50", iconColor: "text-orange-600", sign: "-" },
-  transfer: { icon: ArrowRightLeft, color: "blue", bg: "bg-blue-50", iconColor: "text-blue-600", sign: "→" },
+  transfer: { icon: ArrowsLeftRight, color: "blue", bg: "bg-blue-50", iconColor: "text-blue-600", sign: "→" },
 };
 
 function TransactionFeedItem({ timestamp, type, reference, description, amount, account }: TransactionFeedItemProps) {
@@ -318,7 +307,8 @@ export function FinancePageClient() {
   const [activeTab, setActiveTab] = useState<'analytics' | 'operations'>('analytics');
 
   useEffect(() => {
-    setMounted(true);
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(timer);
   }, []);
 
   if (!mounted) {
@@ -358,43 +348,7 @@ export function FinancePageClient() {
     { label: "Pajak & Legal", value: 300, color: "#8B5CF6" },
   ];
 
-  const BUDGET_VS_ACTUAL = [
-    {
-      category: "Biaya Produksi",
-      values: [
-        { label: "Anggaran", value: 6500, color: CHART_COLORS.tertiary },
-        { label: "Realisasi", value: 6200, color: CHART_COLORS.primary },
-      ],
-    },
-    {
-      category: "Marketing & Sales",
-      values: [
-        { label: "Anggaran", value: 2800, color: CHART_COLORS.tertiary },
-        { label: "Realisasi", value: 2400, color: CHART_COLORS.primary },
-      ],
-    },
-    {
-      category: "Logistik & WH",
-      values: [
-        { label: "Anggaran", value: 1000, color: CHART_COLORS.tertiary },
-        { label: "Realisasi", value: 1100, color: CHART_COLORS.primary },
-      ],
-    },
-    {
-      category: "Gaji & Admin",
-      values: [
-        { label: "Anggaran", value: 850, color: CHART_COLORS.tertiary },
-        { label: "Realisasi", value: 800, color: CHART_COLORS.primary },
-      ],
-    },
-    {
-      category: "Pajak & Legal",
-      values: [
-        { label: "Anggaran", value: 350, color: CHART_COLORS.tertiary },
-        { label: "Realisasi", value: 300, color: CHART_COLORS.primary },
-      ],
-    },
-  ];
+
 
   const OUTSTANDING_INVOICES = [
     { code: "INV-2026-001", name: "PT Indomarco Prismatama", amount: 1250000000, dueDate: "10 Jun 2026", type: "customer" as const, status: "sent" as const },
@@ -485,7 +439,7 @@ export function FinancePageClient() {
             size="sm"
             className="h-9 gap-2 hover:bg-slate-100/80 transition-all duration-300 font-medium rounded-2xl cursor-pointer"
           >
-            <Filter className="w-4 h-4 text-slate-400" />
+            <Funnel className="w-4 h-4 text-slate-400" />
             Filter
           </Button>
         </div>
@@ -511,7 +465,7 @@ export function FinancePageClient() {
               title="Total Revenue"
               value="Rp 68.70B"
               change="8.2% vs last month"
-              icon={BarChart3}
+              icon={ChartBar}
               color="green"
               trendData={[4.2, 4.3, 4.25, 4.4, 4.48, 4.52, 4.58]}
               index={1}
@@ -628,7 +582,7 @@ export function FinancePageClient() {
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
               <h3 className="text-base font-semibold text-slate-800">Recent Activity Log</h3>
               <Button variant="ghost" size="sm" className="h-8 gap-2 hover:bg-slate-100 text-xs font-semibold text-slate-500 rounded-lg">
-                <Filter className="w-3.5 h-3.5" /> Filter
+                <Funnel className="w-3.5 h-3.5" /> Filter
               </Button>
             </div>
             <div className="overflow-x-auto">

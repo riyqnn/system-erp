@@ -19,13 +19,13 @@ import { Input } from "@/components/ui/input";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface StockMonitoringData {
-  product_id: number;
+  product_id: string | number;
   product_code: string;
   product_name: string;
   category: string;
   units: string;
   minimum_stock: number;
-  warehouse_id: number;
+  warehouse_id: string | number;
   warehouse_code: string;
   warehouse_name: string;
   available_qty: number;

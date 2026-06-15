@@ -13,7 +13,6 @@ import {
   CheckCircle,
   Truck,
   Scales,
-  Clock,
   WarningCircle,
 } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'

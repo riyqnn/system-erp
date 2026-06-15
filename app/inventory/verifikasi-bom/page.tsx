@@ -20,9 +20,9 @@ import { Input } from "@/components/ui/input";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface ProdReqData {
-  production_request_id: number;
+  production_request_id: string | number;
   prd_code: string;
-  product_id: number;
+  product_id: string | number;
   qty_requested: number;
   request_date: string;
   status: string;
@@ -34,8 +34,8 @@ interface ProdReqData {
 }
 
 interface BOMData {
-  bom_id: number;
-  rm_product_id: number;
+  bom_id: string | number;
+  rm_product_id: string | number;
   qty_required: number;
   ms_products: {
     product_code: string;
@@ -45,7 +45,7 @@ interface BOMData {
 }
 
 interface ProductStock {
-  product_id: number;
+  product_id: string | number;
   current_stock: number;
 }
 
@@ -54,7 +54,7 @@ interface ProductStock {
 /* ------------------------------------------------------------------ */
 export default function BOMVerificationPage() {
   const [requests, setRequests] = useState<ProdReqData[]>([]);
-  const [stockMap, setStockMap] = useState<Record<number, number>>({});
+  const [stockMap, setStockMap] = useState<Record<string | number, number>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
@@ -80,7 +80,7 @@ export default function BOMVerificationPage() {
       
       if (stockRes.ok) {
         const json = await stockRes.json();
-        const smap: Record<number, number> = {};
+        const smap: Record<string | number, number> = {};
         json.data?.forEach((s: ProductStock) => { smap[s.product_id] = s.current_stock; });
         setStockMap(smap);
       }

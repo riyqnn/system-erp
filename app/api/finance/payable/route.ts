@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
         Number(jumlah),
         tanggal_invoice,
         due_date,
-        user.id
+        String(user.user_id)
       );
 
       if (!hasil.success) {
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
         Number(jumlah_bayar),
         metode_pembayaran,
         keterangan,
-        user.id
+        String(user.user_id)
       );
 
       return NextResponse.json({

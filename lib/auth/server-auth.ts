@@ -46,7 +46,7 @@ export async function requireAuth() {
 export async function requireRole(allowedRoles: string[]) {
   const user = await requireAuth()
 
-  const userRole = user?.role?.name?.toUpperCase()
+  const userRole = user?.role?.toUpperCase()
 
   // Admin can access everything
   if (userRole === 'ADMIN') {

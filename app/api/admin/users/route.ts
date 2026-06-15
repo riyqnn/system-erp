@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac'
 
@@ -8,12 +8,12 @@ export async function POST(request: NextRequest) {
     const user = await requireAuth()
     requireAnyRole(user, ['ADMIN'])
 
-    const { full_name, email, password, role_id, is_active } = await request.json()
+    const { full_name, email, password, username, role, status } = await request.json()
 
     // Validation
-    if (!full_name || !email || !password || !role_id) {
+    if (!username || !email || !password || !role) {
       return NextResponse.json(
-        { error: 'All fields are required' },
+        { error: 'username, email, password, and role are required' },
         { status: 400 }
       )
     }
@@ -28,16 +28,16 @@ export async function POST(request: NextRequest) {
     const { createRouteHandlerClient } = await import('@/lib/supabase/server')
     const supabase = await createRouteHandlerClient()
 
-    // Check if email already exists
+    // Check if username already exists
     const { data: existingUser } = await supabase
-      .from('users')
-      .select('email')
-      .eq('email', email)
+      .from('ms_user')
+      .select('username')
+      .eq('username', username)
       .single()
 
     if (existingUser) {
       return NextResponse.json(
-        { error: 'Email already registered' },
+        { error: 'Username already registered' },
         { status: 409 }
       )
     }
@@ -46,10 +46,8 @@ export async function POST(request: NextRequest) {
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // Auto-confirm email
-      user_metadata: {
-        full_name,
-      },
+      email_confirm: true,
+      user_metadata: { full_name, username },
     })
 
     if (authError || !authData.user) {
@@ -59,85 +57,58 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create user profile
-    // Admin can choose is_active status - if true, user can login immediately
-    // If false or not specified, user will be pending
+    // Create user profile in ms_user
+    // password_hash is managed by Supabase Auth, store a placeholder
     const { error: profileError } = await supabase
-      .from('users')
+      .from('ms_user')
       .insert({
-        id: authData.user.id,
+        username,
+        password_hash: '--- managed by supabase auth ---',
         email,
-        full_name,
-        role_id,
-        is_active: is_active ?? false,
-        is_pending: !(is_active ?? false), // If not active, then pending
+        full_name: full_name || null,
+        role,
+        status: status || 'ACTIVE',
       })
 
     if (profileError) {
       // Rollback: delete auth user if profile creation fails
       await supabase.auth.admin.deleteUser(authData.user.id)
       return NextResponse.json(
-        { error: 'Failed to create user profile' },
+        { error: 'Failed to create user profile: ' + profileError.message },
         { status: 500 }
       )
     }
 
     return NextResponse.json(
       {
-        message: is_active
-          ? 'User created successfully and can login immediately'
-          : 'User created successfully. Pending approval.',
-        user: {
-          id: authData.user.id,
-          email,
-          full_name,
-          role_id,
-          is_active: is_active ?? false,
-          is_pending: !(is_active ?? false),
-        },
+        message: 'User created successfully',
+        user: { username, email, full_name, role, status: status || 'ACTIVE' },
       },
       { status: 201 }
     )
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('[Admin Create User Error]', error)
     const statusCode = error.statusCode || 500
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: error instanceof Error ? error.message : String(error) || 'Internal server error' },
       { status: statusCode }
     )
   }
 }
 
-// Get all users (not just pending)
+// Get all users
 export async function GET() {
   try {
-    // Require authentication and ADMIN role
     const user = await requireAuth()
     requireAnyRole(user, ['ADMIN'])
 
     const { createRouteHandlerClient } = await import('@/lib/supabase/server')
     const supabase = await createRouteHandlerClient()
 
-    // Fetch all users with their roles
     const { data: users, error } = await supabase
-      .from('users')
-      .select(
-        `
-        id,
-        email,
-        full_name,
-        role_id,
-        is_active,
-        is_pending,
-        created_at,
-        updated_at,
-        roles (
-          id,
-          name,
-          description
-        )
-      `
-      )
+      .from('ms_user')
+      .select('user_id, username, full_name, email, role, status, created_at')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -147,12 +118,8 @@ export async function GET() {
       )
     }
 
-    return NextResponse.json({
-      users: users?.map(u => ({
-        ...u,
-        role: (u as any).roles,
-      })) || [],
-    })
+    return NextResponse.json({ users: users || [] })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('[Admin Get Users Error]', error)
     const statusCode = (error as { statusCode?: number }).statusCode || 500

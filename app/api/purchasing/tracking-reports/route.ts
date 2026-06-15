@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -40,8 +41,8 @@ export async function GET() {
 
     const poIds =
       trackingData
-        ?.filter((item) => item.entity_type === 'PURCHASE_ORDER' || item.entity_type === 'DELIVERY')
-        .map((item) => item.entity_id)
+        ?.filter((item: AnyObject) => item.entity_type === 'PURCHASE_ORDER' || item.entity_type === 'DELIVERY')
+        .map((item: AnyObject) => item.entity_id)
         .filter(Boolean) || []
 
     const { data: poData, error: poError } = await supabase
@@ -85,9 +86,9 @@ export async function GET() {
       )
     }
 
-    const purchaseOrderMap = new Map((poData || []).map((po: any) => [po.id, po]))
+    const purchaseOrderMap = new Map((poData || []).map((po: AnyObject) => [po.id, po]))
 
-    const trackingReports = (trackingData || []).map((item: any) => {
+    const trackingReports = (trackingData || []).map((item: AnyObject) => {
       const po = purchaseOrderMap.get(item.entity_id)
       const firstItem = po?.purchasing_purchase_order_items?.[0]
 
@@ -189,7 +190,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           message: 'Failed to save tracking report',
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )

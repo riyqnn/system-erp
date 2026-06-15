@@ -13,10 +13,10 @@ export async function GET() {
       .from('tr_goods_receipt')
       .select(`
         *,
-        ms_products (product_code, product_name, units),
-        ms_suppliers (supplier_name)
+        ms_product (product_id, product_name, uom),
+        ms_supplier (supplier_name)
       `)
-      .eq('status', 'Accepted')
+      .eq('status', 'ACCEPTED')
       .order('receipt_date', { ascending: false })
 
     if (error) throw error
