@@ -142,6 +142,7 @@ export async function getUserFromRequest(): Promise<UserWithRole | null> {
 
   let dbProfile: UserProfile | null = null
 
+
   try {
     const { data, error } = await supabase
       .from('ms_user')
@@ -160,6 +161,7 @@ export async function getUserFromRequest(): Promise<UserWithRole | null> {
 
   if (!profileData) {
     return null
+
   }
 
   if (profileData.status !== 'ACTIVE') {
