@@ -7,11 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
-
-const currentPeriode = () => {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
+import { currentPeriode } from '@/lib/snm'
 
 export function MarketingClient() {
   const supabase = useMemo(() => createClient(), [])
@@ -22,14 +18,42 @@ export function MarketingClient() {
     let active = true
     const load = async () => {
       const periode = currentPeriode()
-      const [fcRes, vaRes] = await Promise.all([
-        supabase.from('an_sales_forecast').select('id', { count: 'exact', head: true }).eq('periode', periode),
-        supabase.from('v_forecast_vs_actual').select('achievement_pct').eq('periode', periode),
-      ])
+      // forecast targets for current period
+      const fcRes = await supabase.from('an_sales_forecast')
+        .select('forecast_id, product_id, wilayah, target_qty', { count: 'exact' })
+        .eq('periode', periode)
+      const forecasts = (fcRes.data as { product_id: string; wilayah: string; target_qty: number }[]) ?? []
+
+      // approved SO in this period → realisasi per product+region
+      const soRes = await supabase.from('tr_so_header')
+        .select('so_id, so_date, ms_customer(wilayah)').eq('approval_status', 'APPROVED')
+      const headerRegion: Record<string, string> = {}
+      ;(soRes.data as unknown as { so_id: string; so_date: string; ms_customer: { wilayah: string } | null }[] ?? [])
+        .filter((h) => (h.so_date ?? '').slice(0, 7) === periode)
+        .forEach((h) => { headerRegion[h.so_id] = h.ms_customer?.wilayah ?? '' })
+
+      const actual: Record<string, number> = {}
+      const soIds = Object.keys(headerRegion)
+      if (soIds.length) {
+        const { data: dets } = await supabase.from('tr_so_detail').select('so_id, product_id, qty_order').in('so_id', soIds)
+        ;(dets as { so_id: string; product_id: string; qty_order: number }[] ?? []).forEach((d) => {
+          const key = `${d.product_id}|${headerRegion[d.so_id] ?? ''}`
+          actual[key] = (actual[key] ?? 0) + (Number(d.qty_order) || 0)
+        })
+      }
+
       if (!active) return
-      setForecastCount(fcRes.count ?? 0)
-      const rows = (vaRes.data as { achievement_pct: number }[]) ?? []
-      setAvgAchievement(rows.length ? Math.round(rows.reduce((s, r) => s + Number(r.achievement_pct), 0) / rows.length) : 0)
+      setForecastCount(fcRes.count ?? forecasts.length)
+      if (forecasts.length) {
+        const pcts = forecasts.map((f) => {
+          const act = actual[`${f.product_id}|${f.wilayah}`] ?? 0
+          const t = Number(f.target_qty) || 0
+          return t > 0 ? (act / t) * 100 : 0
+        })
+        setAvgAchievement(Math.round(pcts.reduce((s, p) => s + p, 0) / pcts.length))
+      } else {
+        setAvgAchievement(0)
+      }
     }
     load()
     return () => { active = false }

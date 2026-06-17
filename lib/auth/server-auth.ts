@@ -12,8 +12,17 @@ const ROLE_MODULE_MAP: Record<string, string> = {
   'PRODUCTION': '/production',
   'SNM': '/snm',
   'SALES': '/snm',
+  'ADMIN SALES': '/snm',
+  'SALES MANAGER': '/snm',
   'ADMIN': '/dashboard',
 }
+
+/**
+ * Roles allowed inside the Sales & Marketing module. The DB stores granular
+ * role labels ("Admin Sales", "Sales Manager") alongside the generic SNM/SALES;
+ * requireRole upper-cases the user role before matching, so these are uppercased.
+ */
+export const SNM_ROLES = ['SNM', 'SALES', 'ADMIN SALES', 'SALES MANAGER', 'ADMIN']
 
 /**
  * Get the default redirect path for a user based on their role

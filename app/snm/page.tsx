@@ -1,12 +1,11 @@
-import { requireRole } from '@/lib/auth/server-auth'
+import { requireRole, SNM_ROLES } from '@/lib/auth/server-auth'
 import { SnmPageClient } from './SnmPageClient'
 
-// Server component - handles role-based access control
-export default async function SnmPage() {
-  // Only SNM, SALES, and ADMIN roles can access this page
-  // Non-authorized users will be redirected to their own module
-  await requireRole(['SNM', 'SALES', 'ADMIN'])
+export const dynamic = 'force-dynamic'
 
+// Server component — handles role-based access control for the SNM module.
+// Allowed: SNM / SALES / Admin Sales / Sales Manager / ADMIN (see SNM_ROLES).
+export default async function SnmPage() {
+  await requireRole(SNM_ROLES)
   return <SnmPageClient />
 }
-

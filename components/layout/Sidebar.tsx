@@ -156,6 +156,9 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
           { label: 'Ditolak', href: '/snm/sales?status=REJECTED_CREDIT' },
         ],
       },
+      { label: 'Approval Manager', href: '/snm/approvals', icon: CheckSquare },
+      { label: 'Delivery Orders', href: '/snm/deliveries', icon: Truck },
+      { label: 'Invoices', href: '/snm/invoices', icon: Receipt },
       {
         label: 'Customers',
         href: '/snm/customers',
