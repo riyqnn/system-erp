@@ -1,4 +1,4 @@
-import { requireRole } from '@/lib/auth/server-auth'
+import { requireRole, SNM_ROLES } from '@/lib/auth/server-auth'
 import { SalesClient } from './SalesClient'
 
 export const dynamic = 'force-dynamic'
@@ -8,7 +8,7 @@ export default async function SnmSalesPage({
 }: {
   searchParams: Promise<{ status?: string }>
 }) {
-  await requireRole(['SNM', 'SALES', 'ADMIN'])
+  const user = await requireRole(SNM_ROLES)
   const sp = await searchParams
-  return <SalesClient initialStatus={sp.status} />
+  return <SalesClient initialStatus={sp.status} userId={user.user_id} />
 }
