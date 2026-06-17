@@ -354,6 +354,310 @@ export default function GeneralLedgerPage() {
     return 'Rp ' + val.toLocaleString('id-ID')
   }
 
+const handleGeneratePDF = () => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      showNotif('error', 'Gagal membuka jendela cetak. Pastikan pop-up diizinkan di browser Anda.')
+      return
+    }
+
+    let reportTitle = ''
+    let reportHtml = ''
+
+    if (selectedReportType === 'neraca') {
+      reportTitle = 'BALANCE SHEET (NERACA)'
+      reportHtml = `
+        <div style="display: flex; gap: 40px; margin-top: 20px;">
+          <!-- Assets -->
+          <div style="flex: 1;">
+            <h3 style="border-bottom: 2px solid #334155; padding-bottom: 8px; margin-bottom: 12px; font-size: 14px; color: #1e293b;">AKTIVA (ASET)</h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+              <thead>
+                <tr style="border-bottom: 1px solid #cbd5e1; text-align: left; color: #64748b;">
+                  <th style="padding: 6px 0;">Kode</th>
+                  <th style="padding: 6px 0;">Nama Akun</th>
+                  <th style="padding: 6px 0; text-align: right;">Saldo</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${asetList.map(a => `
+                  <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 8px 0; font-family: monospace;">${a.kode_akun}</td>
+                    <td style="padding: 8px 0; font-weight: 600; color: #334155;">${a.nama_akun}</td>
+                    <td style="padding: 8px 0; text-align: right; font-weight: bold; font-family: monospace;">
+                      ${formatAmount(a.saldo_normal === 'DEBET' ? a.saldo_berjalan : -a.saldo_berjalan)}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            <div style="margin-top: 20px; border-top: 2px solid #94a3b8; border-bottom: 2px double #94a3b8; padding: 10px 0; display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; color: #0f172a;">
+              <span>TOTAL AKTIVA / ASET</span>
+              <span style="font-family: monospace;">${formatAmount(totalAset)}</span>
+            </div>
+          </div>
+
+          <!-- Pasiva -->
+          <div style="flex: 1;">
+            <h3 style="border-bottom: 2px solid #334155; padding-bottom: 8px; margin-bottom: 12px; font-size: 14px; color: #1e293b;">PASIVA (KEWAJIBAN & EKUITAS)</h3>
+            
+            <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-top: 0; margin-bottom: 8px;">1. Kewajiban (Hutang)</h4>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 15px;">
+              <tbody>
+                ${kewajibanList.map(a => `
+                  <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 6px 0; font-family: monospace; width: 60px;">${a.kode_akun}</td>
+                    <td style="padding: 6px 0; font-weight: 600; color: #334155;">${a.nama_akun}</td>
+                    <td style="padding: 6px 0; text-align: right; font-weight: bold; font-family: monospace;">
+                      ${formatAmount(a.saldo_normal === 'KREDIT' ? a.saldo_berjalan : -a.saldo_berjalan)}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+
+            <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 8px;">2. Ekuitas (Modal)</h4>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+              <tbody>
+                ${ekuitasList.map(a => `
+                  <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 6px 0; font-family: monospace; width: 60px;">${a.kode_akun}</td>
+                    <td style="padding: 6px 0; font-weight: 600; color: #334155;">${a.nama_akun}</td>
+                    <td style="padding: 6px 0; text-align: right; font-weight: bold; font-family: monospace;">
+                      ${formatAmount(a.saldo_normal === 'KREDIT' ? a.saldo_berjalan : -a.saldo_berjalan)}
+                    </td>
+                  </tr>
+                `).join('')}
+                <tr style="background-color: #f8fafc; font-weight: bold;">
+                  <td style="padding: 8px; border: 1px solid #e2e8f0;" colspan="2">Laba Bersih Tahun Berjalan</td>
+                  <td style="padding: 8px; border: 1px solid #e2e8f0; text-align: right; font-family: monospace;">
+                    ${formatAmount(labaRugiBersih)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div style="margin-top: 20px; border-top: 2px solid #94a3b8; border-bottom: 2px double #94a3b8; padding: 10px 0; display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; color: #0f172a;">
+              <span>TOTAL PASIVA</span>
+              <span style="font-family: monospace;">${formatAmount(totalPasiva)}</span>
+            </div>
+          </div>
+        </div>
+      `
+    } else if (selectedReportType === 'labarugi') {
+      reportTitle = 'PROFIT & LOSS STATEMENT (LAPORAN LABA RUGI)'
+      reportHtml = `
+        <div style="margin-top: 20px; font-size: 12px; color: #334155;">
+          <!-- Revenues -->
+          <div style="margin-bottom: 25px;">
+            <h3 style="border-bottom: 1.5px solid #64748b; padding-bottom: 6px; margin-bottom: 10px; font-size: 13px; color: #1e293b; text-transform: uppercase;">I. Pendapatan Operasional</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tbody>
+                ${pendapatanList.map(a => `
+                  <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 8px 0; font-family: monospace; width: 80px;">${a.kode_akun}</td>
+                    <td style="padding: 8px 0; font-weight: 600;">${a.nama_akun}</td>
+                    <td style="padding: 8px 0; text-align: right; font-weight: bold; font-family: monospace;">
+                      ${formatAmount(a.saldo_normal === 'KREDIT' ? a.saldo_berjalan : -a.saldo_berjalan)}
+                    </td>
+                  </tr>
+                `).join('')}
+                <tr style="font-weight: bold; color: #0f172a;">
+                  <td style="padding: 10px 0; border-top: 1.5px solid #cbd5e1;" colspan="2">TOTAL PENDAPATAN</td>
+                  <td style="padding: 10px 0; border-top: 1.5px solid #cbd5e1; text-align: right; font-family: monospace;">
+                    ${formatAmount(totalPendapatan)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Expenses -->
+          <div style="margin-bottom: 25px;">
+            <h3 style="border-bottom: 1.5px solid #64748b; padding-bottom: 6px; margin-bottom: 10px; font-size: 13px; color: #1e293b; text-transform: uppercase;">II. Beban Operasional & Biaya</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tbody>
+                ${bebanList.map(a => `
+                  <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 8px 0; font-family: monospace; width: 80px;">${a.kode_akun}</td>
+                    <td style="padding: 8px 0; font-weight: 600;">${a.nama_akun}</td>
+                    <td style="padding: 8px 0; text-align: right; font-weight: bold; font-family: monospace;">
+                      ${formatAmount(a.saldo_normal === 'DEBET' ? a.saldo_berjalan : -a.saldo_berjalan)}
+                    </td>
+                  </tr>
+                `).join('')}
+                <tr style="font-weight: bold; color: #0f172a;">
+                  <td style="padding: 10px 0; border-top: 1.5px solid #cbd5e1;" colspan="2">TOTAL BEBAN OPERASIONAL</td>
+                  <td style="padding: 10px 0; border-top: 1.5px solid #cbd5e1; text-align: right; font-family: monospace;">
+                    ${formatAmount(totalBeban)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Net income -->
+          <div style="margin-top: 30px; padding: 12px 15px; background-color: ${labaRugiBersih >= 0 ? '#f0fdf4' : '#fef2f2'}; border: 1px solid ${labaRugiBersih >= 0 ? '#bbf7d0' : '#fecaca'}; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 14px; color: ${labaRugiBersih >= 0 ? '#166534' : '#991b1b'};">
+            <span>LABA BERSIH TAHUN BERJALAN</span>
+            <span style="font-family: monospace;">${formatAmount(labaRugiBersih)}</span>
+          </div>
+        </div>
+      `
+    } else {
+      reportTitle = 'TRIAL BALANCE (NERACA SALDO)'
+      reportHtml = `
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 20px; border: 1px solid #e2e8f0;">
+          <thead>
+            <tr style="background-color: #f8fafc; border-bottom: 2px solid #cbd5e1; color: #475569;">
+              <th style="padding: 10px; text-align: center; border-right: 1px solid #e2e8f0;">Kode Akun</th>
+              <th style="padding: 10px; text-align: left; border-right: 1px solid #e2e8f0;">Nama Akun</th>
+              <th style="padding: 10px; text-align: right; border-right: 1px solid #e2e8f0; width: 150px;">Debet</th>
+              <th style="padding: 10px; text-align: right; width: 150px;">Kredit</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${trialList.map(t => `
+              <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 8px; text-align: center; font-family: monospace; border-right: 1px solid #e2e8f0; color: #64748b; font-weight: 600;">${t.kode_akun}</td>
+                <td style="padding: 8px; font-weight: bold; border-right: 1px solid #e2e8f0; color: #334155;">${t.nama_akun}</td>
+                <td style="padding: 8px; text-align: right; font-family: monospace; border-right: 1px solid #e2e8f0;">
+                  ${t.debet > 0 ? formatAmount(t.debet) : '�'}
+                </td>
+                <td style="padding: 8px; text-align: right; font-family: monospace;">
+                  ${t.kredit > 0 ? formatAmount(t.kredit) : '�'}
+                </td>
+              </tr>
+            `).join('')}
+            <tr style="background-color: #f1f5f9; font-weight: bold; border-top: 2px solid #94a3b8; color: #0f172a; font-size: 13px;">
+              <td style="padding: 12px; border-right: 1px solid #e2e8f0;" colspan="2">TOTAL NERACA SALDO</td>
+              <td style="padding: 12px; text-align: right; font-family: monospace; border-right: 1px solid #e2e8f0;">${formatAmount(totalTrialDebet)}</td>
+              <td style="padding: 12px; text-align: right; font-family: monospace;">${formatAmount(totalTrialKredit)}</td>
+            </tr>
+          </tbody>
+        </table>
+      `
+    }
+
+    const otorisasiHtml = `
+      <div style="margin-top: 40px; border-top: 1px dashed #cbd5e1; padding-top: 20px;">
+        <h4 style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-top: 0; margin-bottom: 10px;">Jejak & Status Otorisasi</h4>
+        <table style="width: 100%; border-collapse: collapse; font-size: 11px; color: #475569;">
+          <tr>
+            <td style="padding: 4px 0; font-weight: 600; width: 150px;">Status Laporan:</td>
+            <td style="padding: 4px 0;"><span style="background-color: #f1f5f9; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; border: 1px solid #e2e8f0;">${reportStatus}</span></td>
+          </tr>
+          ${finalizedAt ? `
+            <tr>
+              <td style="padding: 4px 0; font-weight: 600;">Difinalisasi Oleh:</td>
+              <td style="padding: 4px 0;">Staf GL pada <span style="font-family: monospace;">${finalizedAt}</span></td>
+            </tr>
+          ` : ''}
+          ${distributedAt ? `
+            <tr>
+              <td style="padding: 4px 0; font-weight: 600;">Disetujui & Rilis:</td>
+              <td style="padding: 4px 0;">Pimpinan pada <span style="font-family: monospace;">${distributedAt}</span></td>
+            </tr>
+          ` : ''}
+          ${decisionNote ? `
+            <tr>
+              <td style="padding: 4px 0; font-weight: 600; vertical-align: top;">Catatan Pimpinan:</td>
+              <td style="padding: 4px 0; font-style: italic; color: #334155; line-height: 1.4;">"${decisionNote}"</td>
+            </tr>
+          ` : ''}
+        </table>
+      </div>
+    `
+
+    const signatureHtml = `
+      <div style="margin-top: 60px; display: flex; justify-content: space-between; font-size: 12px; color: #334155;">
+        <div style="text-align: center; width: 200px;">
+          <p style="margin-bottom: 50px;">Disiapkan Oleh,</p>
+          <p style="border-bottom: 1px solid #334155; padding-bottom: 5px; font-weight: bold;">Staf General Ledger</p>
+          <p style="font-size: 10px; color: #64748b; margin-top: 4px;">Departemen Finance</p>
+        </div>
+        <div style="text-align: center; width: 200px;">
+          <p style="margin-bottom: 50px;">Disetujui Oleh,</p>
+          <p style="border-bottom: 1px solid #334155; padding-bottom: 5px; font-weight: bold;">Pimpinan Cabang / CFO</p>
+          <p style="font-size: 10px; color: #64748b; margin-top: 4px;">PT Mayora Indah Tbk</p>
+        </div>
+      </div>
+    `
+
+    const fullHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Laporan Keuangan - ${reportPeriod}</title>
+        <meta charset="utf-8">
+        <style>
+          body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: #334155;
+            margin: 0;
+            padding: 30px;
+            background-color: #ffffff;
+            line-height: 1.5;
+          }
+          @media print {
+            body { padding: 0; }
+            @page { size: A4; margin: 1.5cm; }
+          }
+        </style>
+      </head>
+      <body>
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #dc2626; padding-bottom: 12px; margin-bottom: 25px;">
+          <div>
+            <h1 style="margin: 0; font-size: 24px; color: #dc2626; font-weight: 800; letter-spacing: 0.05em;">MAYORA</h1>
+            <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;">PT MAYORA INDAH Tbk & SUBSIDIARIES</p>
+          </div>
+          <div style="text-align: right;">
+            <h2 style="margin: 0; font-size: 16px; color: #1e293b; font-weight: 700;">LAPORAN KEUANGAN</h2>
+            <p style="margin: 2px 0 0 0; font-size: 11px; color: #64748b; font-weight: 600;">Periode Ending: ${reportPeriod}</p>
+          </div>
+        </div>
+
+        <!-- Meta Info -->
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+          <tr>
+            <td style="padding: 10px 15px; font-weight: 600; color: #475569; width: 120px;">Laporan</td>
+            <td style="padding: 10px 15px; font-weight: bold; color: #0f172a;">${reportTitle}</td>
+            <td style="padding: 10px 15px; font-weight: 600; color: #475569; width: 120px; text-align: right;">Cost Center</td>
+            <td style="padding: 10px 15px; font-weight: bold; color: #0f172a; text-align: right;">${costCenter}</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 15px; font-weight: 600; color: #475569;">Mata Uang</td>
+            <td style="padding: 10px 15px; font-weight: bold; color: #0f172a;">${currency === 'USD' ? 'USD (Dolar AS)' : 'IDR (Rupiah)'}</td>
+            <td style="padding: 10px 15px; font-weight: 600; color: #475569; text-align: right;">Tanggal Cetak</td>
+            <td style="padding: 10px 15px; font-weight: bold; color: #0f172a; text-align: right; font-family: monospace;">${new Date().toLocaleDateString('id-ID', { dateStyle: 'long' })}</td>
+          </tr>
+        </table>
+
+        <!-- Report Main Body -->
+        ${reportHtml}
+
+        <!-- Otorisasi Info -->
+        ${otorisasiHtml}
+
+        <!-- Signatures -->
+        ${signatureHtml}
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          }
+        </script>
+      </body>
+      </html>
+    `
+
+    printWindow.document.write(fullHtml)
+    printWindow.document.close()
+    showNotif('success', `PDF Laporan Keuangan untuk periode ${reportPeriod} berhasil dibuat.`)
+  }
+
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
 
@@ -723,10 +1027,7 @@ export default function GeneralLedgerPage() {
               <div className="pt-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    showNotif('success', `PDF Laporan Keuangan untuk periode ${reportPeriod} berhasil dibuat.`)
-                    setShowReportPreview(true)
-                  }}
+                  onClick={handleGeneratePDF}
                   className="w-full py-2.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm"
                 >
                   <Download className="w-4 h-4" />
@@ -757,6 +1058,13 @@ export default function GeneralLedgerPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={handleGeneratePDF}
+                className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-[10px] font-bold text-red-600 rounded-xl border border-red-200 cursor-pointer flex items-center gap-1.5"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                Cetak / Simpan PDF
+              </button>
               <button
                 onClick={() => handleResetReport()}
                 className="px-3 py-1.5 hover:bg-slate-100 text-[10px] font-bold text-slate-500 rounded-xl border border-slate-200 cursor-pointer"

@@ -224,6 +224,40 @@ export default function AccountReceivablePage() {
     return matchesSearch && matchesStatus
   })
 
+// Export to CSV Function
+  const handleExportCSV = () => {
+    if (filteredPiutang.length === 0) {
+      showNotif('error', 'Tidak ada data untuk diexport.')
+      return
+    }
+
+    const headers = ['Invoice ID', 'Customer Name', 'Original Amount', 'Outstanding Amount', 'Due Date', 'Status']
+    const rows = filteredPiutang.map(p => [
+      p.inv_number,
+      p.customer_name,
+      p.jumlah,
+      p.sisa_pembayaran,
+      p.due_date,
+      p.status
+    ])
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', `Accounts_Receivable_Report_${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    showNotif('success', 'Laporan Accounts Receivable berhasil diexport ke CSV.')
+  }
+
   // Find priority invoice (highest sisa_pembayaran outstanding / overdue)
   const priorityInvoices = piutangList
     .filter(p => p.status !== 'LUNAS')
@@ -257,6 +291,7 @@ export default function AccountReceivablePage() {
           <Button
             variant="ghost"
             size="sm"
+            onClick={handleExportCSV}
             className="h-9 gap-2 hover:bg-slate-100 text-xs font-semibold text-slate-600 rounded-2xl cursor-pointer border border-slate-200"
           >
             <Download className="w-4 h-4 text-slate-400" />
