@@ -17,7 +17,6 @@ type Order = {
   status: string
   start_date: string | null
   end_date: string | null
-  notes: string | null
   products: { id: string; sku: string; name: string } | null
 }
 
@@ -28,7 +27,6 @@ type RoutingRow = {
   sequence: number
   operation_name: string
   duration_hours: number | null
-  notes: string | null
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -60,8 +58,9 @@ export function ProduksiClient() {
 
   // Input confirmation form
   const [showConfirm, setShowConfirm] = useState(false)
-  const [confirmForm, setConfirmForm] = useState({ qty_good: '', qty_scrap: '', notes: '' })
+  const [confirmForm, setConfirmForm] = useState({ qty_good: '', qty_scrap: '' })
   const [confirmError, setConfirmError] = useState<string | null>(null)
+  const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null)
 
   // On Hold form
   const [showHold, setShowHold] = useState(false)
@@ -112,7 +111,7 @@ export function ProduksiClient() {
     await fetch(`/api/production/orders/${selected.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'on_hold', notes: holdReason ? `[ON_HOLD] ${holdReason}` : '[ON_HOLD]' }),
+      body: JSON.stringify({ status: 'on_hold' }),
     })
     setShowHold(false)
     setHoldReason('')
@@ -139,19 +138,32 @@ export function ProduksiClient() {
     setSaving(true)
     const scrap = Number(confirmForm.qty_scrap) || 0
     const total = good + scrap
-    await fetch(`/api/production/orders/${selected.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        status: 'completed',
-        actual_qty: total,
-        notes: `[CONFIRMED] Good: ${good} | Scrap: ${scrap}${confirmForm.notes ? ' | ' + confirmForm.notes : ''}`,
-      }),
-    })
-    setShowConfirm(false)
-    setConfirmForm({ qty_good: '', qty_scrap: '', notes: '' })
-    await load()
-    setSaving(false)
+    try {
+      const res = await fetch(`/api/production/orders/${selected.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'completed',
+          actual_qty: total,
+          end_date: new Date().toISOString().slice(0, 10),
+        }),
+      })
+      if (!res.ok) {
+        const e = await res.json()
+        setConfirmError(e.error || 'Gagal menyimpan. Coba lagi.')
+        setSaving(false)
+        return
+      }
+      setShowConfirm(false)
+      setConfirmForm({ qty_good: '', qty_scrap: '' })
+      setConfirmSuccess(`Order ${selected.po_number} selesai. Lanjutkan ke QC & Penerimaan.`)
+      setStatusFilter('all')
+      await load()
+    } catch {
+      setConfirmError('Terjadi kesalahan koneksi.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const inProgressCount = orders.filter(o => o.status === 'in_progress').length
@@ -213,6 +225,14 @@ export function ProduksiClient() {
         </div>
 
         {error && <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><Warning className="w-4 h-4" weight="fill" /> {error}</div>}
+        {confirmSuccess && (
+          <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4" weight="fill" /> {confirmSuccess}
+            </div>
+            <button onClick={() => setConfirmSuccess(null)} className="text-green-500 hover:text-green-700 ml-4">✕</button>
+          </div>
+        )}
 
         {/* Order Cards */}
         {loading ? (
@@ -283,7 +303,7 @@ export function ProduksiClient() {
 
                       {/* Actions */}
                       <div className="flex flex-col gap-2 flex-shrink-0">
-                        {order.status === 'planned' || order.status === 'mrp_ready' ? (
+                        {order.status === 'mrp_ready' ? (
                           <Button size="sm" className="h-9 px-4 bg-amber-500 hover:bg-amber-600 text-white gap-1.5 text-xs"
                             onClick={() => startProduction(order)} disabled={saving}>
                             <Play size={13} weight="fill" /> Mulai
@@ -312,13 +332,6 @@ export function ProduksiClient() {
                       </div>
                     </div>
 
-                    {/* On Hold note */}
-                    {order.status === 'on_hold' && order.notes && (
-                      <div className="mt-3 flex items-center gap-2 bg-orange-50 rounded-lg px-3 py-2 border border-orange-200">
-                        <Warning size={14} className="text-orange-500 flex-shrink-0" />
-                        <p className="text-xs text-orange-700">{order.notes.replace('[ON_HOLD]', '').trim()}</p>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               )
@@ -364,12 +377,6 @@ export function ProduksiClient() {
                     ({Number(confirmForm.qty_good).toLocaleString()} good dari {(Number(confirmForm.qty_good) + Number(confirmForm.qty_scrap)).toLocaleString()} total)
                   </div>
                 )}
-                <Field label="Catatan Produksi">
-                  <textarea value={confirmForm.notes}
-                    onChange={e => setConfirmForm({ ...confirmForm, notes: e.target.value })}
-                    rows={2} placeholder="Kendala, catatan operator, dll..."
-                    className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
-                </Field>
                 {confirmError && <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"><Warning className="w-4 h-4" weight="fill" /> {confirmError}</div>}
               </div>
               <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex gap-3">

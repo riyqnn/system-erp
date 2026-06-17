@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type Order = { id: string; po_number: string; planned_qty: number; products: { name: string; sku: string } | null }
+type Order = { id: string; po_number: string; planned_qty: number; status: string; products: { name: string; sku: string } | null }
 type Settlement = {
   id: string
   production_order_id: string | null
@@ -16,7 +16,6 @@ type Settlement = {
   actual_cost: number | null
   variance: number | null
   status: 'draft' | 'settled' | 'cancelled'
-  notes: string | null
   production_orders: { po_number: string } | null
 }
 
@@ -43,8 +42,6 @@ type FormState = {
   labor_cost: string
   overhead_cost: string
   standard_cost: string
-  notes: string
-  root_cause: string
 }
 const emptyForm: FormState = {
   production_order_id: '',
@@ -53,8 +50,6 @@ const emptyForm: FormState = {
   labor_cost: '',
   overhead_cost: '',
   standard_cost: '',
-  notes: '',
-  root_cause: '',
 }
 
 const VARIANCE_THRESHOLD = 5 // percent
@@ -108,16 +103,6 @@ export function SettlementClient() {
     setFormError(null)
     if (!actualTotal) { setFormError('Total biaya aktual harus diisi'); return }
     setSaving(true)
-    const noteParts = [
-      form.notes.trim(),
-      form.root_cause ? `[ROOT_CAUSE] ${form.root_cause}` : '',
-      `[MAT:${Number(form.material_cost) || 0}]`,
-      `[LAB:${Number(form.labor_cost) || 0}]`,
-      `[OVH:${Number(form.overhead_cost) || 0}]`,
-      form.standard_cost ? `[STD:${standard}]` : '',
-      overThreshold ? `[VARIANCE_NOTE] Variance ${variancePct.toFixed(1)}% melewati threshold ${VARIANCE_THRESHOLD}%` : '',
-    ].filter(Boolean).join(' ')
-
     try {
       const res = await fetch('/api/production/settlement', {
         method: 'POST',
@@ -128,7 +113,6 @@ export function SettlementClient() {
           actual_cost: actualTotal,
           variance: variance || null,
           status: 'draft',
-          notes: noteParts || null,
         }),
       })
       if (!res.ok) { const e = await res.json(); setFormError(e.error || 'Error'); return }
@@ -238,24 +222,19 @@ export function SettlementClient() {
                     <th className="px-6 py-3.5 font-medium">Settlement Date</th>
                     <th className="px-6 py-3.5 font-medium text-right">Actual Cost</th>
                     <th className="px-6 py-3.5 font-medium text-right">Variance</th>
-                    <th className="px-6 py-3.5 font-medium text-right">Variance %</th>
                     <th className="px-6 py-3.5 font-medium">Status</th>
                     <th className="px-6 py-3.5 font-medium text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
-                    <tr><td colSpan={7} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
+                    <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={7} className="px-6 py-16 text-center text-slate-400">
+                    <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
                       <Receipt className="w-10 h-10 mx-auto mb-3 opacity-30" />
                       <p className="text-sm">Belum ada data settlement</p>
                     </td></tr>
-                  ) : filtered.map(r => {
-                    const stdNote = r.notes?.match(/\[STD:(\d+)\]/)?.[1]
-                    const std = stdNote ? Number(stdNote) : null
-                    const vPct = std && r.actual_cost ? ((r.actual_cost - std) / std) * 100 : null
-                    return (
+                  ) : filtered.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/60 group">
                         <td className="px-6 py-4">
                           <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-700">{r.production_orders?.po_number ?? '—'}</span>
@@ -267,16 +246,6 @@ export function SettlementClient() {
                           r.variance != null && r.variance > 0 ? 'text-green-600' : 'text-slate-400'
                         }`}>
                           {r.variance != null ? (r.variance > 0 ? '+' : '') + rupiah(r.variance) : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          {vPct != null ? (
-                            <span className={`text-xs font-semibold tabular-nums ${
-                              Math.abs(vPct) > VARIANCE_THRESHOLD ? 'text-red-600' :
-                              Math.abs(vPct) > 2 ? 'text-amber-600' : 'text-green-600'
-                            }`}>
-                              {vPct > 0 ? '+' : ''}{vPct.toFixed(1)}%
-                            </span>
-                          ) : <span className="text-slate-300 text-xs">—</span>}
                         </td>
                         <td className="px-6 py-4">
                           <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${STATUS_BADGE[r.status]}`}>
@@ -290,8 +259,7 @@ export function SettlementClient() {
                           </Button>
                         </td>
                       </tr>
-                    )
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -318,7 +286,7 @@ export function SettlementClient() {
                     <select value={form.production_order_id} onChange={e => setForm({ ...form, production_order_id: e.target.value })}
                       className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
                       <option value="">— Pilih production order —</option>
-                      {orders.map(o => <option key={o.id} value={o.id}>{o.po_number}{o.products ? ` · ${o.products.name}` : ''}</option>)}
+                      {orders.filter(o => o.status === 'completed').map(o => <option key={o.id} value={o.id}>{o.po_number}{o.products ? ` · ${o.products.name}` : ''}</option>)}
                     </select>
                   </Field>
                   <Field label="Settlement Date">
@@ -384,19 +352,6 @@ export function SettlementClient() {
                   </div>
                 </div>
 
-                {overThreshold && (
-                  <Field label="Root Cause Analysis">
-                    <textarea value={form.root_cause} onChange={e => setForm({ ...form, root_cause: e.target.value })}
-                      rows={2} placeholder="Jelaskan penyebab variance yang tinggi..."
-                      className="w-full px-3 py-2 border border-red-200 rounded-md text-sm bg-red-50/30 resize-none" />
-                  </Field>
-                )}
-
-                <Field label="Notes">
-                  <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2}
-                    placeholder="Catatan settlement..." className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
-                </Field>
-
                 <div className="bg-blue-50 rounded-lg px-4 py-3 text-xs text-blue-700 border border-blue-200">
                   <strong>COGM:</strong> Setelah settlement dikunci (Closed), nilai COGM akan diteruskan ke Modul Finance secara otomatis.
                 </div>
@@ -442,34 +397,6 @@ export function SettlementClient() {
                 ))}
               </div>
 
-              {/* Cost breakdown from notes */}
-              {detail.notes && (
-                <div className="rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100">
-                    <span className="text-sm font-semibold text-slate-700">Rincian Biaya</span>
-                  </div>
-                  <div className="divide-y divide-slate-50">
-                    {[
-                      { label: 'Material', key: 'MAT' },
-                      { label: 'Labor', key: 'LAB' },
-                      { label: 'Overhead', key: 'OVH' },
-                    ].map(({ label, key }) => {
-                      const match = detail.notes?.match(new RegExp(`\\[${key}:(\\d+)\\]`))
-                      const val = match ? Number(match[1]) : null
-                      return (
-                        <div key={key} className="flex justify-between px-4 py-2.5">
-                          <span className="text-sm text-slate-600">{label}</span>
-                          <span className="text-sm font-medium text-slate-900 tabular-nums">{rupiah(val)}</span>
-                        </div>
-                      )
-                    })}
-                    <div className="flex justify-between px-4 py-2.5 bg-slate-50">
-                      <span className="text-sm font-semibold text-slate-700">Total</span>
-                      <span className="text-sm font-bold text-slate-900 tabular-nums">{rupiah(detail.actual_cost)}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Variance */}
               {detail.variance != null && (
@@ -480,14 +407,6 @@ export function SettlementClient() {
                       {detail.variance > 0 ? '+' : ''}{rupiah(detail.variance)}
                     </span>
                   </div>
-                </div>
-              )}
-
-              {/* Root Cause */}
-              {detail.notes?.includes('[ROOT_CAUSE]') && (
-                <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
-                  <p className="text-xs font-semibold text-amber-700 mb-1">Root Cause Analysis</p>
-                  <p className="text-sm text-amber-800">{detail.notes.match(/\[ROOT_CAUSE\] ([^\[]*)/)?.[1]?.trim()}</p>
                 </div>
               )}
 

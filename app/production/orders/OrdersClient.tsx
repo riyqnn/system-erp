@@ -21,7 +21,6 @@ type ProductionOrder = {
   status: 'planned' | 'in_progress' | 'completed' | 'cancelled'
   start_date: string | null
   end_date: string | null
-  notes: string | null
   created_at: string
   products: { id: string; sku: string; name: string } | null
 }
@@ -49,7 +48,6 @@ type FormState = {
   actual_qty: string
   start_date: string
   end_date: string
-  notes: string
 }
 const emptyForm: FormState = {
   product_id: '',
@@ -57,7 +55,6 @@ const emptyForm: FormState = {
   actual_qty: '',
   start_date: '',
   end_date: '',
-  notes: '',
 }
 
 export function OrdersClient() {
@@ -118,7 +115,6 @@ export function OrdersClient() {
       actual_qty: r.actual_qty != null ? String(r.actual_qty) : '',
       start_date: r.start_date ?? '',
       end_date: r.end_date ?? '',
-      notes: r.notes ?? '',
     })
     setFormError(null)
     setShowForm(true)
@@ -137,7 +133,7 @@ export function OrdersClient() {
       actual_qty: form.actual_qty ? Number(form.actual_qty) : null,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
-      notes: form.notes.trim() || null,
+      ...(!editing && { status: 'planned' }),
     }
     try {
       const url = editing
@@ -372,12 +368,6 @@ export function OrdersClient() {
                   </div>
                 ))}
               </div>
-              {detail.notes && (
-                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                  <p className="text-xs text-slate-400 font-medium mb-1">Notes</p>
-                  <p className="text-sm text-slate-700">{detail.notes}</p>
-                </div>
-              )}
               <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                 <p className="text-xs text-slate-500 font-semibold mb-3">Update Status</p>
                 <div className="flex flex-wrap gap-2">
@@ -482,15 +472,6 @@ export function OrdersClient() {
                     />
                   </Field>
                 </div>
-                <Field label="Notes">
-                  <textarea
-                    value={form.notes}
-                    onChange={e => setForm({ ...form, notes: e.target.value })}
-                    rows={2}
-                    placeholder="Keterangan tambahan..."
-                    className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none"
-                  />
-                </Field>
                 {formError && (
                   <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                     <Warning className="w-4 h-4" weight="fill" /> {formError}

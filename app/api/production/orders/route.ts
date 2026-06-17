@@ -23,9 +23,24 @@ export async function POST(request: Request) {
 
   const supabase = await createRouteHandlerClient()
 
+  const today = new Date()
+  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '')
+
+  const { data: existing } = await supabase
+    .from('production_orders')
+    .select('po_number')
+    .like('po_number', `PO-${dateStr}-%`)
+    .order('po_number', { ascending: false })
+    .limit(1)
+
+  const lastSeq = existing?.[0]?.po_number
+    ? parseInt(existing[0].po_number.split('-').pop() ?? '0', 10)
+    : 0
+  const po_number = `PO-${dateStr}-${String(lastSeq + 1).padStart(4, '0')}`
+
   const { data, error } = await supabase
     .from('production_orders')
-    .insert([body])
+    .insert([{ ...body, po_number }])
     .select()
 
   if (error)

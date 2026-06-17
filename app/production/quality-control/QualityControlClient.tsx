@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type Order = { id: string; po_number: string; product_id: string | null; planned_qty: number; products: { name: string; sku: string } | null }
+type Order = { id: string; po_number: string; product_id: string | null; planned_qty: number; actual_qty: number | null; status: string; products: { name: string; sku: string } | null }
 
 type QCRecord = {
   id: string
@@ -17,7 +17,6 @@ type QCRecord = {
   inspection_date: string
   result: 'pass' | 'fail' | 'pending'
   defect_qty: number | null
-  notes: string | null
   production_orders: { po_number: string } | null
 }
 
@@ -48,18 +47,14 @@ type FormState = {
   inspector: string
   inspection_date: string
   defect_qty: string
-  notes: string
   supervisor_decision: 'approved' | 'rework' | 'scrap' | ''
-  rework_notes: string
 }
 const emptyForm: FormState = {
   production_order_id: '',
   inspector: '',
   inspection_date: new Date().toISOString().slice(0, 10),
   defect_qty: '',
-  notes: '',
   supervisor_decision: '',
-  rework_notes: '',
 }
 
 export function QualityControlClient() {
@@ -122,15 +117,6 @@ export function QualityControlClient() {
           inspection_date: form.inspection_date,
           result,
           defect_qty: form.defect_qty ? Number(form.defect_qty) : 0,
-          notes: [
-            form.notes.trim(),
-            `[VISUAL:${tests.find(t => t.field === 'visual')?.value ?? ''}]`,
-            `[WEIGHT:${tests.find(t => t.field === 'weight')?.value ?? ''}]`,
-            `[TASTE:${tests.find(t => t.field === 'taste')?.value ?? ''}]`,
-            `[EXPIRY:${tests.find(t => t.field === 'expiry')?.value ?? ''}]`,
-            form.supervisor_decision ? `[DECISION:${form.supervisor_decision}]` : '',
-            form.rework_notes ? `[REWORK:${form.rework_notes}]` : '',
-          ].filter(Boolean).join(' ') || null,
         }),
       })
       if (!res.ok) { const e = await res.json(); setFormError(e.error || 'Error'); return }
@@ -139,15 +125,15 @@ export function QualityControlClient() {
       if (result === 'pass' && form.production_order_id) {
         const order = orders.find(o => o.id === form.production_order_id)
         if (order) {
+          const baseQty = order.actual_qty ?? order.planned_qty
           await fetch('/api/production/good-receipt', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               production_order_id: form.production_order_id,
-              quantity_received: order.planned_qty - (Number(form.defect_qty) || 0),
+              quantity_received: baseQty - (Number(form.defect_qty) || 0),
               receipt_date: form.inspection_date,
               status: 'received',
-              notes: `[AUTO_GR] QC passed by ${form.inspector || 'Inspector'}`,
             }),
           })
         }
@@ -166,15 +152,15 @@ export function QualityControlClient() {
     try {
       const order = orders.find(o => o.id === record.production_order_id)
       if (order) {
+        const baseQty = order.actual_qty ?? order.planned_qty
         await fetch('/api/production/good-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             production_order_id: record.production_order_id,
-            quantity_received: order.planned_qty - (record.defect_qty ?? 0),
+            quantity_received: baseQty - (record.defect_qty ?? 0),
             receipt_date: record.inspection_date,
             status: 'received',
-            notes: `Goods Receipt dari QC inspection · defect: ${record.defect_qty ?? 0}`,
           }),
         })
       }
@@ -244,21 +230,18 @@ export function QualityControlClient() {
                     <th className="px-6 py-3.5 font-medium">Tanggal</th>
                     <th className="px-6 py-3.5 font-medium">Hasil</th>
                     <th className="px-6 py-3.5 font-medium text-right">Defect Qty</th>
-                    <th className="px-6 py-3.5 font-medium">Keputusan</th>
                     <th className="px-6 py-3.5 font-medium text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
-                    <tr><td colSpan={7} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
+                    <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={7} className="px-6 py-16 text-center text-slate-400">
+                    <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
                       <CheckCircle className="w-10 h-10 mx-auto mb-3 opacity-30" />
                       <p className="text-sm">Belum ada inspeksi QC</p>
                     </td></tr>
-                  ) : filtered.map(r => {
-                    const decision = r.notes?.match(/\[DECISION:(\w+)\]/)?.[1]
-                    return (
+                  ) : filtered.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/60 group">
                         <td className="px-6 py-4">
                           <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-700">{r.production_orders?.po_number ?? '—'}</span>
@@ -277,17 +260,6 @@ export function QualityControlClient() {
                         <td className="px-6 py-4 text-right tabular-nums text-slate-700">
                           {r.defect_qty != null && r.defect_qty > 0 ? r.defect_qty.toLocaleString() : '—'}
                         </td>
-                        <td className="px-6 py-4">
-                          {decision ? (
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                              decision === 'approved' ? 'bg-green-50 text-green-700' :
-                              decision === 'rework' ? 'bg-amber-50 text-amber-700' :
-                              'bg-red-50 text-red-600'
-                            }`}>
-                              {decision.charAt(0).toUpperCase() + decision.slice(1)}
-                            </span>
-                          ) : <span className="text-slate-300 text-xs">—</span>}
-                        </td>
                         <td className="px-6 py-4 text-right">
                           <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700 opacity-0 group-hover:opacity-100"
                             onClick={() => setDetail(r)}>
@@ -295,8 +267,7 @@ export function QualityControlClient() {
                           </Button>
                         </td>
                       </tr>
-                    )
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -323,7 +294,7 @@ export function QualityControlClient() {
                     <select value={form.production_order_id} onChange={e => setForm({ ...form, production_order_id: e.target.value })}
                       className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
                       <option value="">— Pilih production order —</option>
-                      {orders.map(o => <option key={o.id} value={o.id}>{o.po_number}{o.products ? ` · ${o.products.name}` : ''}</option>)}
+                      {orders.filter(o => o.status === 'completed').map(o => <option key={o.id} value={o.id}>{o.po_number}{o.products ? ` · ${o.products.name}` : ''}</option>)}
                     </select>
                   </Field>
                   <Field label="Inspector">
@@ -393,18 +364,6 @@ export function QualityControlClient() {
                   </div>
                 </div>
 
-                {form.supervisor_decision === 'rework' && (
-                  <Field label="Catatan Rework">
-                    <textarea value={form.rework_notes} onChange={e => setForm({ ...form, rework_notes: e.target.value })}
-                      rows={2} placeholder="Instruksi rework..." className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
-                  </Field>
-                )}
-
-                <Field label="Catatan Inspeksi">
-                  <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2}
-                    placeholder="Temuan, observasi, dll..." className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
-                </Field>
-
                 {computedResult() === 'pass' && (
                   <div className="bg-green-50 rounded-lg px-4 py-3 text-xs text-green-700 border border-green-200">
                     <strong>Auto Goods Receipt:</strong> Sistem akan membuat Goods Receipt otomatis untuk barang jadi yang lulus QC.
@@ -461,39 +420,6 @@ export function QualityControlClient() {
                 ))}
               </div>
 
-              {/* Parse test results from notes */}
-              {detail.notes && (
-                <div className="rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100">
-                    <span className="text-sm font-semibold text-slate-700">Hasil Pengujian</span>
-                  </div>
-                  <div className="divide-y divide-slate-50">
-                    {['visual', 'weight', 'taste', 'expiry'].map(field => {
-                      const match = detail.notes?.match(new RegExp(`\\[${field.toUpperCase()}:(\\w+)\\]`))
-                      const val = match?.[1]
-                      const labels: Record<string, string> = { visual: 'Visual', weight: 'Berat', taste: 'Rasa', expiry: 'Kadaluarsa' }
-                      return (
-                        <div key={field} className="flex items-center justify-between px-4 py-2.5">
-                          <span className="text-sm text-slate-700">{labels[field]}</span>
-                          {val ? (
-                            <span className={`flex items-center gap-1 text-xs font-medium ${val === 'ok' ? 'text-green-600' : 'text-red-600'}`}>
-                              {val === 'ok' ? <CheckCircle size={13} weight="fill" /> : <XCircle size={13} weight="fill" />}
-                              {val === 'ok' ? 'OK' : 'Fail'}
-                            </span>
-                          ) : <span className="text-slate-300 text-xs">—</span>}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {detail.notes && !detail.notes.startsWith('[') && (
-                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                  <p className="text-xs text-slate-400 mb-1">Catatan</p>
-                  <p className="text-sm text-slate-700">{detail.notes.replace(/\[.*?\]/g, '').trim()}</p>
-                </div>
-              )}
             </div>
             <div className="p-6 border-t border-slate-100 space-y-2">
               {detail.result === 'pass' && (

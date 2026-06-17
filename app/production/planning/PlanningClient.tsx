@@ -12,9 +12,9 @@ import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
 type Product = { id: string; sku: string; name: string }
-type WorkCenter = { id: string; code: string; name: string; type: string | null; capacity: number | null; capacity_unit: string | null; status: string; notes: string | null }
-type MrpRow = { id: string; product_id: string | null; planned_qty: number; planned_start: string | null; planned_end: string | null; status: string; notes: string | null; products: { id: string; sku: string; name: string } | null }
-type RoutingRow = { id: string; bom_id: string | null; work_center_id: string | null; sequence: number; operation_name: string; duration_hours: number | null; notes: string | null }
+type WorkCenter = { id: string; code: string; name: string; type: string | null; capacity: number | null; capacity_unit: string | null; status: string }
+type MrpRow = { id: string; product_id: string | null; planned_qty: number; planned_start: string | null; planned_end: string | null; status: string; products: { id: string; sku: string; name: string } | null }
+type RoutingRow = { id: string; bom_id: string | null; work_center_id: string | null; sequence: number; operation_name: string; duration_hours: number | null }
 type Order = { id: string; po_number: string; status: string; planned_qty: number; actual_qty: number | null; products: { name: string; sku: string } | null }
 
 const MRP_BADGE: Record<string, string> = {
@@ -58,18 +58,18 @@ export function PlanningClient() {
 
   // MRP Form
   const [showMrpForm, setShowMrpForm] = useState(false)
-  const [mrpForm, setMrpForm] = useState({ product_id: '', planned_qty: '', planned_start: '', planned_end: '', status: 'open', notes: '' })
+  const [mrpForm, setMrpForm] = useState({ product_id: '', planned_qty: '', planned_start: '', planned_end: '', status: 'open' })
   const [mrpSaving, setMrpSaving] = useState(false)
 
   // WC Form
   const [showWcForm, setShowWcForm] = useState(false)
   const [editingWc, setEditingWc] = useState<WorkCenter | null>(null)
-  const [wcForm, setWcForm] = useState({ code: '', name: '', type: '', capacity: '', capacity_unit: 'unit/hr', status: 'active', notes: '' })
+  const [wcForm, setWcForm] = useState({ code: '', name: '', type: '', capacity: '', capacity_unit: 'unit/hr', status: 'active' })
   const [wcSaving, setWcSaving] = useState(false)
 
   // Routing Form
   const [showRoutingForm, setShowRoutingForm] = useState(false)
-  const [routingForm, setRoutingForm] = useState({ bom_id: '', work_center_id: '', sequence: '1', operation_name: '', duration_hours: '', notes: '' })
+  const [routingForm, setRoutingForm] = useState({ bom_id: '', work_center_id: '', sequence: '1', operation_name: '', duration_hours: '' })
   const [routingSaving, setRoutingSaving] = useState(false)
 
   // Order release
@@ -151,12 +151,11 @@ export function PlanningClient() {
           planned_start: mrpForm.planned_start || null,
           planned_end: mrpForm.planned_end || null,
           status: mrpForm.status,
-          notes: mrpForm.notes.trim() || null,
         }),
       })
       if (!res.ok) { const e = await res.json(); setFormError(e.error || 'Error'); return }
       setShowMrpForm(false)
-      setMrpForm({ product_id: '', planned_qty: '', planned_start: '', planned_end: '', status: 'open', notes: '' })
+      setMrpForm({ product_id: '', planned_qty: '', planned_start: '', planned_end: '', status: 'open' })
       await loadAll()
     } catch { setFormError('Terjadi kesalahan.') } finally { setMrpSaving(false) }
   }
@@ -165,7 +164,7 @@ export function PlanningClient() {
     if (!wcForm.code.trim() || !wcForm.name.trim()) { setFormError('Kode dan nama wajib diisi'); return }
     setWcSaving(true); setFormError(null)
     try {
-      const payload = { code: wcForm.code.trim(), name: wcForm.name.trim(), type: wcForm.type.trim() || null, capacity: wcForm.capacity ? Number(wcForm.capacity) : null, capacity_unit: wcForm.capacity_unit || null, status: wcForm.status, notes: wcForm.notes.trim() || null }
+      const payload = { code: wcForm.code.trim(), name: wcForm.name.trim(), type: wcForm.type.trim() || null, capacity: wcForm.capacity ? Number(wcForm.capacity) : null, capacity_unit: wcForm.capacity_unit || null, status: wcForm.status }
       const url = editingWc ? `/api/production/work-centers/${editingWc.id}` : '/api/production/work-centers'
       const res = await fetch(url, { method: editingWc ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       if (!res.ok) { const e = await res.json(); setFormError(e.error || 'Error'); return }
@@ -185,11 +184,11 @@ export function PlanningClient() {
     try {
       const res = await fetch('/api/production/routing', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bom_id: routingForm.bom_id || null, work_center_id: routingForm.work_center_id || null, sequence: Number(routingForm.sequence) || 1, operation_name: routingForm.operation_name.trim(), duration_hours: routingForm.duration_hours ? Number(routingForm.duration_hours) : null, notes: routingForm.notes.trim() || null }),
+        body: JSON.stringify({ bom_id: routingForm.bom_id || null, work_center_id: routingForm.work_center_id || null, sequence: Number(routingForm.sequence) || 1, operation_name: routingForm.operation_name.trim(), duration_hours: routingForm.duration_hours ? Number(routingForm.duration_hours) : null }),
       })
       if (!res.ok) { const e = await res.json(); setFormError(e.error || 'Error'); return }
       setShowRoutingForm(false)
-      setRoutingForm({ bom_id: '', work_center_id: '', sequence: '1', operation_name: '', duration_hours: '', notes: '' })
+      setRoutingForm({ bom_id: '', work_center_id: '', sequence: '1', operation_name: '', duration_hours: '' })
       await loadAll()
     } catch { setFormError('Terjadi kesalahan.') } finally { setRoutingSaving(false) }
   }
@@ -224,7 +223,7 @@ export function PlanningClient() {
             onClick={() => {
               setFormError(null)
               if (tab === 'mrp') setShowMrpForm(true)
-              else if (tab === 'work-centers') { setEditingWc(null); setWcForm({ code: '', name: '', type: '', capacity: '', capacity_unit: 'unit/hr', status: 'active', notes: '' }); setShowWcForm(true) }
+              else if (tab === 'work-centers') { setEditingWc(null); setWcForm({ code: '', name: '', type: '', capacity: '', capacity_unit: 'unit/hr', status: 'active' }); setShowWcForm(true) }
               else if (tab === 'routing') setShowRoutingForm(true)
             }}
             className="bg-[#dc2626] hover:bg-[#b91c1c] text-white h-10 px-5 gap-2"
@@ -338,14 +337,13 @@ export function PlanningClient() {
                         <th className="px-6 py-3.5 font-medium">Start</th>
                         <th className="px-6 py-3.5 font-medium">End</th>
                         <th className="px-6 py-3.5 font-medium">Status</th>
-                        <th className="px-6 py-3.5 font-medium">Notes</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {loading ? (
-                        <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
+                        <tr><td colSpan={5} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
                       ) : filteredMrp.length === 0 ? (
-                        <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
+                        <tr><td colSpan={5} className="px-6 py-16 text-center text-slate-400">
                           <CalendarCheck className="w-10 h-10 mx-auto mb-3 opacity-30" />
                           <p className="text-sm">Belum ada MRP. Klik &quot;New MRP&quot; untuk menambah.</p>
                         </td></tr>
@@ -363,7 +361,6 @@ export function PlanningClient() {
                               {r.status.charAt(0).toUpperCase() + r.status.slice(1)}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-slate-400 text-xs">{r.notes ?? '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -414,7 +411,7 @@ export function PlanningClient() {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          {(o.status === 'planned' || o.status === 'mrp_ready') && (
+                          {o.status === 'mrp_ready' && (
                             <Button size="sm" className="h-8 px-3 text-xs gap-1 bg-amber-500 hover:bg-amber-600 text-white opacity-0 group-hover:opacity-100 transition-opacity"
                               onClick={() => releaseOrder(o.id)} disabled={releasingSaving === o.id}>
                               <ArrowRight size={11} />
@@ -462,7 +459,7 @@ export function PlanningClient() {
                   )}
                   <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Button variant="outline" size="sm" className="flex-1 h-8 text-xs border-slate-200"
-                      onClick={() => { setEditingWc(wc); setWcForm({ code: wc.code, name: wc.name, type: wc.type ?? '', capacity: wc.capacity != null ? String(wc.capacity) : '', capacity_unit: wc.capacity_unit ?? 'unit/hr', status: wc.status, notes: wc.notes ?? '' }); setFormError(null); setShowWcForm(true) }}>
+                      onClick={() => { setEditingWc(wc); setWcForm({ code: wc.code, name: wc.name, type: wc.type ?? '', capacity: wc.capacity != null ? String(wc.capacity) : '', capacity_unit: wc.capacity_unit ?? 'unit/hr', status: wc.status }); setFormError(null); setShowWcForm(true) }}>
                       <PencilSimple className="w-3 h-3 mr-1" /> Edit
                     </Button>
                     <Button variant="outline" size="sm" className="h-8 px-3 border-red-200 text-[#dc2626] hover:bg-red-50 text-xs"
@@ -487,14 +484,13 @@ export function PlanningClient() {
                       <th className="px-6 py-3.5 font-medium text-right">Seq</th>
                       <th className="px-6 py-3.5 font-medium">Operasi</th>
                       <th className="px-6 py-3.5 font-medium text-right">Durasi (jam)</th>
-                      <th className="px-6 py-3.5 font-medium">Notes</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {loading ? (
-                      <tr><td colSpan={4} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
+                      <tr><td colSpan={3} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
                     ) : filteredRouting.length === 0 ? (
-                      <tr><td colSpan={4} className="px-6 py-16 text-center text-slate-400">
+                      <tr><td colSpan={3} className="px-6 py-16 text-center text-slate-400">
                         <ArrowsClockwise className="w-10 h-10 mx-auto mb-3 opacity-30" />
                         <p className="text-sm">Belum ada routing</p>
                       </td></tr>
@@ -505,7 +501,6 @@ export function PlanningClient() {
                         </td>
                         <td className="px-6 py-4 font-medium text-slate-900">{r.operation_name}</td>
                         <td className="px-6 py-4 text-right tabular-nums text-slate-700">{r.duration_hours ?? '—'}</td>
-                        <td className="px-6 py-4 text-slate-400 text-xs">{r.notes ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -544,7 +539,6 @@ export function PlanningClient() {
               <Field label="Planned Start"><Input type="date" value={mrpForm.planned_start} onChange={e => setMrpForm({ ...mrpForm, planned_start: e.target.value })} className="h-10 border-slate-200" /></Field>
               <Field label="Planned End"><Input type="date" value={mrpForm.planned_end} onChange={e => setMrpForm({ ...mrpForm, planned_end: e.target.value })} className="h-10 border-slate-200" /></Field>
             </div>
-            <Field label="Notes"><textarea value={mrpForm.notes} onChange={e => setMrpForm({ ...mrpForm, notes: e.target.value })} rows={2} className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" /></Field>
             {formError && <ErrorMsg msg={formError} />}
           </div>
           <ModalFooter onClose={() => setShowMrpForm(false)} onSave={saveMrp} saving={mrpSaving} />
@@ -569,7 +563,6 @@ export function PlanningClient() {
               <Field label="Capacity"><Input type="number" value={wcForm.capacity} onChange={e => setWcForm({ ...wcForm, capacity: e.target.value })} placeholder="e.g. 100" className="h-10 border-slate-200" /></Field>
             </div>
             <Field label="Capacity Unit"><Input value={wcForm.capacity_unit} onChange={e => setWcForm({ ...wcForm, capacity_unit: e.target.value })} placeholder="e.g. unit/hr" className="h-10 border-slate-200" /></Field>
-            <Field label="Notes"><textarea value={wcForm.notes} onChange={e => setWcForm({ ...wcForm, notes: e.target.value })} rows={2} className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" /></Field>
             {formError && <ErrorMsg msg={formError} />}
           </div>
           <ModalFooter onClose={() => { setShowWcForm(false); setEditingWc(null) }} onSave={saveWc} saving={wcSaving} />
@@ -591,7 +584,6 @@ export function PlanningClient() {
                 {wcRows.map(wc => <option key={wc.id} value={wc.id}>{wc.name} ({wc.code})</option>)}
               </select>
             </Field>
-            <Field label="Notes"><textarea value={routingForm.notes} onChange={e => setRoutingForm({ ...routingForm, notes: e.target.value })} rows={2} className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" /></Field>
             {formError && <ErrorMsg msg={formError} />}
           </div>
           <ModalFooter onClose={() => setShowRoutingForm(false)} onSave={saveRouting} saving={routingSaving} />

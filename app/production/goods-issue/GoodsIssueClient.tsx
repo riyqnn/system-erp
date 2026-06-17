@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type Order = { id: string; po_number: string; product_id: string | null }
+type Order = { id: string; po_number: string; product_id: string | null; status: string }
 type BomDetail = { id: string; material_id: string | null; quantity: number; unit: string; products: { id: string; name: string; sku: string } | null }
 type Bom = { id: string; product_id: string | null; version: string; status: string; production_bom_details?: BomDetail[] }
 
@@ -19,7 +19,6 @@ type GoodsIssue = {
   quantity: number
   issue_date: string
   status: 'draft' | 'issued' | 'cancelled'
-  notes: string | null
   production_orders: { po_number: string } | null
   products: { name: string; sku: string } | null
 }
@@ -39,8 +38,8 @@ const fmtDate = (s: string) =>
   new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
 
 type MaterialLine = { product_id: string; product_name: string; sku: string; unit: string; qty_required: number; qty_actual: string }
-type FormState = { production_order_id: string; issue_date: string; status: string; notes: string }
-const emptyForm: FormState = { production_order_id: '', issue_date: new Date().toISOString().slice(0, 10), status: 'issued', notes: '' }
+type FormState = { production_order_id: string; issue_date: string; status: string }
+const emptyForm: FormState = { production_order_id: '', issue_date: new Date().toISOString().slice(0, 10), status: 'issued' }
 
 export function GoodsIssueClient() {
   const [rows, setRows] = useState<GoodsIssue[]>([])
@@ -132,7 +131,6 @@ export function GoodsIssueClient() {
             quantity: qty,
             issue_date: form.issue_date,
             status: form.status,
-            notes: form.notes.trim() || null,
           }),
         })
       }
@@ -205,15 +203,14 @@ export function GoodsIssueClient() {
                     <th className="px-6 py-3.5 font-medium text-right">Quantity</th>
                     <th className="px-6 py-3.5 font-medium">Tanggal Issue</th>
                     <th className="px-6 py-3.5 font-medium">Status</th>
-                    <th className="px-6 py-3.5 font-medium">Notes</th>
                     <th className="px-6 py-3.5 font-medium text-right">MIS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
-                    <tr><td colSpan={7} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
+                    <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={7} className="px-6 py-16 text-center text-slate-400">
+                    <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
                       <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
                       <p className="text-sm font-medium">Belum ada goods issue</p>
                     </td></tr>
@@ -233,7 +230,6 @@ export function GoodsIssueClient() {
                           {STATUS_LABEL[r.status]}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-slate-400 text-xs">{r.notes ?? '—'}</td>
                       <td className="px-6 py-4 text-right">
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-[#dc2626]"
                           onClick={() => setShowMIS(r)}>
@@ -269,7 +265,7 @@ export function GoodsIssueClient() {
                       onChange={e => onOrderChange(e.target.value)}
                       className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
                       <option value="">— Pilih production order —</option>
-                      {orders.map(o => <option key={o.id} value={o.id}>{o.po_number}</option>)}
+                      {orders.filter(o => o.status === 'in_progress').map(o => <option key={o.id} value={o.id}>{o.po_number}</option>)}
                     </select>
                   </Field>
                   <Field label="Tanggal Issue">
@@ -335,20 +331,14 @@ export function GoodsIssueClient() {
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Status">
-                    <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}
-                      className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
-                      <option value="draft">Draft</option>
-                      <option value="issued">Issued (langsung keluar)</option>
-                      <option value="cancelled">Cancelled</option>
-                    </select>
-                  </Field>
-                  <Field label="Notes">
-                    <Input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
-                      placeholder="Catatan tambahan..." className="h-10 border-slate-200" />
-                  </Field>
-                </div>
+                <Field label="Status">
+                  <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}
+                    className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
+                    <option value="draft">Draft</option>
+                    <option value="issued">Issued (langsung keluar)</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </Field>
                 {formError && <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"><Warning className="w-4 h-4" weight="fill" /> {formError}</div>}
               </div>
               <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex gap-3">
@@ -387,7 +377,6 @@ export function GoodsIssueClient() {
                     <div className="flex justify-between"><span className="text-slate-500">Status</span>
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[showMIS.status]}`}>{STATUS_LABEL[showMIS.status]}</span>
                     </div>
-                    {showMIS.notes && <div className="flex justify-between"><span className="text-slate-500">Catatan</span><span className="text-right max-w-[200px]">{showMIS.notes}</span></div>}
                   </div>
                 </div>
               </div>

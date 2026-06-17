@@ -16,7 +16,6 @@ type GoodsReceipt = {
   receipt_date: string
   batch_number: string | null
   status: 'draft' | 'received' | 'rejected'
-  notes: string | null
   production_orders: { po_number: string } | null
 }
 
@@ -29,8 +28,8 @@ const STATUS_BADGE: Record<string, string> = {
 const fmtDate = (s: string) =>
   new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
 
-type FormState = { production_order_id: string; quantity_received: string; receipt_date: string; batch_number: string; status: string; notes: string }
-const emptyForm: FormState = { production_order_id: '', quantity_received: '', receipt_date: new Date().toISOString().slice(0, 10), batch_number: '', status: 'received', notes: '' }
+type FormState = { production_order_id: string; quantity_received: string; receipt_date: string; batch_number: string; status: string }
+const emptyForm: FormState = { production_order_id: '', quantity_received: '', receipt_date: new Date().toISOString().slice(0, 10), batch_number: '', status: 'received' }
 
 export function GoodsReceiptClient() {
   const [rows, setRows] = useState<GoodsReceipt[]>([])
@@ -77,7 +76,6 @@ export function GoodsReceiptClient() {
           receipt_date: form.receipt_date,
           batch_number: form.batch_number.trim() || null,
           status: form.status,
-          notes: form.notes.trim() || null,
         }),
       })
       if (!res.ok) { const e = await res.json(); setFormError(e.error || 'Error'); return }
@@ -137,14 +135,13 @@ export function GoodsReceiptClient() {
                     <th className="px-6 py-3.5 font-medium">Receipt Date</th>
                     <th className="px-6 py-3.5 font-medium">Batch Number</th>
                     <th className="px-6 py-3.5 font-medium">Status</th>
-                    <th className="px-6 py-3.5 font-medium">Notes</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
-                    <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
+                    <tr><td colSpan={5} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
+                    <tr><td colSpan={5} className="px-6 py-16 text-center text-slate-400">
                       <Truck className="w-10 h-10 mx-auto mb-3 opacity-30" />
                       <p className="text-sm font-medium">Belum ada goods receipt</p>
                     </td></tr>
@@ -167,7 +164,6 @@ export function GoodsReceiptClient() {
                           {r.status.charAt(0).toUpperCase() + r.status.slice(1)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-slate-500 text-xs">{r.notes ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -215,10 +211,6 @@ export function GoodsReceiptClient() {
                     </select>
                   </Field>
                 </div>
-                <Field label="Notes">
-                  <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
-                </Field>
                 {formError && (
                   <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                     <Warning className="w-4 h-4" weight="fill" /> {formError}

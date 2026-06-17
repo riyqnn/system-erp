@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS production_orders (
     planned_qty DECIMAL(15,2) NOT NULL DEFAULT 0,
     actual_qty  DECIMAL(15,2),
     status      VARCHAR(20) NOT NULL DEFAULT 'planned'
-                CHECK (status IN ('planned','in_progress','completed','cancelled')),
+                CHECK (status IN ('planned','mrp_ready','in_progress','on_hold','completed','cancelled')),
     start_date  DATE,
     end_date    DATE,
     notes       TEXT,

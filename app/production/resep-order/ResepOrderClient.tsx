@@ -21,7 +21,6 @@ type Order = {
   start_date: string | null
   end_date: string | null
   status: string
-  notes: string | null
   products: { id: string; sku: string; name: string } | null
 }
 
@@ -56,7 +55,7 @@ export function ResepOrderClient() {
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showNewOrderForm, setShowNewOrderForm] = useState(false)
-  const [newForm, setNewForm] = useState({ product_id: '', planned_qty: '', start_date: '', end_date: '', notes: '' })
+  const [newForm, setNewForm] = useState({ product_id: '', planned_qty: '', start_date: '', end_date: '' })
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -130,13 +129,12 @@ export function ResepOrderClient() {
           planned_qty: Number(newForm.planned_qty),
           start_date: newForm.start_date || null,
           end_date: newForm.end_date || null,
-          notes: newForm.notes.trim() || null,
           status: 'planned',
         }),
       })
       if (!res.ok) { const e = await res.json(); setFormError(e.error || 'Error'); return }
       setShowNewOrderForm(false)
-      setNewForm({ product_id: '', planned_qty: '', start_date: '', end_date: '', notes: '' })
+      setNewForm({ product_id: '', planned_qty: '', start_date: '', end_date: '' })
       await load()
     } catch { setFormError('Terjadi kesalahan.')
     } finally { setSaving(false) }
@@ -166,7 +164,7 @@ export function ResepOrderClient() {
               {mrpReadyCount > 0 && <> · <span className="text-emerald-700 font-semibold">{mrpReadyCount} Siap MRP</span></>}
             </p>
           </div>
-          <Button onClick={() => { setNewForm({ product_id: '', planned_qty: '', start_date: '', end_date: '', notes: '' }); setFormError(null); setShowNewOrderForm(true) }}
+          <Button onClick={() => { setNewForm({ product_id: '', planned_qty: '', start_date: '', end_date: '' }); setFormError(null); setShowNewOrderForm(true) }}
             className="bg-[#dc2626] hover:bg-[#b91c1c] text-white h-10 px-5 gap-2">
             <ClipboardText className="w-4 h-4" weight="bold" /> New Order
           </Button>
@@ -359,12 +357,6 @@ export function ResepOrderClient() {
                 )}
               </div>
 
-              {detail.notes && (
-                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                  <p className="text-xs text-slate-400 font-medium mb-1">Notes</p>
-                  <p className="text-sm text-slate-700">{detail.notes}</p>
-                </div>
-              )}
             </div>
 
             <div className="p-6 border-t border-slate-100 space-y-3">
@@ -425,10 +417,6 @@ export function ResepOrderClient() {
                     <Input type="date" value={newForm.end_date} onChange={e => setNewForm({ ...newForm, end_date: e.target.value })} className="h-10 border-slate-200" />
                   </Field>
                 </div>
-                <Field label="Notes">
-                  <textarea value={newForm.notes} onChange={e => setNewForm({ ...newForm, notes: e.target.value })} rows={2}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
-                </Field>
                 {formError && <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"><Warning className="w-4 h-4" weight="fill" /> {formError}</div>}
               </div>
               <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex gap-3">
