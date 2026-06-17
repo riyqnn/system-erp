@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -60,13 +61,13 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch goods receipts',
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )
     }
 
-    const goodsReceipts = (data || []).map((item: any) => {
+    const goodsReceipts = (data || []).map((item: AnyObject) => {
       const receiptItems = item.purchasing_goods_receipt_items || []
       const firstItem = receiptItems[0]
       const po = item.purchasing_purchase_orders
@@ -100,7 +101,7 @@ export async function GET() {
         batchNumber: firstItem?.batch_number || '-',
         condition: firstItem?.condition || '-',
 
-        items: receiptItems.map((receiptItem: any) => ({
+        items: receiptItems.map((receiptItem: AnyObject) => ({
           id: receiptItem.id,
           productCode: receiptItem.products?.sku || '-',
           productName: receiptItem.products?.name || '-',

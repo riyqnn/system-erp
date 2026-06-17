@@ -1,4 +1,5 @@
 'use client'
+import { AnyObject } from '@/lib/any';
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
@@ -90,14 +91,76 @@ function getStatusClass(status: PRStatus) {
   return statusMap[status] || 'bg-slate-100 text-slate-700'
 }
 
-function normalizePR(raw: any): PurchaseRequisition {
+type PurchaseRequisitionItemRaw = {
+  id?: string
+  qty?: number | string
+  quantity?: number | string
+  estimated_price?: number | string
+  estimatedPrice?: number | string
+  unit_price?: number | string
+  productCode?: string
+  product_code?: string
+  productName?: string
+  product_name?: string
+  category?: string
+  unit?: string
+  subtotal?: number | string
+  products?: {
+    sku?: string
+    product_code?: string
+    name?: string
+    product_name?: string
+    category?: string
+    unit?: string
+  }
+  product?: {
+    sku?: string
+    product_code?: string
+    name?: string
+    product_name?: string
+    category?: string
+    unit?: string
+  }
+}
+
+type PurchaseRequisitionRaw = {
+  id?: string
+  prNo?: string
+  prNumber?: string
+  requisitionNumber?: string
+  requisition_number?: string
+  pr_number?: string
+  requestDate?: string
+  request_date?: string
+  created_at?: string
+  requiredDate?: string
+  required_date?: string
+  requesterName?: string
+  requester_name?: string
+  requestedBy?: string
+  requested_by?: string
+  department?: string
+  requester_department?: string
+  priority?: string
+  status?: PRStatus
+  purpose?: string
+  description?: string
+  notes?: string
+  totalEstimatedValue?: number | string
+  total_estimated_value?: number | string
+  items?: PurchaseRequisitionItemRaw[]
+  purchasing_purchase_requisition_items?: PurchaseRequisitionItemRaw[]
+  purchase_requisition_items?: PurchaseRequisitionItemRaw[]
+}
+
+function normalizePR(raw: PurchaseRequisitionRaw): PurchaseRequisition {
   const rawItems =
     raw.items ||
     raw.purchasing_purchase_requisition_items ||
     raw.purchase_requisition_items ||
     []
 
-  const items: PurchaseRequisitionItem[] = rawItems.map((item: any) => {
+  const items: PurchaseRequisitionItem[] = rawItems.map((item: AnyObject) => {
     const product = item.products || item.product || {}
 
     const qty = Number(item.qty || item.quantity || 0)
@@ -180,7 +243,7 @@ export function PurchaseRequisitionClient() {
         throw new Error(result.message || 'Failed to fetch purchase requisitions')
       }
 
-      const normalizedData = (result.data || []).map((item: any) =>
+      const normalizedData = (result.data || []).map((item: AnyObject) =>
         normalizePR(item)
       )
 
@@ -201,12 +264,12 @@ export function PurchaseRequisitionClient() {
   }, [])
 
   const filteredPR = useMemo(() => {
-    return purchaseRequisitions.filter((item) => {
+    return purchaseRequisitions.filter((item: AnyObject) => {
       const matchesSearch =
         item.prNo.toLowerCase().includes(search.toLowerCase()) ||
         item.requesterName.toLowerCase().includes(search.toLowerCase()) ||
         item.department.toLowerCase().includes(search.toLowerCase()) ||
-        item.items.some((prItem) =>
+        item.items.some((prItem: AnyObject) =>
           prItem.productName.toLowerCase().includes(search.toLowerCase())
         )
 
@@ -218,15 +281,15 @@ export function PurchaseRequisitionClient() {
   }, [purchaseRequisitions, search, statusFilter])
 
   const pendingCount = purchaseRequisitions.filter(
-    (item) => item.status === 'PENDING_PO_CREATION'
+    (item: AnyObject) => item.status === 'PENDING_PO_CREATION'
   ).length
 
   const processedCount = purchaseRequisitions.filter(
-    (item) => item.status === 'PROCESSED'
+    (item: AnyObject) => item.status === 'PROCESSED'
   ).length
 
   const closedCount = purchaseRequisitions.filter(
-    (item) => item.status === 'CLOSED'
+    (item: AnyObject) => item.status === 'CLOSED'
   ).length
 
   return (
@@ -369,7 +432,7 @@ export function PurchaseRequisitionClient() {
                       </td>
                     </tr>
                   ) : (
-                    filteredPR.map((item) => (
+                    filteredPR.map((item: AnyObject) => (
                       <tr key={item.id} className="bg-white hover:bg-slate-50">
                         <td className="px-4 py-4 font-bold text-red-600">
                           {item.prNo}
@@ -555,7 +618,7 @@ export function PurchaseRequisitionClient() {
                   </thead>
 
                   <tbody className="divide-y divide-slate-100">
-                    {selectedPR.items.map((item) => (
+                    {selectedPR.items.map((item: AnyObject) => (
                       <tr key={item.id}>
                         <td className="px-4 py-4">
                           <p className="font-semibold text-slate-900">

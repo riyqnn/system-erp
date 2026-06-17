@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -45,18 +46,18 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch purchase requisitions',
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )
     }
 
-    const purchaseRequisitions = (data || []).map((item: any) => {
+    const purchaseRequisitions = (data || []).map((item: AnyObject) => {
       const items = item.purchasing_purchase_requisition_items || []
 
       const firstItem = items[0]
       const totalRequestQty = items.reduce(
-        (total: number, prItem: any) => total + Number(prItem.request_qty || 0),
+        (total: number, prItem: AnyObject) => total + Number(prItem.request_qty || 0),
         0
       )
 
@@ -78,7 +79,7 @@ export async function GET() {
         requestQty: totalRequestQty,
         unit: firstItem?.unit || firstItem?.products?.unit || '-',
 
-        items: items.map((prItem: any) => ({
+        items: items.map((prItem: AnyObject) => ({
           id: prItem.id,
           productCode: prItem.products?.sku || '-',
           productName: prItem.products?.name || '-',

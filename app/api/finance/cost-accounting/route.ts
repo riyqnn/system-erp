@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
         tanggal,
         keterangan: keterangan || '',
         production_request_id: production_request_id ? Number(production_request_id) : undefined
-      }, user.id);
+      }, String(user.user_id));
 
       return NextResponse.json({
         success: true,
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
         Number(incoming_value || 0),
         Number(closing_qty || 0),
         Number(closing_value || 0),
-        user.id
+        String(user.user_id)
       );
 
       return NextResponse.json({
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
         periode,
         Number(total_stok),
         Number(total_nilai),
-        user.id
+        String(user.user_id)
       );
 
       return NextResponse.json({

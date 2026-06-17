@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -95,13 +96,13 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch three-way matchings',
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )
     }
 
-    const matchings = (data || []).map((item: any) => {
+    const matchings = (data || []).map((item: AnyObject) => {
       const po = item.purchasing_purchase_orders
       const gr = item.purchasing_goods_receipts
       const invoice = item.purchasing_supplier_invoices
@@ -159,7 +160,7 @@ export async function GET() {
         unit: firstPoItem?.unit || firstGrItem?.unit || '-',
         unitPrice: firstPoItem?.unit_price || 0,
 
-        poItems: poItems.map((poItem: any) => ({
+        poItems: poItems.map((poItem: AnyObject) => ({
           id: poItem.id,
           productCode: poItem.products?.sku || '-',
           productName: poItem.products?.name || '-',
@@ -170,7 +171,7 @@ export async function GET() {
           subtotal: poItem.subtotal || 0,
         })),
 
-        grItems: grItems.map((grItem: any) => ({
+        grItems: grItems.map((grItem: AnyObject) => ({
           id: grItem.id,
           productCode: grItem.products?.sku || '-',
           productName: grItem.products?.name || '-',
@@ -181,7 +182,7 @@ export async function GET() {
           condition: grItem.condition || '-',
         })),
 
-        results: matchingResults.map((result: any) => ({
+        results: matchingResults.map((result: AnyObject) => ({
           id: result.id,
           checkItem: result.check_item,
           checkResult: result.check_result,
@@ -234,7 +235,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json(
         {
           message: 'Failed to update three-way matching',
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )

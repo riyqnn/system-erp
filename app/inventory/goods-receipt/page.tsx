@@ -24,12 +24,12 @@ import { Input } from "@/components/ui/input";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface GRData {
-  receipt_id: number;
+  receipt_id: string | number;
   gr_code: string;
-  pr_id: number | null;
-  supplier_id: number;
-  product_id: number;
-  warehouse_id: number;
+  pr_id: string | number | null;
+  supplier_id: string | number;
+  product_id: string | number;
+  warehouse_id: string | number;
   quantity: number;
   batch_number: string;
   expiry_date: string | null;
@@ -44,7 +44,7 @@ interface GRData {
 }
 
 interface ProductOption {
-  product_id: number;
+  product_id: string | number;
   product_code: string;
   product_name: string;
   category: string;
@@ -52,13 +52,13 @@ interface ProductOption {
 }
 
 interface SupplierOption {
-  supplier_id: number;
+  supplier_id: string | number;
   supplier_code: string;
   supplier_name: string;
 }
 
 interface WarehouseOption {
-  warehouse_id: number;
+  warehouse_id: string | number;
   warehouse_code: string;
   warehouse_name: string;
 }
@@ -154,9 +154,9 @@ export default function GoodsReceiptPage() {
 
       const payload = {
         gr_code: grCode,
-        supplier_id: Number(form.supplier_id),
-        product_id: Number(form.product_id),
-        warehouse_id: Number(form.warehouse_id),
+        supplier_id: form.supplier_id,
+        product_id: form.product_id,
+        warehouse_id: form.warehouse_id,
         quantity: Number(form.quantity),
         batch_number: form.batch_number,
         expiry_date: form.expiry_date || null,

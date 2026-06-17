@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       Number(piutang_id),
       Number(akun_kas_id),
       Number(jumlah_terima),
-      user.id
+      String(user.user_id)
     );
 
     return NextResponse.json({

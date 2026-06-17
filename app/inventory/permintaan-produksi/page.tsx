@@ -22,9 +22,9 @@ import { Input } from "@/components/ui/input";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface ProdReqData {
-  production_request_id: number;
+  production_request_id: string | number;
   prd_code: string;
-  product_id: number;
+  product_id: string | number;
   qty_requested: number;
   request_date: string;
   requested_by: string;
@@ -38,7 +38,7 @@ interface ProdReqData {
 }
 
 interface ProductOption {
-  product_id: number;
+  product_id: string | number;
   product_code: string;
   product_name: string;
   category: string;
@@ -136,7 +136,7 @@ export default function ProductionRequestPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prd_code: prdCode,
-          product_id: Number(form.product_id),
+          product_id: form.product_id,
           qty_requested: Number(form.qty_requested),
           request_date: now.toISOString(),
           requested_by: "user_inv01",
@@ -193,7 +193,7 @@ export default function ProductionRequestPage() {
   const inProgressCount = data.filter((d) => d.status === "In Progress").length;
   const totalQty = data.reduce((a, d) => a + d.qty_requested, 0);
 
-  const selectedProduct = products.find((p) => p.product_id === Number(form.product_id));
+  const selectedProduct = products.find((p) => String(p.product_id) === String(form.product_id));
 
   /* ── Render ───────────────────────────────────────────────────── */
   return (

@@ -11,13 +11,18 @@ export async function PATCH(
     requireAnyRole(user, ['ADMIN', 'INVENTORY_MANAGER', 'INVENTORY_STAFF', 'INVENTORY'])
 
     const resolvedParams = await params;
-    const id = parseInt(resolvedParams.id)
+    const id = resolvedParams.id;
     const body = await request.json()
     const supabase = await createRouteHandlerClient()
 
+    let mappedStatus = body.status;
+    if (typeof body.status === 'string') {
+      mappedStatus = body.status.toUpperCase().replace(' ', '_');
+    }
+
     const { data, error } = await supabase
       .from('tr_production_request')
-      .update({ status: body.status })
+      .update({ status: mappedStatus })
       .eq('production_request_id', id)
       .select()
       .single()

@@ -13,23 +13,29 @@ export default async function DashboardPage() {
   }
 
   // Redirect based on user role
-  const userRole = user?.role?.name?.toUpperCase()
+  const userRole = user?.role?.toUpperCase() || ''
 
-  if (userRole === 'ADMIN') {
-    // Admins go to admin dashboard
+  if (userRole === 'ADMIN' || userRole === 'MANAGEMENT') {
+    // Admins and management go to admin dashboard
     redirect('/admin')
+  } else if (userRole.includes('INVENTORY') || userRole.includes('GUDANG')) {
+    redirect('/inventory')
+  } else if (
+    userRole.includes('FINANCE') ||
+    userRole.includes('TREASURY') ||
+    userRole.includes('ACCOUNTING') ||
+    userRole.includes('PAYABLE') ||
+    userRole.includes('RECEIVABLE')
+  ) {
+    redirect('/finance')
+  } else if (userRole.includes('PURCHASING')) {
+    redirect('/purchasing')
+  } else if (userRole.includes('PRODUCTION')) {
+    redirect('/production')
+  } else if (userRole.includes('SALES') || userRole.includes('SNM')) {
+    redirect('/snm')
   } else {
-    // Other roles go to their respective modules
-    const roleRedirects: Record<string, string> = {
-      'INVENTORY': '/inventory',
-      'FINANCE': '/finance',
-      'PURCHASING': '/purchasing',
-      'PRODUCTION': '/production',
-      'SNM': '/snm',
-      'SALES': '/snm',
-    }
-
-    const redirectPath = roleRedirects[userRole || ''] || '/login'
-    redirect(redirectPath)
+    // Default fallback to prevent a redirect loop
+    redirect('/inventory')
   }
 }

@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -58,13 +59,13 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch RFQ sourcing data',
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )
     }
 
-    const rfqSourcing = (data || []).map((item: any) => ({
+    const rfqSourcing = (data || []).map((item: AnyObject) => ({
       id: item.id,
       rfqNo: item.rfq_number,
       requiredQty: item.required_qty || 0,

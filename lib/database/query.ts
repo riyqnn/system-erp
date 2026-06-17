@@ -1,90 +1,46 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createRouteHandlerClient, createAdminClient } from '@/lib/supabase/server'
 import type { Database } from '../database.types'
 
 export type Tables = Database['public']['Tables']
-export type Roles = Tables['roles']['Row']
-export type Users = Tables['users']['Row']
+export type MsUser = Tables['ms_user']['Row']
 export type Products = Tables['products']['Row']
 
-export type UserWithRole = Users & {
-  roles?: Roles
-  is_pending?: boolean
-}
-
 /**
- * Get user profile with role by user ID
+ * Get user profile from ms_user by email
  */
-export async function getUserProfile(userId: string): Promise<UserWithRole | null> {
+export async function getUserProfile(email: string): Promise<MsUser | null> {
   const supabase = await createRouteHandlerClient()
 
   const { data, error } = await supabase
-    .from('users')
-    .select(
-      `
-      id,
-      email,
-      full_name,
-      role_id,
-      is_active,
-      is_pending,
-      created_at,
-      updated_at,
-      roles (
-        id,
-        name,
-        description
-      )
-    `
-    )
-    .eq('id', userId)
-    .single()
+    .from('ms_user')
+    .select('user_id, username, full_name, email, role, status, created_at')
+    .eq('email', email)
+    .maybeSingle()
 
   if (error || !data) {
     return null
   }
 
-  return {
-    ...data,
-    roles: (data as any).roles,
-  }
+  return data as MsUser
 }
 
 /**
- * Get all roles
+ * Get user profile from ms_user by username
  */
-export async function getAllRoles(): Promise<Roles[]> {
+export async function getUserByUsername(username: string): Promise<MsUser | null> {
   const supabase = await createRouteHandlerClient()
 
   const { data, error } = await supabase
-    .from('roles')
-    .select('*')
-    .order('name')
+    .from('ms_user')
+    .select('user_id, username, full_name, email, role, status, created_at')
+    .eq('username', username)
+    .maybeSingle()
 
-  if (error) {
-    throw new Error(`Failed to fetch roles: ${error.message}`)
-  }
-
-  return data || []
-}
-
-/**
- * Get role by name
- */
-export async function getRoleByName(name: string): Promise<Roles | null> {
-  const supabase = await createRouteHandlerClient()
-
-  const { data, error } = await supabase
-    .from('roles')
-    .select('*')
-    .eq('name', name)
-    .single()
-
-  if (error) {
+  if (error || !data) {
     return null
   }
 
-  return data
+  return data as MsUser
 }
 
 /**
@@ -205,55 +161,36 @@ export async function deleteProduct(id: string): Promise<void> {
 }
 
 /**
- * Get all users (admin only)
+ * Get all users from ms_user (admin only)
  */
-export async function getAllUsers(): Promise<UserWithRole[]> {
+export async function getAllUsers(): Promise<MsUser[]> {
   const supabase = await createAdminClient()
 
   const { data, error } = await supabase
-    .from('users')
-    .select(
-      `
-      id,
-      email,
-      full_name,
-      role_id,
-      is_active,
-      is_pending,
-      created_at,
-      updated_at,
-      roles (
-        id,
-        name,
-        description
-      )
-    `
-    )
-    .order('email')
+    .from('ms_user')
+    .select('user_id, username, full_name, email, role, status, created_at')
+    .order('username')
 
   if (error) {
     throw new Error(`Failed to fetch users: ${error.message}`)
   }
 
-  return (data || []).map((user: any) => ({
-    ...user,
-    roles: user.roles,
-  }))
+  return (data || []) as MsUser[]
 }
 
 /**
- * Update user role
+ * Update user role in ms_user
  */
 export async function updateUserRole(
-  userId: string,
-  roleId: string
+  userId: number,
+  role: string
 ): Promise<void> {
   const supabase = await createAdminClient()
 
   const { error } = await supabase
-    .from('users')
-    .update({ role_id: roleId })
-    .eq('id', userId)
+    .from('ms_user')
+    .update({ role })
+    .eq('user_id', userId)
 
   if (error) {
     throw new Error(`Failed to update user role: ${error.message}`)

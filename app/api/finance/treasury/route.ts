@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
         Number(permintaan_id),
         status,
         alasan || '',
-        user.id
+        String(user.user_id)
       );
 
       return NextResponse.json({
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
       const hasil = await eksekusiPembayaranTreasury(
         Number(permintaan_id),
         Number(akun_kas_id),
-        user.id
+        String(user.user_id)
       );
 
       return NextResponse.json({

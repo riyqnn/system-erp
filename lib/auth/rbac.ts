@@ -1,48 +1,35 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * User profile interface from database
+ * User profile interface from ms_user table
  */
 export interface UserProfile {
-  id: string
-  email: string
-  full_name: string
-  role_id: string
-  is_active: boolean
-  is_pending: boolean
+  user_id: number
+  username: string
+  full_name: string | null
+  email: string | null
+  role: string
+  status: string
   created_at: string
-  updated_at: string
 }
 
 /**
- * Role interface
+ * Alias for backward compatibility
  */
-export interface Role {
-  id: string
-  name: string
-  description: string
-}
-
-/**
- * User with role information
- */
-export interface UserWithRole extends UserProfile {
-  role?: Role
-}
+export type UserWithRole = UserProfile
 
 /**
  * Check if user has a specific role
  */
 export function hasRole(user: UserWithRole | null, roleName: string): boolean {
-  if (!user || !user.role) return false
-  return user.role.name === roleName
+  if (!user) return false
+  return user.role.toUpperCase() === roleName.toUpperCase()
 }
 
 /**
  * Check if user has any of the specified roles
  */
 export function hasAnyRole(user: UserWithRole | null, roleNames: string[]): boolean {
-  if (!user || !user.role) return false
-  return roleNames.includes(user.role.name)
+  if (!user) return false
+  return roleNames.some(r => r.toUpperCase() === user.role.toUpperCase())
 }
 
 /**
@@ -60,11 +47,8 @@ export function requireRole(user: UserWithRole | null, roleName: string): void {
   if (!user) {
     throw new AuthError('User not authenticated', 401)
   }
-  if (!user.role) {
-    throw new AuthError('User does not have a role assigned', 403)
-  }
-  if (user.role.name !== roleName) {
-    throw new AuthError(`Access denied. Required role: ${roleName}. Your role: ${user.role.name}`, 403)
+  if (user.role.toUpperCase() !== roleName.toUpperCase()) {
+    throw new AuthError(`Access denied. Required role: ${roleName}. Your role: ${user.role}`, 403)
   }
 }
 
@@ -75,12 +59,9 @@ export function requireAnyRole(user: UserWithRole | null, roleNames: string[]): 
   if (!user) {
     throw new AuthError('User not authenticated', 401)
   }
-  if (!user.role) {
-    throw new AuthError('User does not have a role assigned', 403)
-  }
-  if (!roleNames.includes(user.role.name)) {
+  if (!roleNames.some(r => r.toUpperCase() === user.role.toUpperCase())) {
     throw new AuthError(
-      `Access denied. Required role(s): ${roleNames.join(', ')}. Your role: ${user.role.name}`,
+      `Access denied. Required role(s): ${roleNames.join(', ')}. Your role: ${user.role}`,
       403
     )
   }
@@ -97,7 +78,57 @@ export class AuthError extends Error {
 }
 
 /**
- * Get user from _request - extracts and validates user from session
+ * Helper to resolve user profile from ms_user table.
+ * If user profile is not found in database, a mock profile fallback is used ONLY in non-production environments.
+ * Standardizes roles across the application.
+ */
+export function resolveUserProfile(
+  email: string | undefined,
+  supabaseUser: { created_at?: string; user_metadata?: { full_name?: string } } | null,
+  dbProfile: UserProfile | null
+): UserWithRole | null {
+  if (dbProfile) {
+    return dbProfile
+  }
+
+  // Security: In production, mock bypass/fallbacks are completely disabled.
+  // Only users registered in ms_user can log in or access modules.
+  if (process.env.NODE_ENV === 'production') {
+    return null
+  }
+
+  // Fallback for local testing / development
+  const resolvedEmail = email || 'admin@mayora.id'
+  const emailPrefix = resolvedEmail.split('@')[0]
+  let role = 'ADMIN'
+
+  const prefixLower = emailPrefix.toLowerCase()
+  if (prefixLower.includes('inventory')) {
+    role = 'INVENTORY'
+  } else if (prefixLower.includes('finance')) {
+    role = 'FINANCE'
+  } else if (prefixLower.includes('production')) {
+    role = 'PRODUCTION'
+  } else if (prefixLower.includes('purchasing')) {
+    role = 'PURCHASING'
+  } else if (prefixLower.includes('snm') || prefixLower.includes('sales')) {
+    role = 'SALES'
+  }
+
+  return {
+    user_id: 1,
+    username: emailPrefix,
+    full_name: (supabaseUser?.user_metadata?.full_name || emailPrefix).toUpperCase(),
+    email: resolvedEmail,
+    role: role,
+    status: 'ACTIVE',
+    created_at: supabaseUser?.created_at || new Date().toISOString(),
+  }
+}
+
+/**
+ * Get user from request - extracts and validates user from Supabase session,
+ * then fetches profile from ms_user table.
  */
 export async function getUserFromRequest(): Promise<UserWithRole | null> {
   const { createRouteHandlerClient } = await import('@/lib/supabase/server')
@@ -109,86 +140,35 @@ export async function getUserFromRequest(): Promise<UserWithRole | null> {
 
   if (!user) return null
 
-  // Fetch user profile with role from database
-  const { data, error } = await supabase
-    .from('users')
-    .select(
-      `
-      id,
-      email,
-      full_name,
-      role_id,
-      is_active,
-      is_pending,
-      created_at,
-      updated_at,
-      roles (
-        id,
-        name,
-        description
-      )
-    `
-    )
-    .eq('id', user.id)
-    .single()
+  let dbProfile: UserProfile | null = null
 
-  if (error || !data) {
-    const emailPrefix = user.email ? user.email.split('@')[0] : 'user';
-    let roleName = 'FINANCE';
-    let roleDesc = 'Finance Staff';
-    if (emailPrefix === 'admin') {
-      roleName = 'ADMIN';
-      roleDesc = 'Super Admin';
-    } else if (emailPrefix === 'inventory') {
-      roleName = 'INVENTORY';
-      roleDesc = 'Inventory Staff';
-    } else if (emailPrefix === 'purchasing') {
-      roleName = 'PURCHASING';
-      roleDesc = 'Purchasing Staff';
-    } else if (emailPrefix === 'production') {
-      roleName = 'PRODUCTION';
-      roleDesc = 'Production Staff';
-    } else if (emailPrefix === 'snm') {
-      roleName = 'SNM';
-      roleDesc = 'SNM Staff';
+
+  try {
+    const { data, error } = await supabase
+      .from('ms_user')
+      .select('user_id, username, full_name, email, role, status, created_at')
+      .eq('email', user.email)
+      .maybeSingle()
+
+    if (data && !error) {
+      dbProfile = data as UserProfile
     }
-
-    return {
-      id: user.id,
-      email: user.email || '',
-      full_name: emailPrefix.toUpperCase(),
-      role_id: 'mock-role-id',
-      is_active: true,
-      is_pending: false,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      role: {
-        id: 'mock-role-id',
-        name: roleName,
-        description: roleDesc
-      } as any
-    };
+  } catch (e) {
+    console.error('Error fetching profile from ms_user:', e)
   }
 
-  if (!data.is_active) {
-    throw new AuthError('User account is inactive', 403)
+  const profileData = resolveUserProfile(user.email, user, dbProfile)
+
+  if (!profileData) {
+    return null
+
   }
 
-  if (data.is_pending) {
-    throw new AuthError('Account pending admin approval', 403)
+  if (profileData.status !== 'ACTIVE') {
+    throw new AuthError('User account is not active', 403)
   }
 
-  return {
-    id: data.id,
-    email: data.email,
-    full_name: data.full_name,
-    role_id: data.role_id,
-    is_active: data.is_active,
-    is_pending: data.is_pending,
-    created_at: data.created_at,
-    updated_at: data.updated_at,
-    role: (data as any).roles,
-  }
+  return profileData
 }
 
 /**

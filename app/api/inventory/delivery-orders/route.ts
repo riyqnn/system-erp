@@ -13,7 +13,7 @@ export async function GET() {
       .from('tr_delivery_order')
       .select(`
         *,
-        ms_products (product_code, product_name, units)
+        ms_product (product_id, product_name, uom)
       `)
       .order('order_date', { ascending: false })
 
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     const payload = {
       ...body,
       // Only set shipped_by if status is already Shipped/Delivered
-      shipped_by: (body.status === 'Shipped' || body.status === 'Delivered') ? (body.shipped_by || user.id) : null
+      shipped_by: (body.status === 'Shipped' || body.status === 'Delivered') ? (body.shipped_by || user.user_id) : null
     }
 
     const { data, error } = await supabase

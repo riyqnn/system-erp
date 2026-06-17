@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -42,13 +43,13 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch suppliers',
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )
     }
 
-    const suppliers = (data || []).map((item: any) => ({
+    const suppliers = (data || []).map((item: AnyObject) => ({
       id: item.id,
       supplierId: item.ms_suppliers?.supplier_code || '-',
       supplierName: item.ms_suppliers?.supplier_name || '-',

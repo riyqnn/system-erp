@@ -23,9 +23,9 @@ import { Input } from "@/components/ui/input";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface FGMovement {
-  movement_id: number;
-  product_id: number;
-  warehouse_id: number;
+  movement_id: string | number;
+  product_id: string | number;
+  warehouse_id: string | number;
   type: string;
   quantity: number;
   reference_id: string;
@@ -42,7 +42,7 @@ interface FGMovement {
 }
 
 interface ProductOption {
-  product_id: number;
+  product_id: string | number;
   product_code: string;
   product_name: string;
   category: string;
@@ -50,15 +50,15 @@ interface ProductOption {
 }
 
 interface WarehouseOption {
-  warehouse_id: number;
+  warehouse_id: string | number;
   warehouse_code: string;
   warehouse_name: string;
 }
 
 interface ProdReqOption {
-  production_request_id: number;
+  production_request_id: string | number;
   prd_code: string;
-  product_id: number;
+  product_id: string | number;
   qty_requested: number;
 }
 
@@ -151,8 +151,8 @@ export default function FinishedGoodsReceiptPage() {
     setIsSubmitting(true);
     try {
       const payload = {
-        product_id: Number(form.product_id),
-        warehouse_id: Number(form.warehouse_id),
+        product_id: form.product_id,
+        warehouse_id: form.warehouse_id,
         quantity: Number(form.quantity),
         ref_id: form.ref_id, // Will act as reference_id in movements
       };
