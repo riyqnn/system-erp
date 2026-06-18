@@ -157,9 +157,9 @@ export default function SalesOrderValidationPage() {
                 <p className="text-sm">No pending orders to validate.</p>
               </div>
             ) : (
-              filtered.map((d) => (
+              filtered.map((d, idx) => (
                 <div 
-                  key={d.do_id}
+                  key={`${d.do_id}-${idx}`}
                   onClick={() => { setSelectedDO(d); setSuccessMsg(null); setIsVerifying(true); setTimeout(() => setIsVerifying(false), 500); }}
                   className={`p-4 rounded-xl border cursor-pointer transition-all ${
                     selectedDO?.do_id === d.do_id 

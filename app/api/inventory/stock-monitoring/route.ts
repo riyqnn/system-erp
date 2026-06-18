@@ -13,14 +13,14 @@ export async function GET() {
     // 1. Fetch products
     const { data: products, error: pError } = await supabase
       .from('ms_product')
-      .select('product_id, product_name, category, uom, min_stock')
+      .select('product_id, product_name, category, uom, minimum_stock')
 
     if (pError) throw pError
 
     // 2. Fetch warehouses
     const { data: warehouses, error: wError } = await supabase
       .from('ms_warehouse')
-      .select('warehouse_id, warehouse_name, warehouse_code')
+      .select('warehouse_id, warehouse_name')
 
     if (wError) throw wError
 
@@ -58,9 +58,9 @@ export async function GET() {
           product_name: p.product_name,
           category: p.category,
           units: p.uom,
-          minimum_stock: Number(p.min_stock) || 0,
+          minimum_stock: Number(p.minimum_stock) || 0,
           warehouse_id: w.warehouse_id,
-          warehouse_code: w.warehouse_code,
+          warehouse_code: w.warehouse_id,
           warehouse_name: w.warehouse_name,
           available_qty: availableQty,
           reserved_qty: 0,

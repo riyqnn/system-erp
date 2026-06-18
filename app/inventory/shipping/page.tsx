@@ -230,10 +230,10 @@ export default function ShipmentConfirmationPage() {
                     <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" /><p className="text-sm font-medium">No records found</p>
                   </td></tr>
                 ) : (
-                  filtered.map((d) => {
+                  filtered.map((d, idx) => {
                     const cfg = STATUS_CONFIG[d.status];
                     return (
-                      <tr key={d.do_id} className="hover:bg-slate-50/50 transition-colors">
+                      <tr key={`${d.do_id}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4">
                           <span className="font-mono font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-xs">{d.do_code}</span>
                           <p className="text-[10px] text-slate-400 mt-1">{new Date(d.order_date).toLocaleDateString()}</p>

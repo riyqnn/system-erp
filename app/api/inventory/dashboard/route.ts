@@ -12,10 +12,10 @@ export async function GET() {
 
     // 2. Fetch data in parallel
     const [
-      { data: stockSummary, error: err1 },
+      res1,
       { count: pendingPRCount, error: err2 },
       { count: pendingProdCount, error: err3 },
-      { data: criticalStock, error: err4 },
+      res4,
       { data: recentActivity, error: err5 }
     ] = await Promise.all([
       // A. Stock Summary (All products)
@@ -48,11 +48,84 @@ export async function GET() {
         .order('movement_date', { ascending: false })
         .limit(5)
     ])
+    
+    let stockSummary = res1.data;
+    const err1 = res1.error;
+    let criticalStock = res4.data;
+    const err4 = res4.error;
 
-    if (err1) throw err1
     if (err2) throw err2
     if (err3) throw err3
-    if (err4) throw err4
+    if (err5) throw err5
+
+    if (err1 || err4) {
+      console.warn('[DASHBOARD] View error, computing stock manually...');
+      const [prodRes, balRes] = await Promise.all([
+        supabase.from('ms_product').select('product_id, product_name, category, uom, minimum_stock'),
+        supabase.from('tr_stock_balance').select('product_id, warehouse_id, quantity, status')
+      ]);
+
+      const products = prodRes.data || [];
+      const balances = balRes.data || [];
+
+      if (err1) {
+        const availMap: Record<string, number> = {};
+        for (const b of balances) {
+          if (String(b.status).toUpperCase() === 'AVAILABLE') {
+            availMap[b.product_id] = (availMap[b.product_id] || 0) + Number(b.quantity);
+          }
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        stockSummary = products.map((p: any) => {
+          const current = availMap[p.product_id] || 0;
+          const minStock = Number(p.minimum_stock) || 0;
+          let health = 'Adequate';
+          if (current <= 0) health = 'Out of Stock';
+          else if (current < minStock) health = 'Below Safety Stock';
+          else if (current < minStock * 2) health = 'Low';
+
+          return {
+            product_id: p.product_id,
+            product_name: p.product_name,
+            category: p.category,
+            current_stock: current,
+            stock_health: health,
+            minimum_stock: minStock
+          };
+        });
+      }
+
+      if (err4) {
+        criticalStock = [];
+        const whAvailMap: Record<string, number> = {};
+        for (const b of balances) {
+          if (String(b.status).toUpperCase() === 'AVAILABLE') {
+            const key = `${b.product_id}_${b.warehouse_id}`;
+            whAvailMap[key] = (whAvailMap[key] || 0) + Number(b.quantity);
+          }
+        }
+
+        for (const p of products) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const pBalances = balances.filter((b: any) => b.product_id === p.product_id);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const warehouses = Array.from(new Set(pBalances.map((b: any) => b.warehouse_id)));
+          
+          for (const wid of warehouses) {
+            const key = `${p.product_id}_${wid}`;
+            const avail = whAvailMap[key] || 0;
+            criticalStock.push({
+              product_id: p.product_id,
+              product_name: p.product_name,
+              category: p.category,
+              minimum_stock: Number(p.minimum_stock) || 0,
+              available_qty: avail,
+              warehouse_id: wid
+            });
+          }
+        }
+      }
+    }
     if (err5) throw err5
 
     // 3. Process Data for Dashboard

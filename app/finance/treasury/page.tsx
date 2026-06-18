@@ -326,7 +326,7 @@ export default function TreasuryPage() {
     try {
       setLoading(true)
       let successCount = 0
-      let errors: string[] = []
+      const errors: string[] = []
       
       for (const id of selectedIds) {
         const res = await fetch(`/api/finance/treasury?mock_role=${userRole}`, {

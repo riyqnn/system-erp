@@ -22,7 +22,7 @@ export async function GET() {
           so_id,
           ms_customer (
             cust_id,
-            name
+            cust_name
           ),
           tr_so_detail (
             product_id,
@@ -47,16 +47,16 @@ export async function GET() {
       const details = soHeader?.tr_so_detail || []
 
       let displayStatus = 'Pending'
-      if (d.status === 'SHIPPED') displayStatus = 'Shipped'
+      if (d.status === 'SENT') displayStatus = 'Shipped'
       else if (d.status === 'DELIVERED') displayStatus = 'Delivered'
-      else if (d.status === 'CANCELLED') displayStatus = 'Void'
+      else if (d.status === 'VOID') displayStatus = 'Void'
 
       if (details.length === 0) {
         flattenedData.push({
           do_id: d.do_id,
           do_code: d.do_id,
           customer_id: customer?.cust_id || '',
-          customer_name: customer?.name || 'Unknown Customer',
+          customer_name: customer?.cust_name || 'Unknown Customer',
           product_id: '',
           quantity: 0,
           order_date: d.do_date || d.created_at,
@@ -71,7 +71,7 @@ export async function GET() {
             do_id: d.do_id,
             do_code: d.do_id,
             customer_id: customer?.cust_id || '',
-            customer_name: customer?.name || 'Unknown Customer',
+            customer_name: customer?.cust_name || 'Unknown Customer',
             product_id: det.product_id,
             quantity: Number(det.qty_order),
             order_date: d.do_date || d.created_at,
@@ -120,10 +120,10 @@ export async function PATCH(request: NextRequest) {
     if (fetchError) throw fetchError
 
     let dbStatus = 'DELIVERED'
-    if (status === 'Void' || status === 'CANCELLED') {
-      dbStatus = 'CANCELLED'
-    } else if (status === 'Shipped' || status === 'SHIPPED') {
-      dbStatus = 'SHIPPED'
+    if (status === 'Void' || status === 'VOID') {
+      dbStatus = 'VOID'
+    } else if (status === 'Shipped' || status === 'SENT') {
+      dbStatus = 'SENT'
     }
 
     if (currentDO.status === dbStatus) {
@@ -147,6 +147,23 @@ export async function PATCH(request: NextRequest) {
       .single()
 
     if (doError) throw doError
+
+    const { createNotification } = await import('@/lib/services/notification.service')
+
+    if (dbStatus === 'SENT' || dbStatus === 'VOID') {
+      await createNotification({
+        title: dbStatus === 'SENT' ? `Order Validated & Sent: ${do_code}` : `Order Voided: ${do_code}`,
+        message: dbStatus === 'SENT' ? `Inventory has validated the order and it is ready for shipment.` : `Inventory has voided the delivery order.`,
+        type: 'INFORMATION',
+        priority: dbStatus === 'VOID' ? 'HIGH' : 'MEDIUM',
+        recipientRole: 'SALES', // Notify Sales
+        sourceModule: 'INVENTORY',
+        sourceRefId: do_code,
+        sourceRefType: 'DELIVERY_ORDER',
+        actionUrl: `/snm/sales`, // Link to Sales module
+        createdBy: user.user_id,
+      })
+    }
 
     // 3. If transitioning to DELIVERED, deduct stock
     if (dbStatus === 'DELIVERED' && currentDO.status !== 'DELIVERED') {
@@ -176,7 +193,6 @@ export async function PATCH(request: NextRequest) {
       }
 
       // Notify Sales that Delivery Order has been delivered
-      const { createNotification } = await import('@/lib/services/notification.service')
       await createNotification({
         title: `Order Delivered: ${do_code}`,
         message: `Inventory has successfully delivered the order to the customer.`,

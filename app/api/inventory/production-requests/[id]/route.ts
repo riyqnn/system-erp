@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac'
 import { createRouteHandlerClient } from '@/lib/supabase/server'
+import { createNotification } from '@/lib/services/notification.service'
 
 export async function PATCH(
   request: NextRequest,
@@ -28,6 +29,21 @@ export async function PATCH(
       .single()
 
     if (error) throw error
+
+    if (mappedStatus === 'IN_PROGRESS') {
+      await createNotification({
+        title: `Production Request Verified: ${id}`,
+        message: `Inventory has verified BOM and approved Production Request ${id}. Materials are ready for production.`,
+        type: 'INFORMATION',
+        priority: 'HIGH',
+        recipientRole: 'PRODUCTION',
+        sourceModule: 'INVENTORY',
+        sourceRefId: id,
+        sourceRefType: 'PRODUCTION_REQUEST',
+        actionUrl: `/production/orders`,
+        createdBy: user.user_id,
+      }).catch(err => console.error('Failed to send notification', err));
+    }
 
     return NextResponse.json({ data })
   } catch (error) {
