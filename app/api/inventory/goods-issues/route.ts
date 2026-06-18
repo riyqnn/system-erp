@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
       sourceModule: 'INVENTORY',
       sourceRefId: body.issue_code,
       sourceRefType: 'GOODS_ISSUE',
-      actionUrl: `/apps/production/goods-receipt`,
+      actionUrl: `/production/goods-receipt`,
       createdBy: user.user_id,
     })
 

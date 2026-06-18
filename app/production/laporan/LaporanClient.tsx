@@ -28,8 +28,6 @@ type QCRecord = {
   production_orders: { po_number: string } | null
 }
 
-type WorkCenter = { id: string; code: string; name: string; status: string }
-
 const fmtDate = (s: string | null) =>
   s ? new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
@@ -85,49 +83,62 @@ function exportCSV(orders: Order[]) {
 export function LaporanClient() {
   const [orders, setOrders] = useState<Order[]>([])
   const [qcRecords, setQCRecords] = useState<QCRecord[]>([])
-  const [workCenters, setWorkCenters] = useState<WorkCenter[]>([])
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(new Date())
 
   const load = async () => {
     setLoading(true)
     try {
-      const [ordRes, qcRes, wcRes] = await Promise.all([
+      const [ordRes, qcRes] = await Promise.all([
         fetch('/api/production/orders'),
         fetch('/api/production/quality-control'),
-        fetch('/api/production/work-centers'),
       ])
       if (ordRes.ok) setOrders(await ordRes.json())
       if (qcRes.ok) setQCRecords(await qcRes.json())
-      if (wcRes.ok) setWorkCenters(await wcRes.json())
     } catch { /* ignore */ }
     finally { setLoading(false); setLastRefresh(new Date()) }
   }
 
   useEffect(() => { load() }, [])
 
-  // Compute metrics
+  // Compute metrics — hanya gunakan data yang benar-benar ada di DB
+  const completedOrders = orders.filter(o => o.status === 'completed')
+  const activeOrders = orders.filter(o => ['in_progress', 'on_hold'].includes(o.status))
+  const totalOrders = orders.length
+
+  // OEE proxy: order yang sudah selesai atau sedang berjalan / total order
+  const oee = totalOrders > 0
+    ? Math.round(((completedOrders.length + activeOrders.length) / totalOrders) * 100)
+    : 0
+
+  // Total Produksi: planned_qty dari order completed (actual_qty tidak ada di DB)
+  const totalActual = completedOrders.reduce((s, o) => s + o.planned_qty, 0)
   const totalPlanned = orders.reduce((s, o) => s + o.planned_qty, 0)
-  const totalActual = orders.reduce((s, o) => s + (o.actual_qty ?? 0), 0)
-  const yieldRate = totalPlanned > 0 ? Math.round((totalActual / totalPlanned) * 100) : 0
+
+  // Yield Rate: QC pass rate (data yang benar-benar tersedia)
   const passQC = qcRecords.filter(r => r.result === 'pass').length
   const failQC = qcRecords.filter(r => r.result === 'fail').length
   const qcTotal = passQC + failQC
-  const qcPassRate = qcTotal > 0 ? Math.round((passQC / qcTotal) * 100) : 0
-  const activeWC = workCenters.filter(w => w.status === 'active').length
-  const oee = workCenters.length > 0 ? Math.round((activeWC / workCenters.length) * 100) : 0
+  const qcPassRate = qcTotal > 0 ? Math.round((passQC / qcTotal) * 100) : 100
+  const yieldRate = qcPassRate
+
   const totalDefect = qcRecords.reduce((s, r) => s + (r.defect_qty ?? 0), 0)
 
-  // Daily production trend (last 10 days)
+  // Daily production trend: hitung berdasarkan order completed per hari (planned_qty)
   const last10Days = Array.from({ length: 10 }, (_, i) => {
     const d = new Date()
     d.setDate(d.getDate() - (9 - i))
     return d.toISOString().slice(0, 10)
   })
   const dailyData = last10Days.map(date =>
-    orders.filter(o => (o.end_date ?? o.created_at.slice(0, 10)) === date).reduce((s, o) => s + (o.actual_qty ?? 0), 0)
+    completedOrders
+      .filter(o => (o.end_date ?? o.start_date ?? '').slice(0, 10) === date)
+      .reduce((s, o) => s + o.planned_qty, 0)
   )
-  const dailyChartHasData = dailyData.some(v => v > 0)
+  const activePerDay = last10Days.map(date =>
+    orders.filter(o => o.status === 'in_progress' && (o.start_date ?? '').slice(0, 10) <= date).length
+  )
+  const dailyChartHasData = dailyData.some(v => v > 0) || activePerDay.some(v => v > 0)
   const displayDailyData = dailyChartHasData ? dailyData : [20, 35, 28, 45, 38, 52, 48, 60, 55, 65]
 
   return (
@@ -165,10 +176,10 @@ export function LaporanClient() {
         {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { icon: <ChartBar size={20} weight="bold" style={{ color: '#dc2626' }} />, bg: 'bg-red-50', label: 'OEE', value: loading ? '—' : `${oee}%`, sub: `${activeWC}/${workCenters.length} mesin aktif` },
-            { icon: <Factory size={20} weight="bold" style={{ color: '#2563eb' }} />, bg: 'bg-blue-50', label: 'Total Produksi', value: loading ? '—' : totalActual.toLocaleString(), sub: 'unit actual output' },
-            { icon: <CheckCircle size={20} weight="bold" style={{ color: '#16a34a' }} />, bg: 'bg-green-50', label: 'Yield Rate', value: loading ? '—' : `${yieldRate}%`, sub: `${totalActual.toLocaleString()} / ${totalPlanned.toLocaleString()} unit` },
-            { icon: <Hourglass size={20} weight="bold" style={{ color: '#ea580c' }} />, bg: 'bg-orange-50', label: 'Total Defects', value: loading ? '—' : totalDefect.toLocaleString(), sub: `QC Pass Rate ${qcPassRate}%` },
+            { icon: <ChartBar size={20} weight="bold" style={{ color: '#dc2626' }} />, bg: 'bg-red-50', label: 'Order Progress', value: loading ? '—' : `${oee}%`, sub: `${completedOrders.length + activeOrders.length}/${totalOrders} order aktif/selesai` },
+            { icon: <Factory size={20} weight="bold" style={{ color: '#2563eb' }} />, bg: 'bg-blue-50', label: 'Total Selesai', value: loading ? '—' : totalActual.toLocaleString(), sub: `dari ${totalPlanned.toLocaleString()} unit planned` },
+            { icon: <CheckCircle size={20} weight="bold" style={{ color: '#16a34a' }} />, bg: 'bg-green-50', label: 'QC Pass Rate', value: loading ? '—' : `${yieldRate}%`, sub: `${passQC} pass / ${qcTotal} inspeksi` },
+            { icon: <Hourglass size={20} weight="bold" style={{ color: '#ea580c' }} />, bg: 'bg-orange-50', label: 'Total Defects', value: loading ? '—' : totalDefect.toLocaleString(), sub: `${failQC} QC Fail` },
           ].map(k => (
             <Card key={k.label} className="border-slate-200 bg-white">
               <CardContent className="p-5">
@@ -190,7 +201,7 @@ export function LaporanClient() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <p className="text-sm font-semibold text-slate-900">Tren Produksi Harian</p>
-                  <p className="text-xs text-slate-400 mt-0.5">10 hari terakhir (unit output)</p>
+                  <p className="text-xs text-slate-400 mt-0.5">10 hari terakhir (planned qty order selesai)</p>
                 </div>
               </div>
               <MiniLineChart data={displayDailyData} color="#dc2626" height={80} />
