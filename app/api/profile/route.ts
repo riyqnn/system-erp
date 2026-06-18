@@ -63,6 +63,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json() as {
+      full_name?: string | null
       avatar_url?: string | null
       avatar_style?: string
       department?: string | null
@@ -76,11 +77,32 @@ export async function PATCH(request: NextRequest) {
     const { createAdminClient } = await import('@/lib/supabase/server')
     const supabase = await createAdminClient()
 
+    // full_name lives in ms_user (account table), the rest in user_profiles.
+    // username, email and role are intentionally NOT editable here:
+    //  - email is the join key between auth.users and ms_user (changing it breaks login lookup)
+    //  - role is governed by the admin module, not self-service.
+    const { full_name, ...profileFields } = body
+
+    if (full_name !== undefined) {
+      const trimmed = (full_name ?? '').trim()
+      if (!trimmed) {
+        return NextResponse.json({ error: 'Nama lengkap tidak boleh kosong.' }, { status: 400 })
+      }
+      const { error: userErr } = await supabase
+        .from('ms_user')
+        .update({ full_name: trimmed })
+        .eq('user_id', user.user_id)
+      if (userErr) {
+        console.error('[Profile PATCH ms_user]', userErr)
+        return NextResponse.json({ error: userErr.message }, { status: 500 })
+      }
+    }
+
     const { data, error } = await supabase
       .from('user_profiles')
       .upsert({
         user_id:      user.user_id,
-        ...body,
+        ...profileFields,
         updated_at:   new Date().toISOString(),
       })
       .select()
@@ -91,7 +113,10 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ profile: data })
+    return NextResponse.json({
+      profile: data,
+      full_name: full_name !== undefined ? (full_name ?? '').trim() : user.full_name,
+    })
   } catch (err) {
     console.error('[Profile PATCH Error]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
