@@ -5,7 +5,6 @@
 
 import { NextRequest } from 'next/server';
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac';
-import { isSupabaseActive } from '@/lib/database/financeService';
 
 /**
  * Memvalidasi token autentikasi dan izin role untuk API Route modul keuangan.
@@ -17,7 +16,8 @@ import { isSupabaseActive } from '@/lib/database/financeService';
  * @returns {Promise<any>} Objek data user yang terautentikasi.
  */
 export async function verifyAuthForRoute(request: NextRequest, allowedRoles: string[]) {
-  if (process.env.NODE_ENV !== 'production' && !isSupabaseActive()) {
+  const isSupabaseActive = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (process.env.NODE_ENV !== 'production' && !isSupabaseActive) {
     // Fallback Mock User untuk pengujian lokal tanpa database Supabase
     const { searchParams } = new URL(request.url);
     const mockRole = searchParams.get('mock_role')?.toUpperCase() || 'ADMIN';

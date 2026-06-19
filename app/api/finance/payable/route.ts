@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
       }
 
       const pmt = await buatPermintaanPembayaran(
-        Number(hutang_id),
+        String(hutang_id),
         Number(jumlah_bayar),
         metode_pembayaran,
         keterangan,

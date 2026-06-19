@@ -166,9 +166,29 @@ export default function AccountReceivablePage() {
     }
   }
 
-  // Kirim Reminder Pelunasan (Quick Action Toast)
-  const handleSendReminder = (piutang: Piutang) => {
-    showNotif('success', `Pengingat Jatuh Tempo (Reminder) berhasil dikirim via Email & WhatsApp ke Customer: ${piutang.customer_name} untuk Faktur ${piutang.inv_number}.`)
+  // Kirim Reminder Pelunasan (Quick Action Toast & API Log)
+  const handleSendReminder = async (piutang: Piutang) => {
+    try {
+      setLoading(true)
+      const res = await fetch('/api/finance/receivable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send_reminder',
+          piutang_id: piutang.id_piutang
+        })
+      })
+      if (res.ok) {
+        showNotif('success', `Pengingat Jatuh Tempo (Reminder) berhasil dikirim via Email & WhatsApp ke Customer: ${piutang.customer_name} untuk Faktur ${piutang.inv_number}. Log pengiriman dicatat.`)
+        loadData()
+      } else {
+        showNotif('error', 'Gagal mencatat log pengiriman reminder.')
+      }
+    } catch (e) {
+      showNotif('error', 'Koneksi error saat mengirim reminder.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Calculate AR Summary
@@ -405,9 +425,9 @@ export default function AccountReceivablePage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
               <Table>
-                <TableHeader className="bg-slate-50/50">
+                <TableHeader className="bg-slate-50/50 sticky top-0 z-10">
                   <TableRow className="border-b border-slate-100">
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-28">Invoice ID</TableHead>
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Customer</TableHead>

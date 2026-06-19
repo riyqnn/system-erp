@@ -177,23 +177,41 @@ export default function GeneralLedgerPage() {
     localStorage.setItem('gl_report_decision_note', note)
   }
 
-  const handleResetReport = () => {
+  const handleResetReport = async () => {
     handleUpdateStatus('DRAFT')
     handleUpdateDecisionNote('')
-    showNotif('success', 'Status laporan keuangan berhasil direset ke Draft.')
+    try {
+      setLoading(true)
+      const res = await fetch('/api/finance/journal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset' })
+      })
+      if (res.ok) {
+        showNotif('success', 'Status laporan berhasil direset. Saldo Neraca kembali seimbang dan entri jurnal uji coba dibersihkan.')
+        loadData()
+      } else {
+        showNotif('error', 'Gagal mereset jurnal uji coba.')
+      }
+    } catch (e) {
+      showNotif('error', 'Koneksi error saat mereset jurnal.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Fetch Data
   const loadData = async () => {
     try {
       setLoading(true)
+      const ts = Date.now()
       // Fetch COA
-      const coaRes = await fetch('/api/finance/coa')
+      const coaRes = await fetch(`/api/finance/coa?t=${ts}`, { cache: 'no-store' })
       const coaJson = await coaRes.json()
       if (coaJson.data) setAkunList(coaJson.data)
-
+ 
       // Fetch Jurnal
-      const jrRes = await fetch('/api/finance/journal')
+      const jrRes = await fetch(`/api/finance/journal?t=${ts}`, { cache: 'no-store' })
       const jrJson = await jrRes.json()
       if (jrJson.data) setJurnalList(jrJson.data)
     } catch (e) {

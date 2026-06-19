@@ -18,9 +18,21 @@ export async function PATCH(request: NextRequest) {
     const { createAdminClient } = await import('@/lib/supabase/server')
     const supabase = await createAdminClient()
 
+    const normalizedRole = user.role.toUpperCase()
+    const underscoreRole = normalizedRole.replace(/[- ]/g, '_')
+    const spaceRole      = normalizedRole.replace(/[-_]/g, ' ')
+    const dashRole       = normalizedRole.replace(/[ _]/g, '-')
+    const roleVariations = Array.from(new Set([
+      user.role,
+      normalizedRole,
+      underscoreRole,
+      spaceRole,
+      dashRole
+    ]))
+
     const orFilter = [
       `recipient_id.eq.${user.user_id}`,
-      `recipient_role.eq.${user.role}`,
+      ...roleVariations.map(r => `recipient_role.eq."${r}"`)
     ].join(',')
 
     let query = supabase

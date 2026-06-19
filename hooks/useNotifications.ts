@@ -77,7 +77,8 @@ export function useNotifications(userId?: number, userRole?: string): UseNotific
         (payload) => {
           const n = payload.new as Notification & { recipient_id?: number; recipient_role?: string }
           const isForMe   = n.recipient_id   === userId
-          const isForRole = n.recipient_role === userRole
+          const cleanRole = (role?: string) => role?.toUpperCase().replace(/[-_ ]/g, '') || ''
+          const isForRole = cleanRole(n.recipient_role) === cleanRole(userRole)
           if (isForMe || isForRole) {
             setNotifications((prev) => [n as Notification, ...prev])
             setUnreadCount((c) => c + 1)
