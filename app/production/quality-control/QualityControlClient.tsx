@@ -1,14 +1,21 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, X, Warning, MagnifyingGlass, CheckCircle, XCircle, Eye } from '@phosphor-icons/react'
+import { X, Warning, MagnifyingGlass, CheckCircle, XCircle, Eye, ArrowRight, Flask } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type Order = { id: string; po_number: string; product_id: string | null; planned_qty: number; actual_qty: number | null; status: string; products: { name: string; sku: string } | null }
+type Order = {
+  id: string
+  po_number: string
+  product_id: string | null
+  status: string
+  planned_qty: number
+  products: { name: string; sku: string } | null
+}
 
 type QCRecord = {
   id: string
@@ -67,6 +74,7 @@ export function QualityControlClient() {
 
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm)
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [tests, setTests] = useState<TestItem[]>(emptyTests)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -89,6 +97,20 @@ export function QualityControlClient() {
 
   useEffect(() => { load() }, [])
 
+  // Orders eligible for QC: completed status, no existing QC record
+  const pendingQC = orders.filter(o =>
+    o.status === 'completed' &&
+    !rows.some(qc => qc.production_order_id === o.id)
+  )
+
+  function openQCFor(order: Order) {
+    setSelectedOrder(order)
+    setForm({ ...emptyForm, production_order_id: order.id })
+    setTests(emptyTests.map(t => ({ ...t, value: '' as const })))
+    setFormError(null)
+    setShowForm(true)
+  }
+
   const filtered = rows.filter(r => {
     const q = search.toLowerCase()
     const matchSearch = (r.production_orders?.po_number ?? '').toLowerCase().includes(q) ||
@@ -97,7 +119,6 @@ export function QualityControlClient() {
     return matchSearch && matchResult
   })
 
-  // Auto-compute result from tests
   const computedResult = (): 'pass' | 'fail' | 'pending' => {
     if (tests.some(t => t.value === '')) return 'pending'
     return tests.every(t => t.value === 'ok') ? 'pass' : 'fail'
@@ -121,7 +142,6 @@ export function QualityControlClient() {
       })
       if (!res.ok) { const e = await res.json(); setFormError(e.error || 'Error'); return }
 
-      // If approved, auto-generate goods receipt
       if (result === 'pass' && form.production_order_id) {
         const order = orders.find(o => o.id === form.production_order_id)
         if (order) {
@@ -141,6 +161,7 @@ export function QualityControlClient() {
 
       setShowForm(false)
       setForm(emptyForm)
+      setSelectedOrder(null)
       setTests(emptyTests.map(t => ({ ...t, value: '' })))
       await load()
     } catch { setFormError('Terjadi kesalahan.')
@@ -169,7 +190,6 @@ export function QualityControlClient() {
 
   const passCount = rows.filter(r => r.result === 'pass').length
   const failCount = rows.filter(r => r.result === 'fail').length
-  const pendingCount = rows.filter(r => r.result === 'pending').length
 
   return (
     <ModuleLayout
@@ -182,22 +202,43 @@ export function QualityControlClient() {
       ]}
     >
       <div className="space-y-6 max-w-[1400px] mx-auto">
-        <div className="flex items-end justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#dc2626] mb-1">Production · UC-07</p>
-            <ModuleHeader title="QC & Penerimaan" />
-            <p className="text-slate-500 -mt-4 text-sm">
-              {rows.length} inspeksi ·{' '}
-              <span className="text-green-600 font-medium">{passCount} approved</span>
-              {failCount > 0 && <> · <span className="text-red-600 font-medium">{failCount} fail</span></>}
-              {pendingCount > 0 && <> · <span className="text-amber-600 font-medium">{pendingCount} pending</span></>}
-            </p>
-          </div>
-          <Button onClick={() => { setForm(emptyForm); setTests(emptyTests.map(t => ({ ...t, value: '' as const }))); setFormError(null); setShowForm(true) }}
-            className="bg-[#dc2626] hover:bg-[#b91c1c] text-white h-10 px-5 gap-2">
-            <Plus className="w-4 h-4" weight="bold" /> New Inspection
-          </Button>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#dc2626] mb-1">Production</p>
+          <ModuleHeader title="QC & Penerimaan" />
+          <p className="text-slate-500 -mt-4 text-sm">
+            {rows.length} inspeksi ·{' '}
+            <span className="text-green-600 font-medium">{passCount} approved</span>
+            {failCount > 0 && <> · <span className="text-red-600 font-medium">{failCount} fail</span></>}
+            {pendingQC.length > 0 && <> · <span className="text-amber-600 font-medium">{pendingQC.length} menunggu inspeksi</span></>}
+          </p>
         </div>
+
+        {/* Pending QC section */}
+        {pendingQC.length > 0 && (
+          <Card className="border-amber-200 bg-amber-50/40 shadow-sm overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-amber-200 flex items-center gap-2">
+              <Flask size={16} weight="bold" className="text-amber-600" />
+              <span className="text-sm font-semibold text-amber-800">Production Orders Siap Inspeksi QC</span>
+              <span className="ml-auto text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">{pendingQC.length} order</span>
+            </div>
+            <div className="divide-y divide-amber-100">
+              {pendingQC.map(order => (
+                <div key={order.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-amber-50 transition-colors group">
+                  <span className="font-mono text-xs bg-white border border-amber-200 px-2 py-0.5 rounded text-slate-700">{order.po_number}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-900 truncate">{order.products?.name ?? '—'}</p>
+                    <p className="text-xs text-slate-400">{order.planned_qty.toLocaleString()} unit diproduksi</p>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">Selesai Produksi</span>
+                  <Button size="sm" className="h-8 px-3 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => openQCFor(order)}>
+                    Mulai Inspeksi <ArrowRight size={12} />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
         <div className="flex items-center gap-3 flex-wrap">
           <div className="relative flex-1 min-w-[240px] max-w-sm">
@@ -240,6 +281,7 @@ export function QualityControlClient() {
                     <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
                       <CheckCircle className="w-10 h-10 mx-auto mb-3 opacity-30" />
                       <p className="text-sm">Belum ada inspeksi QC</p>
+                      <p className="text-xs mt-1">Klik &quot;Mulai Inspeksi&quot; pada order di atas</p>
                     </td></tr>
                   ) : filtered.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/60 group">
@@ -275,7 +317,7 @@ export function QualityControlClient() {
         </Card>
       </div>
 
-      {/* New Inspection Modal */}
+      {/* QC Form Modal */}
       {showForm && (
         <>
           <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-50" onClick={() => setShowForm(false)} />
@@ -283,29 +325,31 @@ export function QualityControlClient() {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">New QC Inspection</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">Input hasil pengujian untuk menentukan keputusan supervisor</p>
+                  <h2 className="text-lg font-semibold text-slate-900">QC Inspection</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {selectedOrder ? `${selectedOrder.po_number} · ${selectedOrder.products?.name ?? ''}` : ''}
+                  </p>
                 </div>
                 <button onClick={() => setShowForm(false)} className="p-2 rounded-full hover:bg-slate-100 text-slate-400"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Production Order">
-                    <select value={form.production_order_id} onChange={e => setForm({ ...form, production_order_id: e.target.value })}
-                      className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
-                      <option value="">— Pilih production order —</option>
-                      {orders.filter(o => o.status === 'completed').map(o => <option key={o.id} value={o.id}>{o.po_number}{o.products ? ` · ${o.products.name}` : ''}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Inspector">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Production Order</label>
+                    <div className="h-10 px-3 border border-slate-200 rounded-md text-sm bg-slate-50 flex items-center text-slate-700 font-mono">
+                      {selectedOrder?.po_number ?? '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Inspector</label>
                     <Input value={form.inspector} onChange={e => setForm({ ...form, inspector: e.target.value })} placeholder="Nama inspector" className="h-10 border-slate-200" />
-                  </Field>
+                  </div>
                 </div>
-                <Field label="Tanggal Inspeksi">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Tanggal Inspeksi</label>
                   <Input type="date" value={form.inspection_date} onChange={e => setForm({ ...form, inspection_date: e.target.value })} className="h-10 border-slate-200" />
-                </Field>
+                </div>
 
-                {/* Test Items */}
                 <div className="rounded-xl border border-slate-200 overflow-hidden">
                   <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100">
                     <span className="text-sm font-semibold text-slate-700">Parameter Pengujian</span>
@@ -333,7 +377,6 @@ export function QualityControlClient() {
                       </div>
                     ))}
                   </div>
-                  {/* Computed Result */}
                   <div className="px-4 py-3 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-600">Hasil Otomatis</span>
                     <span className={`px-3 py-1 rounded-full text-xs font-semibold ${RESULT_BADGE[computedResult()]}`}>
@@ -342,12 +385,12 @@ export function QualityControlClient() {
                   </div>
                 </div>
 
-                <Field label="Defect Quantity">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Defect Quantity</label>
                   <Input type="number" value={form.defect_qty} onChange={e => setForm({ ...form, defect_qty: e.target.value })}
                     placeholder="Jumlah unit yang defect" className="h-10 border-slate-200" />
-                </Field>
+                </div>
 
-                {/* Supervisor Decision */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Keputusan Supervisor</label>
                   <div className="grid grid-cols-3 gap-2">
@@ -362,6 +405,20 @@ export function QualityControlClient() {
                         }`}>{d.label}</button>
                     ))}
                   </div>
+                </div>
+
+                {form.supervisor_decision === 'rework' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Catatan Rework</label>
+                    <textarea value={form.rework_notes} onChange={e => setForm({ ...form, rework_notes: e.target.value })}
+                      rows={2} placeholder="Instruksi rework..." className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Catatan Inspeksi</label>
+                  <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2}
+                    placeholder="Temuan, observasi, dll..." className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
                 </div>
 
                 {computedResult() === 'pass' && (
@@ -407,7 +464,6 @@ export function QualityControlClient() {
                   <p className="text-xs text-slate-500">{fmtDate(detail.inspection_date)} · {detail.inspector ?? 'Inspector'}</p>
                 </div>
               </div>
-
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'Defect Qty', value: detail.defect_qty != null ? detail.defect_qty.toLocaleString() : '0' },
@@ -419,7 +475,31 @@ export function QualityControlClient() {
                   </div>
                 ))}
               </div>
-
+              {detail.notes && (
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100">
+                    <span className="text-sm font-semibold text-slate-700">Hasil Pengujian</span>
+                  </div>
+                  <div className="divide-y divide-slate-50">
+                    {['visual', 'weight', 'taste', 'expiry'].map(field => {
+                      const match = detail.notes?.match(new RegExp(`\\[${field.toUpperCase()}:(\\w+)\\]`))
+                      const val = match?.[1]
+                      const labels: Record<string, string> = { visual: 'Visual', weight: 'Berat', taste: 'Rasa', expiry: 'Kadaluarsa' }
+                      return (
+                        <div key={field} className="flex items-center justify-between px-4 py-2.5">
+                          <span className="text-sm text-slate-700">{labels[field]}</span>
+                          {val ? (
+                            <span className={`flex items-center gap-1 text-xs font-medium ${val === 'ok' ? 'text-green-600' : 'text-red-600'}`}>
+                              {val === 'ok' ? <CheckCircle size={13} weight="fill" /> : <XCircle size={13} weight="fill" />}
+                              {val === 'ok' ? 'OK' : 'Fail'}
+                            </span>
+                          ) : <span className="text-slate-300 text-xs">—</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="p-6 border-t border-slate-100 space-y-2">
               {detail.result === 'pass' && (
@@ -435,8 +515,4 @@ export function QualityControlClient() {
       )}
     </ModuleLayout>
   )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{label}</label>{children}</div>
 }

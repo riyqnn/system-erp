@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
       sourceModule: 'INVENTORY',
       sourceRefId: mvCode,
       sourceRefType: 'FG_RECEIPT',
-      actionUrl: `/apps/production/goods-receipt`, // Can link back to their own reports
+      actionUrl: `/production/goods-receipt`,
       createdBy: user.user_id,
     })
 

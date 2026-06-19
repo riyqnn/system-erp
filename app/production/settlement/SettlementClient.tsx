@@ -1,14 +1,20 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, X, Warning, MagnifyingGlass, Receipt, Eye, Lock, ArrowRight } from '@phosphor-icons/react'
+import { X, Warning, MagnifyingGlass, Receipt, Eye, Lock, ArrowRight } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type Order = { id: string; po_number: string; planned_qty: number; status: string; products: { name: string; sku: string } | null }
+type Order = {
+  id: string
+  po_number: string
+  status: string
+  planned_qty: number
+  products: { name: string; sku: string } | null
+}
 type Settlement = {
   id: string
   production_order_id: string | null
@@ -52,7 +58,7 @@ const emptyForm: FormState = {
   standard_cost: '',
 }
 
-const VARIANCE_THRESHOLD = 5 // percent
+const VARIANCE_THRESHOLD = 5
 
 export function SettlementClient() {
   const [rows, setRows] = useState<Settlement[]>([])
@@ -64,6 +70,7 @@ export function SettlementClient() {
 
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm)
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -85,6 +92,19 @@ export function SettlementClient() {
 
   useEffect(() => { load() }, [])
 
+  // Orders eligible for settlement: completed, no existing settlement
+  const pendingSettlement = orders.filter(o =>
+    o.status === 'completed' &&
+    !rows.some(s => s.production_order_id === o.id)
+  )
+
+  function openSettlementFor(order: Order) {
+    setSelectedOrder(order)
+    setForm({ ...emptyForm, production_order_id: order.id })
+    setFormError(null)
+    setShowForm(true)
+  }
+
   const filtered = rows.filter(r => {
     const q = search.toLowerCase()
     const matchSearch = (r.production_orders?.po_number ?? '').toLowerCase().includes(q)
@@ -92,7 +112,6 @@ export function SettlementClient() {
     return matchSearch && matchStatus
   })
 
-  // Compute totals from form
   const actualTotal = (Number(form.material_cost) || 0) + (Number(form.labor_cost) || 0) + (Number(form.overhead_cost) || 0)
   const standard = Number(form.standard_cost) || 0
   const variance = standard > 0 ? actualTotal - standard : 0
@@ -118,6 +137,7 @@ export function SettlementClient() {
       if (!res.ok) { const e = await res.json(); setFormError(e.error || 'Error'); return }
       setShowForm(false)
       setForm(emptyForm)
+      setSelectedOrder(null)
       await load()
     } catch { setFormError('Terjadi kesalahan.')
     } finally { setSaving(false) }
@@ -145,7 +165,6 @@ export function SettlementClient() {
 
   const settledCount = rows.filter(r => r.status === 'settled').length
   const totalCost = rows.filter(r => r.status === 'settled').reduce((s, r) => s + (r.actual_cost ?? 0), 0)
-  const cogm = totalCost
 
   return (
     <ModuleLayout
@@ -158,29 +177,51 @@ export function SettlementClient() {
       ]}
     >
       <div className="space-y-6 max-w-[1400px] mx-auto">
-        <div className="flex items-end justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#dc2626] mb-1">Production · UC-08</p>
-            <ModuleHeader title="Penyelesaian (Order Settlement)" />
-            <p className="text-slate-500 -mt-4 text-sm">
-              {rows.length} records ·{' '}
-              <span className="text-green-600 font-medium">{settledCount} closed</span>
-              {totalCost > 0 && <> · COGM total {rupiah(cogm)}</>}
-            </p>
-          </div>
-          <Button onClick={() => { setForm(emptyForm); setFormError(null); setShowForm(true) }}
-            className="bg-[#dc2626] hover:bg-[#b91c1c] text-white h-10 px-5 gap-2">
-            <Plus className="w-4 h-4" weight="bold" /> New Settlement
-          </Button>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#dc2626] mb-1">Production</p>
+          <ModuleHeader title="Penyelesaian (Order Settlement)" />
+          <p className="text-slate-500 -mt-4 text-sm">
+            {rows.length} records ·{' '}
+            <span className="text-green-600 font-medium">{settledCount} closed</span>
+            {totalCost > 0 && <> · COGM total {rupiah(totalCost)}</>}
+            {pendingSettlement.length > 0 && <> · <span className="text-amber-600 font-medium">{pendingSettlement.length} siap settlement</span></>}
+          </p>
         </div>
 
-        {/* COGM Summary Card */}
+        {/* Pending Settlement section */}
+        {pendingSettlement.length > 0 && (
+          <Card className="border-amber-200 bg-amber-50/40 shadow-sm overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-amber-200 flex items-center gap-2">
+              <Receipt size={16} weight="bold" className="text-amber-600" />
+              <span className="text-sm font-semibold text-amber-800">Production Orders Siap Settlement</span>
+              <span className="ml-auto text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">{pendingSettlement.length} order</span>
+            </div>
+            <div className="divide-y divide-amber-100">
+              {pendingSettlement.map(order => (
+                <div key={order.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-amber-50 transition-colors group">
+                  <span className="font-mono text-xs bg-white border border-amber-200 px-2 py-0.5 rounded text-slate-700">{order.po_number}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-900 truncate">{order.products?.name ?? '—'}</p>
+                    <p className="text-xs text-slate-400">{order.planned_qty.toLocaleString()} unit</p>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">Completed</span>
+                  <Button size="sm" className="h-8 px-3 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => openSettlementFor(order)}>
+                    Buat Settlement <ArrowRight size={12} />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* COGM Summary */}
         {totalCost > 0 && (
           <div className="grid grid-cols-3 gap-4">
             {[
-              { label: 'Total COGM', value: rupiah(cogm), cls: 'text-slate-900' },
+              { label: 'Total COGM', value: rupiah(totalCost), cls: 'text-slate-900' },
               { label: 'Orders Closed', value: settledCount, cls: 'text-green-600' },
-              { label: 'Rata-rata per Order', value: settledCount > 0 ? rupiah(cogm / settledCount) : '—', cls: 'text-slate-700' },
+              { label: 'Rata-rata per Order', value: settledCount > 0 ? rupiah(totalCost / settledCount) : '—', cls: 'text-slate-700' },
             ].map(s => (
               <Card key={s.label} className="border-slate-200 bg-white">
                 <CardContent className="p-4">
@@ -233,6 +274,7 @@ export function SettlementClient() {
                     <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
                       <Receipt className="w-10 h-10 mx-auto mb-3 opacity-30" />
                       <p className="text-sm">Belum ada data settlement</p>
+                      <p className="text-xs mt-1">Settlement muncul otomatis dari orders yang completed</p>
                     </td></tr>
                   ) : filtered.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/60 group">
@@ -267,7 +309,7 @@ export function SettlementClient() {
         </Card>
       </div>
 
-      {/* New Settlement Modal */}
+      {/* Settlement Form Modal */}
       {showForm && (
         <>
           <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-50" onClick={() => setShowForm(false)} />
@@ -275,41 +317,44 @@ export function SettlementClient() {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">New Order Settlement</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">Hitung actual cost vs standard cost</p>
+                  <h2 className="text-lg font-semibold text-slate-900">Order Settlement</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {selectedOrder ? `${selectedOrder.po_number} · ${selectedOrder.products?.name ?? ''}` : ''}
+                    {' · Hitung actual cost vs standard cost'}
+                  </p>
                 </div>
                 <button onClick={() => setShowForm(false)} className="p-2 rounded-full hover:bg-slate-100 text-slate-400"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Production Order">
-                    <select value={form.production_order_id} onChange={e => setForm({ ...form, production_order_id: e.target.value })}
-                      className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
-                      <option value="">— Pilih production order —</option>
-                      {orders.filter(o => o.status === 'completed').map(o => <option key={o.id} value={o.id}>{o.po_number}{o.products ? ` · ${o.products.name}` : ''}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Settlement Date">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Production Order</label>
+                    <div className="h-10 px-3 border border-slate-200 rounded-md text-sm bg-slate-50 flex items-center text-slate-700 font-mono">
+                      {selectedOrder?.po_number ?? '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Settlement Date</label>
                     <Input type="date" value={form.settlement_date} onChange={e => setForm({ ...form, settlement_date: e.target.value })} className="h-10 border-slate-200" />
-                  </Field>
+                  </div>
                 </div>
 
-                {/* Cost Breakdown */}
                 <div className="rounded-xl border border-slate-200 overflow-hidden">
                   <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100">
                     <span className="text-sm font-semibold text-slate-700">Rincian Biaya Aktual</span>
                   </div>
                   <div className="p-4 space-y-3">
                     <div className="grid grid-cols-3 gap-3">
-                      <Field label="Material Cost (Rp)">
-                        <Input type="number" value={form.material_cost} onChange={e => setForm({ ...form, material_cost: e.target.value })} placeholder="0" className="h-10 border-slate-200 text-sm" />
-                      </Field>
-                      <Field label="Labor Cost (Rp)">
-                        <Input type="number" value={form.labor_cost} onChange={e => setForm({ ...form, labor_cost: e.target.value })} placeholder="0" className="h-10 border-slate-200 text-sm" />
-                      </Field>
-                      <Field label="Overhead Cost (Rp)">
-                        <Input type="number" value={form.overhead_cost} onChange={e => setForm({ ...form, overhead_cost: e.target.value })} placeholder="0" className="h-10 border-slate-200 text-sm" />
-                      </Field>
+                      {[
+                        { label: 'Material Cost (Rp)', key: 'material_cost' as const },
+                        { label: 'Labor Cost (Rp)', key: 'labor_cost' as const },
+                        { label: 'Overhead Cost (Rp)', key: 'overhead_cost' as const },
+                      ].map(f => (
+                        <div key={f.key}>
+                          <label className="block text-sm font-medium text-slate-700 mb-1.5">{f.label}</label>
+                          <Input type="number" value={form[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} placeholder="0" className="h-10 border-slate-200 text-sm" />
+                        </div>
+                      ))}
                     </div>
                     <div className="flex justify-between items-center bg-slate-50 rounded-lg px-4 py-3 border border-slate-100">
                       <span className="text-sm font-semibold text-slate-700">Total Actual Cost</span>
@@ -318,15 +363,15 @@ export function SettlementClient() {
                   </div>
                 </div>
 
-                {/* Variance Analysis */}
                 <div className="rounded-xl border border-slate-200 overflow-hidden">
                   <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100">
                     <span className="text-sm font-semibold text-slate-700">Variance Analysis</span>
                   </div>
                   <div className="p-4 space-y-3">
-                    <Field label="Standard Cost (Rp)">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Standard Cost (Rp)</label>
                       <Input type="number" value={form.standard_cost} onChange={e => setForm({ ...form, standard_cost: e.target.value })} placeholder="Masukkan standard cost" className="h-10 border-slate-200" />
-                    </Field>
+                    </div>
                     {standard > 0 && actualTotal > 0 && (
                       <div className="space-y-2">
                         <div className="flex justify-between text-sm">
@@ -336,10 +381,8 @@ export function SettlementClient() {
                           </span>
                         </div>
                         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${overThreshold ? 'bg-red-500' : Math.abs(variancePct) > 2 ? 'bg-amber-500' : 'bg-green-500'}`}
-                            style={{ width: `${Math.min(100, Math.abs(variancePct) * 5)}%` }}
-                          />
+                          <div className={`h-full rounded-full ${overThreshold ? 'bg-red-500' : Math.abs(variancePct) > 2 ? 'bg-amber-500' : 'bg-green-500'}`}
+                            style={{ width: `${Math.min(100, Math.abs(variancePct) * 5)}%` }} />
                         </div>
                         {overThreshold && (
                           <div className="flex items-center gap-2 bg-red-50 rounded-lg px-3 py-2 text-xs text-red-700 border border-red-200">
@@ -350,6 +393,21 @@ export function SettlementClient() {
                       </div>
                     )}
                   </div>
+                </div>
+
+                {overThreshold && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Root Cause Analysis</label>
+                    <textarea value={form.root_cause} onChange={e => setForm({ ...form, root_cause: e.target.value })}
+                      rows={2} placeholder="Jelaskan penyebab variance yang tinggi..."
+                      className="w-full px-3 py-2 border border-red-200 rounded-md text-sm bg-red-50/30 resize-none" />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Notes</label>
+                  <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2}
+                    placeholder="Catatan settlement..." className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
                 </div>
 
                 <div className="bg-blue-50 rounded-lg px-4 py-3 text-xs text-blue-700 border border-blue-200">
@@ -396,9 +454,33 @@ export function SettlementClient() {
                   </div>
                 ))}
               </div>
-
-
-              {/* Variance */}
+              {detail.notes && (
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100">
+                    <span className="text-sm font-semibold text-slate-700">Rincian Biaya</span>
+                  </div>
+                  <div className="divide-y divide-slate-50">
+                    {[
+                      { label: 'Material', key: 'MAT' },
+                      { label: 'Labor', key: 'LAB' },
+                      { label: 'Overhead', key: 'OVH' },
+                    ].map(({ label, key }) => {
+                      const match = detail.notes?.match(new RegExp(`\\[${key}:(\\d+)\\]`))
+                      const val = match ? Number(match[1]) : null
+                      return (
+                        <div key={key} className="flex justify-between px-4 py-2.5">
+                          <span className="text-sm text-slate-600">{label}</span>
+                          <span className="text-sm font-medium text-slate-900 tabular-nums">{rupiah(val)}</span>
+                        </div>
+                      )
+                    })}
+                    <div className="flex justify-between px-4 py-2.5 bg-slate-50">
+                      <span className="text-sm font-semibold text-slate-700">Total</span>
+                      <span className="text-sm font-bold text-slate-900 tabular-nums">{rupiah(detail.actual_cost)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
               {detail.variance != null && (
                 <div className={`rounded-xl p-4 border ${detail.variance > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
                   <div className="flex items-center justify-between">
@@ -409,8 +491,12 @@ export function SettlementClient() {
                   </div>
                 </div>
               )}
-
-              {/* COGM info */}
+              {detail.notes?.includes('[ROOT_CAUSE]') && (
+                <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
+                  <p className="text-xs font-semibold text-amber-700 mb-1">Root Cause Analysis</p>
+                  <p className="text-sm text-amber-800">{detail.notes.match(/\[ROOT_CAUSE\] ([^\[]*)/)?.[1]?.trim()}</p>
+                </div>
+              )}
               <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                 <p className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1.5">
                   <ArrowRight size={12} className="text-[#dc2626]" /> COGM ke Finance
@@ -436,8 +522,4 @@ export function SettlementClient() {
       )}
     </ModuleLayout>
   )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{label}</label>{children}</div>
 }

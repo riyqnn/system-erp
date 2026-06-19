@@ -1,17 +1,22 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, X, Warning, MagnifyingGlass, Package, Eye, DownloadSimple } from '@phosphor-icons/react'
+import { X, Warning, MagnifyingGlass, Package, Eye, DownloadSimple, ArrowRight } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type Order = { id: string; po_number: string; product_id: string | null; status: string }
-type BomDetail = { id: string; material_id: string | null; quantity: number; unit: string; products: { id: string; name: string; sku: string } | null }
-type Bom = { id: string; product_id: string | null; version: string; status: string; production_bom_details?: BomDetail[] }
-
+type Order = {
+  id: string
+  po_number: string
+  product_id: string | null
+  bom_id: string | null
+  status: string
+  planned_qty: number
+  products: { name: string; sku: string } | null
+}
 type GoodsIssue = {
   id: string
   production_order_id: string | null
@@ -44,7 +49,6 @@ const emptyForm: FormState = { production_order_id: '', issue_date: new Date().t
 export function GoodsIssueClient() {
   const [rows, setRows] = useState<GoodsIssue[]>([])
   const [orders, setOrders] = useState<Order[]>([])
-  const [boms, setBoms] = useState<Bom[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
@@ -52,6 +56,7 @@ export function GoodsIssueClient() {
 
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm)
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [materialLines, setMaterialLines] = useState<MaterialLine[]>([])
   const [loadingBom, setLoadingBom] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -62,41 +67,49 @@ export function GoodsIssueClient() {
   const load = async () => {
     setLoading(true)
     try {
-      const [giRes, ordRes, bomRes] = await Promise.all([
+      const [giRes, ordRes] = await Promise.all([
         fetch('/api/production/good-issue'),
         fetch('/api/production/orders'),
-        fetch('/api/production/bom'),
       ])
       if (giRes.ok) setRows(await giRes.json())
       if (ordRes.ok) setOrders(await ordRes.json())
-      if (bomRes.ok) setBoms(await bomRes.json())
     } catch { setError('Gagal memuat data') }
     finally { setLoading(false) }
   }
 
   useEffect(() => { load() }, [])
 
-  async function onOrderChange(orderId: string) {
-    setForm(f => ({ ...f, production_order_id: orderId }))
+  // Orders eligible for GI: in_progress or mrp_ready, no existing GI yet
+  const pendingGI = orders.filter(o =>
+    (o.status === 'in_progress' || o.status === 'mrp_ready') &&
+    !rows.some(gi => gi.production_order_id === o.id)
+  )
+
+  async function openGIFor(order: Order) {
+    setSelectedOrder(order)
+    setForm({ ...emptyForm, production_order_id: order.id })
     setMaterialLines([])
-    if (!orderId) return
+    setFormError(null)
+    setShowForm(true)
+
     setLoadingBom(true)
     try {
-      const order = orders.find(o => o.id === orderId)
-      if (!order?.product_id) { setLoadingBom(false); return }
-      const bom = boms.find(b => b.product_id === order.product_id && b.status === 'active')
-      if (!bom) { setLoadingBom(false); return }
-      const res = await fetch(`/api/production/bom/${bom.id}`)
+      const params = new URLSearchParams({ target_qty: String(order.planned_qty) })
+      if (order.bom_id) params.set('bom_id', order.bom_id)
+      else if (order.product_id) params.set('product_id', order.product_id)
+      else return
+
+      const res = await fetch(`/api/production/mrp?${params}`)
       if (res.ok) {
-        const data: Bom = await res.json()
-        if (data.production_bom_details) {
-          setMaterialLines(data.production_bom_details.map(d => ({
-            product_id: d.material_id ?? '',
-            product_name: d.products?.name ?? '—',
-            sku: d.products?.sku ?? '',
-            unit: d.unit,
-            qty_required: d.quantity,
-            qty_actual: String(d.quantity),
+        const data = await res.json()
+        if (data.bom_materials?.length > 0) {
+          setMaterialLines(data.bom_materials.map((m) => ({
+            product_id: m.kode_bahan,
+            product_name: m.nama_material,
+            sku: m.kode_bahan,
+            unit: m.satuan,
+            qty_required: m.kebutuhan_total,
+            qty_actual: String(m.kebutuhan_total),
           })))
         }
       }
@@ -137,13 +150,13 @@ export function GoodsIssueClient() {
       setShowForm(false)
       setForm(emptyForm)
       setMaterialLines([])
+      setSelectedOrder(null)
       await load()
     } catch { setFormError('Terjadi kesalahan.')
     } finally { setSaving(false) }
   }
 
   const issuedCount = rows.filter(r => r.status === 'issued').length
-  const draftCount = rows.filter(r => r.status === 'draft').length
 
   return (
     <ModuleLayout
@@ -156,22 +169,46 @@ export function GoodsIssueClient() {
       ]}
     >
       <div className="space-y-6 max-w-[1400px] mx-auto">
-        <div className="flex items-end justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#dc2626] mb-1">Production · UC-05</p>
-            <ModuleHeader title="Goods Issue (Keluar Barang)" />
-            <p className="text-slate-500 -mt-4 text-sm">
-              {rows.length} records ·{' '}
-              <span className="text-green-600 font-medium">{issuedCount} issued</span>
-              {draftCount > 0 && <> · <span className="text-slate-500">{draftCount} draft</span></>}
-            </p>
-          </div>
-          <Button onClick={() => { setForm(emptyForm); setMaterialLines([]); setFormError(null); setShowForm(true) }}
-            className="bg-[#dc2626] hover:bg-[#b91c1c] text-white h-10 px-5 gap-2">
-            <Plus className="w-4 h-4" weight="bold" /> New Goods Issue
-          </Button>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#dc2626] mb-1">Production</p>
+          <ModuleHeader title="Goods Issue (Keluar Barang)" />
+          <p className="text-slate-500 -mt-4 text-sm">
+            {rows.length} records ·{' '}
+            <span className="text-green-600 font-medium">{issuedCount} issued</span>
+            {pendingGI.length > 0 && <> · <span className="text-amber-600 font-medium">{pendingGI.length} menunggu GI</span></>}
+          </p>
         </div>
 
+        {/* Pending GI section */}
+        {pendingGI.length > 0 && (
+          <Card className="border-amber-200 bg-amber-50/40 shadow-sm overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-amber-200 flex items-center gap-2">
+              <Package size={16} weight="bold" className="text-amber-600" />
+              <span className="text-sm font-semibold text-amber-800">Production Orders Siap Goods Issue</span>
+              <span className="ml-auto text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">{pendingGI.length} order</span>
+            </div>
+            <div className="divide-y divide-amber-100">
+              {pendingGI.map(order => (
+                <div key={order.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-amber-50 transition-colors group">
+                  <span className="font-mono text-xs bg-white border border-amber-200 px-2 py-0.5 rounded text-slate-700">{order.po_number}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-900 truncate">{order.products?.name ?? '—'}</p>
+                    <p className="text-xs text-slate-400">{order.planned_qty.toLocaleString()} unit</p>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${order.status === 'in_progress' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                    {order.status === 'in_progress' ? 'In Progress' : 'Siap MRP'}
+                  </span>
+                  <Button size="sm" className="h-8 px-3 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => openGIFor(order)}>
+                    Issue Goods <ArrowRight size={12} />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* History section */}
         <div className="flex items-center gap-3 flex-wrap">
           <div className="relative flex-1 min-w-[240px] max-w-sm">
             <MagnifyingGlass className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -213,6 +250,7 @@ export function GoodsIssueClient() {
                     <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
                       <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
                       <p className="text-sm font-medium">Belum ada goods issue</p>
+                      <p className="text-xs mt-1">Klik &quot;Issue Goods&quot; pada order di atas untuk mulai</p>
                     </td></tr>
                   ) : filtered.map(r => (
                     <tr key={r.id} className="hover:bg-slate-50/60">
@@ -245,7 +283,7 @@ export function GoodsIssueClient() {
         </Card>
       </div>
 
-      {/* New GI Modal */}
+      {/* GI Form Modal */}
       {showForm && (
         <>
           <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-50" onClick={() => setShowForm(false)} />
@@ -253,27 +291,28 @@ export function GoodsIssueClient() {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">New Goods Issue</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">Material Issue Slip akan dibuat otomatis dari BOM</p>
+                  <h2 className="text-lg font-semibold text-slate-900">Issue Goods</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {selectedOrder ? `${selectedOrder.po_number} · ${selectedOrder.products?.name ?? ''}` : ''}
+                    {' · Material diload otomatis dari BOM'}
+                  </p>
                 </div>
                 <button onClick={() => setShowForm(false)} className="p-2 rounded-full hover:bg-slate-100 text-slate-400"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Production Order">
-                    <select value={form.production_order_id}
-                      onChange={e => onOrderChange(e.target.value)}
-                      className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
-                      <option value="">— Pilih production order —</option>
-                      {orders.filter(o => o.status === 'in_progress').map(o => <option key={o.id} value={o.id}>{o.po_number}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Tanggal Issue">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Production Order</label>
+                    <div className="h-10 px-3 border border-slate-200 rounded-md text-sm bg-slate-50 flex items-center text-slate-700 font-mono">
+                      {selectedOrder?.po_number ?? '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Tanggal Issue</label>
                     <Input type="date" value={form.issue_date} onChange={e => setForm({ ...form, issue_date: e.target.value })} className="h-10 border-slate-200" />
-                  </Field>
+                  </div>
                 </div>
 
-                {/* Material Lines from BOM */}
                 <div className="rounded-xl border border-slate-200 overflow-hidden">
                   <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -284,10 +323,7 @@ export function GoodsIssueClient() {
                   </div>
                   {materialLines.length === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-slate-400">
-                      {form.production_order_id
-                        ? loadingBom ? 'Memuat BOM…'
-                        : 'Tidak ada BOM aktif untuk produk ini. Tambah material manual di bawah.'
-                        : 'Pilih production order untuk otomatis memuat material dari BOM'}
+                      {loadingBom ? 'Memuat BOM…' : 'BOM tidak ditemukan untuk produk ini'}
                     </div>
                   ) : (
                     <div>
@@ -321,7 +357,6 @@ export function GoodsIssueClient() {
                           </div>
                         ))}
                       </div>
-                      {/* Discrepancy check */}
                       {materialLines.some(l => Number(l.qty_actual) !== l.qty_required) && (
                         <div className="mx-4 mb-3 mt-2 bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-700 border border-amber-200">
                           Ada selisih quantity. Sistem akan mencatat sebagai rekonsiliasi.
@@ -331,14 +366,21 @@ export function GoodsIssueClient() {
                   )}
                 </div>
 
-                <Field label="Status">
-                  <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}
-                    className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
-                    <option value="draft">Draft</option>
-                    <option value="issued">Issued (langsung keluar)</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
-                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Status</label>
+                    <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}
+                      className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
+                      <option value="issued">Issued (langsung keluar)</option>
+                      <option value="draft">Draft</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Notes</label>
+                    <Input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
+                      placeholder="Catatan tambahan..." className="h-10 border-slate-200" />
+                  </div>
+                </div>
                 {formError && <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"><Warning className="w-4 h-4" weight="fill" /> {formError}</div>}
               </div>
               <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex gap-3">
@@ -352,7 +394,7 @@ export function GoodsIssueClient() {
         </>
       )}
 
-      {/* Material Issue Slip (MIS) */}
+      {/* Material Issue Slip */}
       {showMIS && (
         <>
           <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-50" onClick={() => setShowMIS(null)} />
@@ -382,8 +424,7 @@ export function GoodsIssueClient() {
               </div>
               <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex gap-3">
                 <Button variant="outline" className="flex-1 h-10 border-slate-200" onClick={() => setShowMIS(null)}>Tutup</Button>
-                <Button className="flex-1 h-10 bg-[#dc2626] hover:bg-[#b91c1c] text-white gap-2"
-                  onClick={() => window.print()}>
+                <Button className="flex-1 h-10 bg-[#dc2626] hover:bg-[#b91c1c] text-white gap-2" onClick={() => window.print()}>
                   <DownloadSimple className="w-4 h-4" /> Cetak MIS
                 </Button>
               </div>
@@ -393,8 +434,4 @@ export function GoodsIssueClient() {
       )}
     </ModuleLayout>
   )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="block text-sm font-medium text-slate-700 mb-1.5">{label}</label>{children}</div>
 }
