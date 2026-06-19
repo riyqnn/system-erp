@@ -11,119 +11,218 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+function normalizeStatus(value?: string | null) {
+  const status = String(value || '').toUpperCase()
+
+  if (['DRAFT'].includes(status)) return 'DRAFT'
+  if (['PENDING', 'PENDING_APPROVAL', 'WAITING_APPROVAL'].includes(status)) {
+    return 'PENDING_APPROVAL'
+  }
+  if (['APPROVED'].includes(status)) return 'APPROVED'
+  if (['RELEASED', 'ISSUED', 'SENT'].includes(status)) return 'RELEASED'
+  if (['REJECTED', 'CANCELLED'].includes(status)) return 'REJECTED'
+
+  return status || 'DRAFT'
+}
+
+function denormalizeStatus(value?: string | null) {
+  const status = String(value || '').toUpperCase()
+
+  if (status === 'PENDING_APPROVAL') return 'PENDING'
+  if (status === 'RELEASED') return 'RELEASED'
+  if (status === 'APPROVED') return 'APPROVED'
+  if (status === 'REJECTED') return 'REJECTED'
+  if (status === 'CANCELLED') return 'CANCELLED'
+
+  return status || 'DRAFT'
+}
+
 export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from('purchasing_purchase_orders')
-      .select(`
-        id,
-        po_number,
-        po_date,
-        expected_delivery_date,
-        subtotal,
-        tax_amount,
-        total_value,
-        status,
-        approval_level,
-        created_by_name,
-        approved_by_name,
-        approved_at,
-        approval_notes,
-        rejection_reason,
-        released_at,
-        purchasing_purchase_requisitions (
-          id,
-          pr_number,
-          request_date,
-          requested_by_name,
-          department
-        ),
-        ms_suppliers (
-          supplier_id,
-          supplier_code,
-          supplier_name,
-          contact,
-          address
-        ),
-        purchasing_purchase_order_items (
-          id,
-          qty,
-          unit,
-          unit_price,
-          subtotal,
-          products (
-            id,
-            sku,
-            name,
-            category,
-            unit
-          )
+    const [
+      poResult,
+      poDetailResult,
+      prResult,
+      quotationResult,
+      supplierResult,
+      productResult,
+      userResult,
+    ] = await Promise.all([
+      supabase
+        .from('tr_purchase_order')
+        .select(
+          'po_id, pr_id, supplier_id, quotation_id, approved_by, total_value, status, rejection_reason, created_at, po_release_date'
         )
-      `)
-      .order('po_date', { ascending: false })
+        .order('created_at', { ascending: false }),
 
-    if (error) {
+      supabase
+        .from('tr_po_detail')
+        .select('po_detail_id, po_id, product_id, qty_order, unit_price, subtotal'),
+
+      supabase
+        .from('tr_purchase_requisition')
+        .select('pr_id, requested_by, request_date, status, notes, created_at'),
+
+      supabase
+        .from('tr_price_quotation')
+        .select(
+          'quotation_id, supplier_id, product_id, proposed_price, accepted_price, final_price, qty_requested, status, quotation_date, expiry_date, notes'
+        ),
+
+      supabase
+        .from('ms_supplier')
+        .select('supplier_id, supplier_name, contact, address, lead_time, top, status'),
+
+      supabase
+        .from('ms_product')
+        .select('product_id, product_name, category, uom'),
+
+      supabase
+        .from('ms_user')
+        .select('user_id, username, full_name, email, role'),
+    ])
+
+    const errors = [
+      poResult.error,
+      poDetailResult.error,
+      prResult.error,
+      quotationResult.error,
+      supplierResult.error,
+      productResult.error,
+      userResult.error,
+    ].filter(Boolean)
+
+    if (errors.length > 0) {
       return NextResponse.json(
         {
           message: 'Failed to fetch purchase orders',
-          error: error.message,
+          error: errors[0]?.message,
         },
         { status: 500 }
       )
     }
 
-    const purchaseOrders = (data || []).map((item: any) => {
-      const items = item.purchasing_purchase_order_items || []
+    const purchaseOrders = poResult.data || []
+    const poDetails = poDetailResult.data || []
+    const purchaseRequisitions = prResult.data || []
+    const quotations = quotationResult.data || []
+    const suppliers = supplierResult.data || []
+    const products = productResult.data || []
+    const users = userResult.data || []
+
+    const prMap = new Map(purchaseRequisitions.map((pr: any) => [pr.pr_id, pr]))
+    const quotationMap = new Map(
+      quotations.map((quotation: any) => [quotation.quotation_id, quotation])
+    )
+    const supplierMap = new Map(
+      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
+    )
+    const productMap = new Map(
+      products.map((product: any) => [product.product_id, product])
+    )
+    const userMap = new Map(users.map((user: any) => [user.user_id, user]))
+
+    const detailsByPO = new Map<string, any[]>()
+
+    poDetails.forEach((detail: any) => {
+      const poId = String(detail.po_id || '')
+      const currentDetails = detailsByPO.get(poId) || []
+
+      currentDetails.push(detail)
+      detailsByPO.set(poId, currentDetails)
+    })
+
+    const data = purchaseOrders.map((po: any) => {
+      const pr = prMap.get(po.pr_id)
+      const quotation = quotationMap.get(po.quotation_id)
+      const supplier = supplierMap.get(po.supplier_id)
+      const approver = userMap.get(po.approved_by)
+      const requester = pr ? userMap.get(pr.requested_by) : null
+
+      const rawItems = detailsByPO.get(po.po_id) || []
+
+      const items = rawItems.map((item: any) => {
+        const product = productMap.get(item.product_id)
+
+        return {
+          id: String(item.po_detail_id),
+          productCode: product?.product_id || item.product_id || '-',
+          productName: product?.product_name || '-',
+          category: product?.category || '-',
+          qty: Number(item.qty_order || 0),
+          unit: product?.uom || '-',
+          unitPrice: Number(item.unit_price || 0),
+          subtotal: Number(item.subtotal || 0),
+        }
+      })
+
       const firstItem = items[0]
+      const subtotal = items.reduce(
+        (total: number, item: any) => total + Number(item.subtotal || 0),
+        0
+      )
+
+      const totalValue = Number(po.total_value || subtotal || 0)
+      const taxAmount = Math.max(totalValue - subtotal, 0)
 
       return {
-        id: item.id,
-        poNo: item.po_number,
-        poDate: item.po_date,
-        expectedDeliveryDate: item.expected_delivery_date,
-        supplierId: item.ms_suppliers?.supplier_code || '-',
-        supplierName: item.ms_suppliers?.supplier_name || '-',
-        supplierContact: item.ms_suppliers?.contact || '-',
-        supplierAddress: item.ms_suppliers?.address || '-',
-        prNo: item.purchasing_purchase_requisitions?.pr_number || '-',
+        id: po.po_id,
+        poNo: po.po_id,
+        poDate: po.created_at,
+        expectedDeliveryDate: null,
+
+        supplierId: supplier?.supplier_id || po.supplier_id || '-',
+        supplierName: supplier?.supplier_name || '-',
+        supplierContact: supplier?.contact || '-',
+        supplierAddress: supplier?.address || '-',
+
+        prNo: pr?.pr_id || po.pr_id || '-',
+        quotationNo: quotation?.quotation_id || po.quotation_id || '-',
         requestedBy:
-          item.purchasing_purchase_requisitions?.requested_by_name || '-',
-        department: item.purchasing_purchase_requisitions?.department || '-',
-        subtotal: item.subtotal || 0,
-        taxAmount: item.tax_amount || 0,
-        totalValue: item.total_value || 0,
-        status: item.status,
-        approvalLevel: item.approval_level || '-',
-        approver: item.approved_by_name || '-',
-        approvedAt: item.approved_at,
-        approvalNotes: item.approval_notes || '-',
-        rejectionReason: item.rejection_reason || '-',
-        releasedAt: item.released_at,
-        createdBy: item.created_by_name || '-',
+          requester?.full_name || requester?.username || 'Inventory Staff',
+        department: requester?.role || 'Inventory',
 
-        productCode: firstItem?.products?.sku || '-',
-        productName: firstItem?.products?.name || '-',
-        category: firstItem?.products?.category || '-',
-        qty: firstItem?.qty || 0,
-        unit: firstItem?.unit || firstItem?.products?.unit || '-',
-        unitPrice: firstItem?.unit_price || 0,
+        subtotal,
+        taxAmount,
+        totalValue,
+        status: normalizeStatus(po.status),
+        approvalLevel: 'MANAGER_PURCHASING',
+        approver: approver?.full_name || approver?.username || '-',
+        approvedAt:
+          normalizeStatus(po.status) === 'APPROVED' ||
+          normalizeStatus(po.status) === 'RELEASED'
+            ? po.po_release_date || po.created_at
+            : null,
+        approvalNotes: '-',
+        rejectionReason: po.rejection_reason || '-',
+        releasedAt: po.po_release_date || null,
+        createdBy: 'Purchasing Staff',
 
-        items: items.map((poItem: any) => ({
-          id: poItem.id,
-          productCode: poItem.products?.sku || '-',
-          productName: poItem.products?.name || '-',
-          category: poItem.products?.category || '-',
-          qty: poItem.qty || 0,
-          unit: poItem.unit || poItem.products?.unit || '-',
-          unitPrice: poItem.unit_price || 0,
-          subtotal: poItem.subtotal || 0,
-        })),
+        productCode: firstItem?.productCode || quotation?.product_id || '-',
+        productName:
+          firstItem?.productName ||
+          productMap.get(quotation?.product_id)?.product_name ||
+          '-',
+        category:
+          firstItem?.category ||
+          productMap.get(quotation?.product_id)?.category ||
+          '-',
+        qty: firstItem?.qty || Number(quotation?.qty_requested || 0),
+        unit:
+          firstItem?.unit ||
+          productMap.get(quotation?.product_id)?.uom ||
+          '-',
+        unitPrice:
+          firstItem?.unitPrice ||
+          Number(quotation?.final_price || quotation?.accepted_price || 0),
+
+        items,
       }
     })
 
     return NextResponse.json({
       message: 'Purchase orders fetched successfully',
-      data: purchaseOrders,
+      data,
     })
   } catch (error) {
     return NextResponse.json(
@@ -143,35 +242,49 @@ export async function POST(request: Request) {
     const {
       poNumber,
       prNumber,
+      quotationNumber,
       supplierCode,
       poDate,
-      expectedDeliveryDate,
       status,
-      createdByName,
       items,
     } = body
 
-    if (!poNumber || !supplierCode || !poDate || !items?.length) {
+    if (!poNumber || !supplierCode || !items?.length) {
       return NextResponse.json(
         {
-          message:
-            'PO number, supplier code, PO date, and items are required',
+          message: 'PO number, supplier code, and items are required',
         },
         { status: 400 }
       )
     }
 
+    const { data: existingPO } = await supabase
+      .from('tr_purchase_order')
+      .select('po_id')
+      .eq('po_id', poNumber)
+      .maybeSingle()
+
+    if (existingPO) {
+      return NextResponse.json(
+        {
+          message: 'PO number already exists',
+        },
+        { status: 409 }
+      )
+    }
+
     const { data: supplierData, error: supplierError } = await supabase
-      .from('ms_suppliers')
+      .from('ms_supplier')
       .select('supplier_id')
-      .eq('supplier_code', supplierCode)
-      .single()
+      .eq('supplier_id', supplierCode)
+      .maybeSingle()
 
     if (supplierError || !supplierData) {
       return NextResponse.json(
         {
           message: 'Supplier not found',
-          error: supplierError?.message,
+          error:
+            supplierError?.message || `Supplier ${supplierCode} does not exist`,
         },
         { status: 404 }
       )
@@ -181,12 +294,29 @@ export async function POST(request: Request) {
 
     if (prNumber) {
       const { data: prData } = await supabase
-        .from('purchasing_purchase_requisitions')
-        .select('id')
-        .eq('pr_number', prNumber)
-        .single()
+        .from('tr_purchase_requisition')
+        .select('pr_id')
+        .eq('pr_id', prNumber)
+        .maybeSingle()
 
-      prId = prData?.id || null
+      prId = prData?.pr_id || null
+    }
+
+    let quotationId = quotationNumber || null
+
+    if (!quotationId) {
+      const firstItem = items[0]
+
+      const { data: quotationData } = await supabase
+        .from('tr_price_quotation')
+        .select('quotation_id')
+        .eq('supplier_id', supplierCode)
+        .eq('product_id', firstItem.productSku || firstItem.productCode)
+        .order('quotation_date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      quotationId = quotationData?.quotation_id || null
     }
 
     const subtotal = items.reduce(
@@ -199,21 +329,23 @@ export async function POST(request: Request) {
     const totalValue = subtotal + taxAmount
 
     const { data: poData, error: poError } = await supabase
-      .from('purchasing_purchase_orders')
+      .from('tr_purchase_order')
       .insert({
-        po_number: poNumber,
+        po_id: poNumber,
         pr_id: prId,
-        supplier_id: supplierData.supplier_id,
-        po_date: poDate,
-        expected_delivery_date: expectedDeliveryDate || null,
-        subtotal,
-        tax_amount: taxAmount,
+        supplier_id: supplierCode,
+        quotation_id: quotationId,
+        approved_by: null,
         total_value: totalValue,
-        status: status || 'DRAFT',
-        approval_level: 'MANAGER_PURCHASING',
-        created_by_name: createdByName || 'Purchasing Staff',
+        status: denormalizeStatus(status || 'DRAFT'),
+        rejection_reason: null,
+        created_at: poDate || new Date().toISOString(),
+        po_release_date:
+          normalizeStatus(status) === 'RELEASED'
+            ? new Date().toISOString()
+            : null,
       })
-      .select('id')
+      .select('po_id')
       .single()
 
     if (poError || !poData) {
@@ -229,17 +361,20 @@ export async function POST(request: Request) {
     const poItemsPayload = []
 
     for (const item of items) {
+      const productCode = item.productSku || item.productCode
+
       const { data: productData, error: productError } = await supabase
-        .from('products')
-        .select('id, unit')
-        .eq('sku', item.productSku)
-        .single()
+        .from('ms_product')
+        .select('product_id, uom')
+        .eq('product_id', productCode)
+        .maybeSingle()
 
       if (productError || !productData) {
         return NextResponse.json(
           {
-            message: `Product SKU ${item.productSku} not found`,
-            error: productError?.message,
+            message: `Product SKU ${productCode} not found`,
+            error:
+              productError?.message || `Product ${productCode} does not exist`,
           },
           { status: 404 }
         )
@@ -249,17 +384,16 @@ export async function POST(request: Request) {
       const unitPrice = Number(item.unitPrice || 0)
 
       poItemsPayload.push({
-        po_id: poData.id,
-        product_id: productData.id,
-        qty,
-        unit: item.unit || productData.unit || '-',
+        po_id: poData.po_id,
+        product_id: productData.product_id,
+        qty_order: qty,
         unit_price: unitPrice,
         subtotal: qty * unitPrice,
       })
     }
 
     const { error: poItemsError } = await supabase
-      .from('purchasing_purchase_order_items')
+      .from('tr_po_detail')
       .insert(poItemsPayload)
 
     if (poItemsError) {
@@ -275,7 +409,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       message: 'Purchase order saved successfully',
       data: {
-        id: poData.id,
+        id: poData.po_id,
         poNumber,
         subtotal,
         taxAmount,

@@ -11,32 +11,45 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+function normalizeStatus(value?: string | number | null) {
+  const status = String(value || '').toUpperCase()
+
+  if (status === '1' || status === 'ACTIVE') return 'ACTIVE'
+  if (status === '0' || status === 'INACTIVE') return 'INACTIVE'
+
+  return status || 'ACTIVE'
+}
+
 export async function GET() {
   try {
     const { data, error } = await supabase
-      .from('purchasing_supplier_products')
+      .from('ms_supplier_price')
       .select(`
-        id,
-        estimated_price,
-        lead_time_days,
-        payment_term,
-        status,
-        ms_suppliers (
+        supplier_price_id,
+        supplier_id,
+        product_id,
+        unit_price_estimate,
+        uom,
+        ms_supplier (
           supplier_id,
-          supplier_code,
           supplier_name,
-          contact,
-          address
-        ),
-        products (
-          id,
-          sku,
-          name,
           category,
-          unit
+          contact,
+          address,
+          lead_time,
+          top,
+          status,
+          created_at
+        ),
+        ms_product (
+          product_id,
+          product_name,
+          category,
+          uom,
+          status
         )
       `)
-      .order('created_at', { ascending: false })
+      .order('supplier_price_id', { ascending: false })
 
     if (error) {
       return NextResponse.json(
@@ -49,19 +62,19 @@ export async function GET() {
     }
 
     const suppliers = (data || []).map((item: any) => ({
-      id: item.id,
-      supplierId: item.ms_suppliers?.supplier_code || '-',
-      supplierName: item.ms_suppliers?.supplier_name || '-',
-      contact: item.ms_suppliers?.contact || '-',
-      address: item.ms_suppliers?.address || '-',
-      productCode: item.products?.sku || '-',
-      product: item.products?.name || '-',
-      category: item.products?.category || '-',
-      unit: item.products?.unit || '-',
-      estimatedPrice: item.estimated_price || 0,
-      leadTime: item.lead_time_days || 0,
-      termOfPayment: item.payment_term || '-',
-      status: item.status || 'ACTIVE',
+      id: String(item.supplier_price_id),
+      supplierId: item.ms_supplier?.supplier_id || item.supplier_id || '-',
+      supplierName: item.ms_supplier?.supplier_name || '-',
+      contact: item.ms_supplier?.contact || '-',
+      address: item.ms_supplier?.address || '-',
+      productCode: item.ms_product?.product_id || item.product_id || '-',
+      product: item.ms_product?.product_name || '-',
+      category: item.ms_product?.category || item.ms_supplier?.category || '-',
+      unit: item.uom || item.ms_product?.uom || '-',
+      estimatedPrice: Number(item.unit_price_estimate || 0),
+      leadTime: Number(item.ms_supplier?.lead_time || 0),
+      termOfPayment: item.ms_supplier?.top || '-',
+      status: normalizeStatus(item.ms_supplier?.status),
     }))
 
     return NextResponse.json({
@@ -104,80 +117,133 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: supplierData, error: supplierError } = await supabase
-      .from('ms_suppliers')
-      .upsert(
-        {
-          supplier_code: supplierCode,
-          supplier_name: supplierName,
-          contact: contact || null,
-          address: address || null,
-        },
-        {
-          onConflict: 'supplier_code',
-        }
-      )
-      .select('supplier_id')
-      .single()
-
-    if (supplierError) {
-      return NextResponse.json(
-        {
-          message: 'Failed to save supplier',
-          error: supplierError.message,
-        },
-        { status: 500 }
-      )
-    }
-
     const { data: productData, error: productError } = await supabase
-      .from('products')
-      .select('id')
-      .eq('sku', productSku)
-      .single()
+      .from('ms_product')
+      .select('product_id, product_name, uom, category')
+      .eq('product_id', productSku)
+      .maybeSingle()
 
     if (productError || !productData) {
       return NextResponse.json(
         {
           message: 'Product SKU not found',
-          error: productError?.message,
+          error: productError?.message || `Product ${productSku} does not exist`,
         },
         { status: 404 }
       )
     }
 
-    const { data: supplierProductData, error: supplierProductError } =
-      await supabase
-        .from('purchasing_supplier_products')
-        .upsert(
+    const { data: existingSupplier } = await supabase
+      .from('ms_supplier')
+      .select('supplier_id')
+      .eq('supplier_id', supplierCode)
+      .maybeSingle()
+
+    if (existingSupplier) {
+      const { error: updateSupplierError } = await supabase
+        .from('ms_supplier')
+        .update({
+          supplier_name: supplierName,
+          contact: contact || null,
+          address: address || null,
+          lead_time: Number(leadTimeDays || 0),
+          top: paymentTerm || 'NET_30',
+          status: status || 'ACTIVE',
+        })
+        .eq('supplier_id', supplierCode)
+
+      if (updateSupplierError) {
+        return NextResponse.json(
           {
-            supplier_id: supplierData.supplier_id,
-            product_id: productData.id,
-            estimated_price: Number(estimatedPrice || 0),
-            lead_time_days: Number(leadTimeDays || 0),
-            payment_term: paymentTerm || 'NET_30',
-            status: status || 'ACTIVE',
+            message: 'Failed to update supplier',
+            error: updateSupplierError.message,
           },
-          {
-            onConflict: 'supplier_id,product_id',
-          }
+          { status: 500 }
         )
+      }
+    } else {
+      const { error: insertSupplierError } = await supabase
+        .from('ms_supplier')
+        .insert({
+          supplier_id: supplierCode,
+          supplier_name: supplierName,
+          contact: contact || null,
+          address: address || null,
+          lead_time: Number(leadTimeDays || 0),
+          top: paymentTerm || 'NET_30',
+          status: status || 'ACTIVE',
+        })
+
+      if (insertSupplierError) {
+        return NextResponse.json(
+          {
+            message: 'Failed to save supplier',
+            error: insertSupplierError.message,
+          },
+          { status: 500 }
+        )
+      }
+    }
+
+    const { data: existingSupplierPrice } = await supabase
+      .from('ms_supplier_price')
+      .select('supplier_price_id')
+      .eq('supplier_id', supplierCode)
+      .eq('product_id', productSku)
+      .maybeSingle()
+
+    let supplierPriceData = null
+
+    if (existingSupplierPrice) {
+      const { data: updatedPrice, error: updatePriceError } = await supabase
+        .from('ms_supplier_price')
+        .update({
+          unit_price_estimate: Number(estimatedPrice || 0),
+          uom: productData.uom || null,
+        })
+        .eq('supplier_price_id', existingSupplierPrice.supplier_price_id)
         .select()
         .single()
 
-    if (supplierProductError) {
-      return NextResponse.json(
-        {
-          message: 'Failed to save supplier product profile',
-          error: supplierProductError.message,
-        },
-        { status: 500 }
-      )
+      if (updatePriceError) {
+        return NextResponse.json(
+          {
+            message: 'Failed to update supplier product price',
+            error: updatePriceError.message,
+          },
+          { status: 500 }
+        )
+      }
+
+      supplierPriceData = updatedPrice
+    } else {
+      const { data: insertedPrice, error: insertPriceError } = await supabase
+        .from('ms_supplier_price')
+        .insert({
+          supplier_id: supplierCode,
+          product_id: productSku,
+          unit_price_estimate: Number(estimatedPrice || 0),
+          uom: productData.uom || null,
+        })
+        .select()
+        .single()
+
+      if (insertPriceError) {
+        return NextResponse.json(
+          {
+            message: 'Failed to save supplier product price',
+            error: insertPriceError.message,
+          },
+          { status: 500 }
+        )
+      }
+
+      supplierPriceData = insertedPrice
     }
 
     return NextResponse.json({
       message: 'Supplier saved successfully',
-      data: supplierProductData,
+      data: supplierPriceData,
     })
   } catch (error) {
     return NextResponse.json(

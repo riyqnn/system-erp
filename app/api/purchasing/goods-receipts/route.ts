@@ -11,113 +11,163 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+function normalizeStatus(value?: string | null) {
+  const status = String(value || '').toUpperCase()
+
+  if (['ACCEPTED', 'RECEIVED', 'COMPLETED'].includes(status)) return 'ACCEPTED'
+  if (['PARTIAL', 'PARTIALLY_RECEIVED'].includes(status)) return 'PARTIAL'
+  if (['REJECTED', 'CANCELLED'].includes(status)) return 'REJECTED'
+
+  return status || 'ACCEPTED'
+}
+
 export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from('purchasing_goods_receipts')
-      .select(`
-        id,
-        gr_number,
-        receipt_date,
-        received_by_name,
-        status,
-        notes,
-        purchasing_purchase_orders (
-          id,
-          po_number,
-          po_date,
-          expected_delivery_date,
-          total_value,
-          status,
-          ms_suppliers (
-            supplier_id,
-            supplier_code,
-            supplier_name,
-            contact,
-            address
-          )
-        ),
-        purchasing_goods_receipt_items (
-          id,
-          ordered_qty,
-          received_qty,
-          unit,
-          expiry_date,
-          batch_number,
-          condition,
-          products (
-            id,
-            sku,
-            name,
-            category,
-            unit
-          )
+    const [
+      grResult,
+      poResult,
+      poDetailResult,
+      supplierResult,
+      productResult,
+      userResult,
+    ] = await Promise.all([
+      supabase
+        .from('tr_goods_receipt')
+        .select(
+          'receipt_id, po_id, pr_id, supplier_id, product_id, warehouse_id, quantity, batch_number, expiry_date, receipt_date, received_by, status, reject_qty, reject_reason, created_at'
         )
-      `)
-      .order('receipt_date', { ascending: false })
+        .order('receipt_date', { ascending: false }),
 
-    if (error) {
+      supabase
+        .from('tr_purchase_order')
+        .select(
+          'po_id, pr_id, supplier_id, quotation_id, approved_by, total_value, status, rejection_reason, created_at, po_release_date'
+        ),
+
+      supabase
+        .from('tr_po_detail')
+        .select('po_detail_id, po_id, product_id, qty_order, unit_price, subtotal'),
+
+      supabase
+        .from('ms_supplier')
+        .select('supplier_id, supplier_name, contact, address'),
+
+      supabase
+        .from('ms_product')
+        .select('product_id, product_name, category, uom'),
+
+      supabase
+        .from('ms_user')
+        .select('user_id, username, full_name, email, role'),
+    ])
+
+    const errors = [
+      grResult.error,
+      poResult.error,
+      poDetailResult.error,
+      supplierResult.error,
+      productResult.error,
+      userResult.error,
+    ].filter(Boolean)
+
+    if (errors.length > 0) {
       return NextResponse.json(
         {
           message: 'Failed to fetch goods receipts',
-          error: error.message,
+          error: errors[0]?.message,
         },
         { status: 500 }
       )
     }
 
-    const goodsReceipts = (data || []).map((item: any) => {
-      const receiptItems = item.purchasing_goods_receipt_items || []
-      const firstItem = receiptItems[0]
-      const po = item.purchasing_purchase_orders
+    const goodsReceipts = grResult.data || []
+    const purchaseOrders = poResult.data || []
+    const poDetails = poDetailResult.data || []
+    const suppliers = supplierResult.data || []
+    const products = productResult.data || []
+    const users = userResult.data || []
+
+    const poMap = new Map(purchaseOrders.map((po: any) => [po.po_id, po]))
+    const supplierMap = new Map(
+      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
+    )
+    const productMap = new Map(
+      products.map((product: any) => [product.product_id, product])
+    )
+    const userMap = new Map(users.map((user: any) => [user.user_id, user]))
+
+    const poDetailMap = new Map<string, any>()
+
+    poDetails.forEach((detail: any) => {
+      const key = `${detail.po_id}-${detail.product_id}`
+      poDetailMap.set(key, detail)
+    })
+
+    const data = goodsReceipts.map((item: any) => {
+      const po = poMap.get(item.po_id)
+      const supplier = supplierMap.get(item.supplier_id || po?.supplier_id)
+      const product = productMap.get(item.product_id)
+      const receiver = userMap.get(item.received_by)
+      const poDetail = poDetailMap.get(`${item.po_id}-${item.product_id}`)
+
+      const orderedQty = Number(poDetail?.qty_order || 0)
+      const receivedQty = Number(item.quantity || 0)
+      const rejectQty = Number(item.reject_qty || 0)
+
+      const receiptItem = {
+        id: item.receipt_id,
+        productCode: product?.product_id || item.product_id || '-',
+        productName: product?.product_name || '-',
+        category: product?.category || '-',
+        orderedQty,
+        receivedQty,
+        unit: product?.uom || '-',
+        expiryDate: item.expiry_date || null,
+        batchNumber: item.batch_number || '-',
+        condition: rejectQty > 0 ? 'PARTIAL_REJECT' : 'GOOD',
+        rejectQty,
+        rejectReason: item.reject_reason || '-',
+      }
 
       return {
-        id: item.id,
-        grNo: item.gr_number,
-        receiptDate: item.receipt_date,
-        receivedBy: item.received_by_name || '-',
-        status: item.status,
-        notes: item.notes || '-',
+        id: item.receipt_id,
+        grNo: item.receipt_id,
+        receiptDate: item.receipt_date || item.created_at,
+        receivedBy:
+          receiver?.full_name || receiver?.username || item.received_by || '-',
+        status: normalizeStatus(item.status),
+        notes: item.reject_reason || '-',
 
-        poNo: po?.po_number || '-',
-        poDate: po?.po_date || null,
-        expectedDeliveryDate: po?.expected_delivery_date || null,
+        poNo: po?.po_id || item.po_id || '-',
+        poDate: po?.created_at || null,
+        expectedDeliveryDate: po?.po_release_date || null,
         poStatus: po?.status || '-',
-        totalValue: po?.total_value || 0,
+        totalValue: Number(po?.total_value || 0),
 
-        supplierId: po?.ms_suppliers?.supplier_code || '-',
-        supplierName: po?.ms_suppliers?.supplier_name || '-',
-        supplierContact: po?.ms_suppliers?.contact || '-',
-        supplierAddress: po?.ms_suppliers?.address || '-',
+        supplierId: supplier?.supplier_id || item.supplier_id || '-',
+        supplierName: supplier?.supplier_name || '-',
+        supplierContact: supplier?.contact || '-',
+        supplierAddress: supplier?.address || '-',
 
-        productCode: firstItem?.products?.sku || '-',
-        productName: firstItem?.products?.name || '-',
-        category: firstItem?.products?.category || '-',
-        orderedQty: firstItem?.ordered_qty || 0,
-        receivedQty: firstItem?.received_qty || 0,
-        unit: firstItem?.unit || firstItem?.products?.unit || '-',
-        expiryDate: firstItem?.expiry_date || null,
-        batchNumber: firstItem?.batch_number || '-',
-        condition: firstItem?.condition || '-',
+        productCode: receiptItem.productCode,
+        productName: receiptItem.productName,
+        category: receiptItem.category,
+        orderedQty,
+        receivedQty,
+        unit: receiptItem.unit,
+        expiryDate: receiptItem.expiryDate,
+        batchNumber: receiptItem.batchNumber,
+        condition: receiptItem.condition,
+        rejectQty,
+        rejectReason: item.reject_reason || '-',
 
-        items: receiptItems.map((receiptItem: any) => ({
-          id: receiptItem.id,
-          productCode: receiptItem.products?.sku || '-',
-          productName: receiptItem.products?.name || '-',
-          category: receiptItem.products?.category || '-',
-          orderedQty: receiptItem.ordered_qty || 0,
-          receivedQty: receiptItem.received_qty || 0,
-          unit: receiptItem.unit || receiptItem.products?.unit || '-',
-          expiryDate: receiptItem.expiry_date || null,
-          batchNumber: receiptItem.batch_number || '-',
-          condition: receiptItem.condition || '-',
-        })),
+        items: [receiptItem],
       }
     })
 
     return NextResponse.json({
       message: 'Goods receipts fetched successfully',
-      data: goodsReceipts,
+      data,
     })
   } catch (error) {
     return NextResponse.json(
@@ -138,6 +188,7 @@ export async function POST(request: Request) {
       grNumber,
       poNumber,
       receiptDate,
+      receivedBy,
       receivedByName,
       status,
       notes,
@@ -154,96 +205,87 @@ export async function POST(request: Request) {
     }
 
     const { data: poData, error: poError } = await supabase
-      .from('purchasing_purchase_orders')
-      .select('id')
-      .eq('po_number', poNumber)
-      .single()
+      .from('tr_purchase_order')
+      .select('po_id, pr_id, supplier_id')
+      .eq('po_id', poNumber)
+      .maybeSingle()
 
     if (poError || !poData) {
       return NextResponse.json(
         {
           message: 'Purchase order not found',
-          error: poError?.message,
+          error: poError?.message || `PO ${poNumber} does not exist`,
         },
         { status: 404 }
       )
     }
 
-    const { data: grData, error: grError } = await supabase
-      .from('purchasing_goods_receipts')
-      .insert({
-        gr_number: grNumber,
-        po_id: poData.id,
-        receipt_date: receiptDate,
-        received_by_name: receivedByName || 'Warehouse Staff',
-        status: status || 'ACCEPTED',
-        notes: notes || null,
-      })
-      .select('id')
-      .single()
+    let receivedById = receivedBy || null
 
-    if (grError || !grData) {
-      return NextResponse.json(
-        {
-          message: 'Failed to save goods receipt',
-          error: grError?.message,
-        },
-        { status: 500 }
-      )
+    if (!receivedById && receivedByName) {
+      const { data: userData } = await supabase
+        .from('ms_user')
+        .select('user_id')
+        .ilike('full_name', receivedByName)
+        .maybeSingle()
+
+      receivedById = userData?.user_id || null
     }
 
-    const receiptItemsPayload = []
+    const receiptPayload = []
 
-    for (const item of items) {
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index]
+      const productCode = item.productSku || item.productCode
+
       const { data: productData, error: productError } = await supabase
-        .from('products')
-        .select('id, unit')
-        .eq('sku', item.productSku)
-        .single()
+        .from('ms_product')
+        .select('product_id')
+        .eq('product_id', productCode)
+        .maybeSingle()
 
       if (productError || !productData) {
         return NextResponse.json(
           {
-            message: `Product SKU ${item.productSku} not found`,
-            error: productError?.message,
+            message: `Product SKU ${productCode} not found`,
+            error:
+              productError?.message || `Product ${productCode} does not exist`,
           },
           { status: 404 }
         )
       }
 
-      let poItemId = null
+      const receiptId =
+        items.length === 1 ? grNumber : `${grNumber}-${String(index + 1).padStart(2, '0')}`
 
-      const { data: poItemData } = await supabase
-        .from('purchasing_purchase_order_items')
-        .select('id')
-        .eq('po_id', poData.id)
-        .eq('product_id', productData.id)
-        .maybeSingle()
-
-      poItemId = poItemData?.id || null
-
-      receiptItemsPayload.push({
-        gr_id: grData.id,
-        po_item_id: poItemId,
-        product_id: productData.id,
-        ordered_qty: Number(item.orderedQty || 0),
-        received_qty: Number(item.receivedQty || 0),
-        unit: item.unit || productData.unit || '-',
-        expiry_date: item.expiryDate || null,
+      receiptPayload.push({
+        receipt_id: receiptId,
+        po_id: poData.po_id,
+        pr_id: poData.pr_id || null,
+        supplier_id: poData.supplier_id,
+        product_id: productData.product_id,
+        warehouse_id: item.warehouseId || null,
+        quantity: Number(item.receivedQty || item.quantity || 0),
         batch_number: item.batchNumber || null,
-        condition: item.condition || 'GOOD',
+        expiry_date: item.expiryDate || null,
+        receipt_date: receiptDate,
+        received_by: receivedById,
+        status: status || 'ACCEPTED',
+        reject_qty: Number(item.rejectQty || 0),
+        reject_reason: item.rejectReason || notes || null,
       })
     }
 
-    const { error: itemsError } = await supabase
-      .from('purchasing_goods_receipt_items')
-      .insert(receiptItemsPayload)
+    const { data: grData, error: grError } = await supabase
+      .from('tr_goods_receipt')
+      .insert(receiptPayload)
+      .select()
 
-    if (itemsError) {
+    if (grError) {
       return NextResponse.json(
         {
-          message: 'Goods receipt saved, but failed to save receipt items',
-          error: itemsError.message,
+          message: 'Failed to save goods receipt',
+          error: grError.message,
         },
         { status: 500 }
       )
@@ -252,8 +294,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       message: 'Goods receipt saved successfully',
       data: {
-        id: grData.id,
         grNumber,
+        receipts: grData,
       },
     })
   } catch (error) {

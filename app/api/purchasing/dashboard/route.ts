@@ -11,57 +11,65 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-function getMonthName(value: string) {
+function getMonthName(value?: string | null) {
+  if (!value) return 'Unknown'
+
   const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return 'Unknown'
 
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
   }).format(date)
 }
 
+function normalizeStatus(value?: string | null) {
+  return String(value || '').toUpperCase()
+}
+
 export async function GET() {
   try {
     const [
       suppliersResult,
+      supplierPriceResult,
       prResult,
-      rfqResult,
-      negotiationResult,
+      quotationResult,
       poResult,
+      poDetailResult,
       grResult,
-      matchingResult,
-      trackingResult,
+      apResult,
     ] = await Promise.all([
-      supabase.from('purchasing_supplier_products').select('id, status'),
+      supabase.from('ms_supplier').select('supplier_id, status'),
+      supabase.from('ms_supplier_price').select('supplier_price_id'),
       supabase
-        .from('purchasing_purchase_requisitions')
-        .select('id, status, request_date'),
-      supabase.from('purchasing_rfq_sourcing').select('id, status, created_at'),
+        .from('tr_purchase_requisition')
+        .select('pr_id, status, request_date'),
       supabase
-        .from('purchasing_price_negotiations')
-        .select('id, status, created_at'),
+        .from('tr_price_quotation')
+        .select('quotation_id, status, quotation_date, final_price, accepted_price'),
       supabase
-        .from('purchasing_purchase_orders')
-        .select('id, status, po_date, total_value'),
+        .from('tr_purchase_order')
+        .select('po_id, status, created_at, po_release_date, total_value'),
       supabase
-        .from('purchasing_goods_receipts')
-        .select('id, status, receipt_date'),
+        .from('tr_po_detail')
+        .select('po_detail_id, po_id, subtotal'),
       supabase
-        .from('purchasing_three_way_matchings')
-        .select('id, match_status, sent_to_finance, created_at'),
+        .from('tr_goods_receipt')
+        .select('receipt_id, status, receipt_date, po_id'),
       supabase
-        .from('purchasing_tracking_reports')
-        .select('id, status, entity_type, estimated_arrival_date, created_at'),
+        .from('tr_account_payable')
+        .select('ap_id, po_id, ap_status, ap_amount, created_at'),
     ])
 
     const errors = [
       suppliersResult.error,
+      supplierPriceResult.error,
       prResult.error,
-      rfqResult.error,
-      negotiationResult.error,
+      quotationResult.error,
       poResult.error,
+      poDetailResult.error,
       grResult.error,
-      matchingResult.error,
-      trackingResult.error,
+      apResult.error,
     ].filter(Boolean)
 
     if (errors.length > 0) {
@@ -75,18 +83,21 @@ export async function GET() {
     }
 
     const suppliers = suppliersResult.data || []
+    const supplierPrices = supplierPriceResult.data || []
     const purchaseRequisitions = prResult.data || []
-    const rfq = rfqResult.data || []
-    const negotiations = negotiationResult.data || []
+    const quotations = quotationResult.data || []
     const purchaseOrders = poResult.data || []
+    const purchaseOrderDetails = poDetailResult.data || []
     const goodsReceipts = grResult.data || []
-    const matchings = matchingResult.data || []
-    const trackingReports = trackingResult.data || []
+    const accountPayables = apResult.data || []
 
-    const monthlyPoMap = new Map<string, { month: string; count: number; value: number }>()
+    const monthlyPoMap = new Map<
+      string,
+      { month: string; count: number; value: number }
+    >()
 
     purchaseOrders.forEach((po) => {
-      const month = getMonthName(po.po_date)
+      const month = getMonthName(po.created_at || po.po_release_date)
       const current = monthlyPoMap.get(month) || {
         month,
         count: 0,
@@ -103,55 +114,98 @@ export async function GET() {
     const poStatusOverview = [
       {
         label: 'Draft',
-        value: purchaseOrders.filter((item) => item.status === 'DRAFT').length,
+        value: purchaseOrders.filter(
+          (item) => normalizeStatus(item.status) === 'DRAFT'
+        ).length,
       },
       {
         label: 'Pending Approval',
-        value: purchaseOrders.filter((item) => item.status === 'PENDING_APPROVAL')
-          .length,
+        value: purchaseOrders.filter((item) =>
+          ['PENDING_APPROVAL', 'PENDING', 'WAITING_APPROVAL'].includes(
+            normalizeStatus(item.status)
+          )
+        ).length,
       },
       {
         label: 'Approved',
-        value: purchaseOrders.filter((item) => item.status === 'APPROVED').length,
+        value: purchaseOrders.filter(
+          (item) => normalizeStatus(item.status) === 'APPROVED'
+        ).length,
       },
       {
         label: 'Released',
-        value: purchaseOrders.filter((item) => item.status === 'RELEASED').length,
+        value: purchaseOrders.filter((item) =>
+          ['RELEASED', 'SENT', 'ISSUED'].includes(normalizeStatus(item.status))
+        ).length,
       },
     ]
 
     const supplierStatusOverview = [
       {
         label: 'Active',
-        value: suppliers.filter((item) => item.status === 'ACTIVE').length,
+        value: suppliers.filter((item) =>
+          ['ACTIVE', '1'].includes(normalizeStatus(item.status))
+        ).length,
       },
       {
         label: 'Inactive',
-        value: suppliers.filter((item) => item.status === 'INACTIVE').length,
+        value: suppliers.filter(
+          (item) => !['ACTIVE', '1'].includes(normalizeStatus(item.status))
+        ).length,
       },
     ]
+
+    const pendingApprovalPO = poStatusOverview.find(
+      (item) => item.label === 'Pending Approval'
+    )?.value || 0
+
+    const releasedPO = poStatusOverview.find(
+      (item) => item.label === 'Released'
+    )?.value || 0
+
+    const agreedNegotiations = quotations.filter((item) =>
+      ['ACCEPTED', 'APPROVED', 'AGREED'].includes(normalizeStatus(item.status))
+    ).length
+
+    const pendingQuotations = quotations.filter((item) =>
+      ['PROPOSED', 'PENDING', 'WAITING_RESPONSE'].includes(
+        normalizeStatus(item.status)
+      )
+    ).length
+
+    const paidOrApprovedAP = accountPayables.filter((item) =>
+      ['APPROVED', 'PAID', 'POSTED'].includes(normalizeStatus(item.ap_status))
+    ).length
+
+    const matchedDocuments = Math.min(
+      purchaseOrders.length,
+      goodsReceipts.length,
+      accountPayables.length
+    )
+
+    const mismatchDocuments =
+      Math.max(purchaseOrders.length - matchedDocuments, 0)
 
     const alerts = [
       {
         title: 'Pending PO Approval',
-        value: purchaseOrders.filter((item) => item.status === 'PENDING_APPROVAL')
-          .length,
+        value: pendingApprovalPO,
         description: 'Purchase orders waiting for approval.',
       },
       {
-        title: 'Waiting RFQ Response',
-        value: rfq.filter((item) => item.status === 'WAITING_RESPONSE').length,
-        description: 'RFQ documents waiting for supplier response.',
+        title: 'Waiting Quotation Response',
+        value: pendingQuotations,
+        description: 'Supplier quotations waiting for confirmation.',
       },
       {
-        title: 'Delayed Tracking',
-        value: trackingReports.filter((item) => item.status === 'DELAYED').length,
-        description: 'Tracking reports marked as delayed.',
+        title: 'Goods Receipt Pending',
+        value: Math.max(purchaseOrders.length - goodsReceipts.length, 0),
+        description: 'Purchase orders that do not have goods receipt yet.',
       },
       {
-        title: 'Mismatch Documents',
-        value: matchings.filter((item) => item.match_status === 'MISMATCH').length,
-        description: 'Three-way matching documents with mismatch result.',
+        title: 'Unmatched Documents',
+        value: mismatchDocuments,
+        description: 'Estimated PO, GR, and AP documents not fully matched.',
       },
     ]
 
@@ -160,24 +214,21 @@ export async function GET() {
       data: {
         summary: {
           totalSuppliers: suppliers.length,
+          totalSupplierPrices: supplierPrices.length,
           totalPurchaseRequisitions: purchaseRequisitions.length,
-          totalRFQ: rfq.length,
-          totalNegotiations: negotiations.length,
+          totalRFQ: quotations.length,
+          totalNegotiations: quotations.length,
           totalPurchaseOrders: purchaseOrders.length,
+          totalPurchaseOrderItems: purchaseOrderDetails.length,
           totalGoodsReceipts: goodsReceipts.length,
-          totalThreeWayMatchings: matchings.length,
-          totalTrackingReports: trackingReports.length,
-          pendingApprovalPO: purchaseOrders.filter(
-            (item) => item.status === 'PENDING_APPROVAL'
-          ).length,
-          releasedPO: purchaseOrders.filter((item) => item.status === 'RELEASED')
-            .length,
-          agreedNegotiations: negotiations.filter(
-            (item) => item.status === 'AGREED'
-          ).length,
-          matchedDocuments: matchings.filter(
-            (item) => item.match_status === 'MATCHED'
-          ).length,
+          totalThreeWayMatchings: matchedDocuments,
+          totalTrackingReports: goodsReceipts.length,
+          totalAccountPayables: accountPayables.length,
+          pendingApprovalPO,
+          releasedPO,
+          agreedNegotiations,
+          matchedDocuments,
+          paidOrApprovedAP,
         },
         monthlyPurchaseOrders,
         poStatusOverview,
