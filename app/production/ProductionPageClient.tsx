@@ -14,11 +14,9 @@ import { ModuleHeader } from '@/components/shared'
 
 type WorkCenter = {
   id: string
-  code: string
   name: string
-  type: string | null
-  status: 'active' | 'inactive' | 'maintenance'
-  capacity: number | null
+  capacity_per_hour: number | null
+  cost_per_hour: number | null
 }
 
 type ProductionOrder = {
@@ -51,26 +49,23 @@ type Summary = {
 }
 
 const NAV = [
-  { label: 'Resep & Order', href: '/production/resep-order', icon: ClipboardText, desc: 'Sales order & verifikasi BOM' },
-  { label: 'Rencana MRP', href: '/production/planning', icon: CalendarCheck, desc: 'MRP & perencanaan produksi' },
-  { label: 'Goods Issue', href: '/production/goods-issue', icon: Package, desc: 'Material keluar ke lantai produksi' },
-  { label: 'Produksi', href: '/production/produksi', icon: Factory, desc: 'Alur kerja & konfirmasi produksi' },
-  { label: 'QC & Penerimaan', href: '/production/quality-control', icon: CheckCircle, desc: 'Inspeksi kualitas & goods receipt' },
-  { label: 'Penyelesaian', href: '/production/settlement', icon: Receipt, desc: 'Settlement biaya & penutupan PO' },
-  { label: 'Laporan Produksi', href: '/production/laporan', icon: ChartBar, desc: 'OEE, yield rate, tren harian' },
+  { label: 'Recipe & Order', href: '/production/resep-order', icon: ClipboardText, desc: 'Sales orders & BOM verification' },
+  { label: 'MRP Planning', href: '/production/planning', icon: CalendarCheck, desc: 'MRP calculation & production planning' },
+  { label: 'Goods Issue', href: '/production/goods-issue', icon: Package, desc: 'Material release to shop floor' },
+  { label: 'Production', href: '/production/produksi', icon: Factory, desc: 'Shop floor workflow & confirmation' },
+  { label: 'QC & Goods Receipt', href: '/production/quality-control', icon: CheckCircle, desc: 'Quality inspection & goods receipt' },
+  { label: 'Order Settlement', href: '/production/settlement', icon: Receipt, desc: 'Cost settlement & order closing' },
+  { label: 'Production Report', href: '/production/laporan', icon: ChartBar, desc: 'OEE, yield rate, daily trends' },
 ]
 
 const WC_ST = {
-  active: { label: 'Aktif', cls: 'bg-green-50 text-green-700', dot: 'bg-green-500', bar: 'bg-green-500' },
+  active: { label: 'Active', cls: 'bg-green-50 text-green-700', dot: 'bg-green-500', bar: 'bg-green-500' },
   inactive: { label: 'Idle', cls: 'bg-slate-100 text-slate-500', dot: 'bg-slate-300', bar: 'bg-slate-200' },
   maintenance: { label: 'Maintenance', cls: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500', bar: 'bg-amber-400' },
 }
 
 function wcUtil(wc: WorkCenter): number {
-  if (wc.status === 'inactive') return 0
-  if (wc.status === 'maintenance') return 12
-  // deterministic pseudo-utilization from code chars
-  const seed = wc.code.split('').reduce((a, c) => a + c.charCodeAt(0), 0)
+  const seed = wc.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0)
   return 55 + (seed % 38)
 }
 
@@ -104,7 +99,7 @@ export function ProductionPageClient() {
   const running = orders.filter(o => o.status === 'in_progress')
   const passQC = qcRecords.filter(r => r.result === 'pass').length
   const failQC = qcRecords.filter(r => r.result === 'fail').length
-  const activeWC = workCenters.filter(w => w.status === 'active').length
+  const activeWC = workCenters.filter(w => (w.capacity_per_hour ?? 0) > 0).length
   const oee = workCenters.length > 0 ? Math.round((activeWC / workCenters.length) * 100) : 0
 
   const activityLog = [
@@ -112,12 +107,12 @@ export function ProductionPageClient() {
       time: o.start_date
         ? new Date(o.start_date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
         : '—',
-      msg: `${o.po_number} sedang berjalan — ${o.products?.name ?? '—'}`,
+      msg: `${o.po_number} in progress — ${o.products?.name ?? '—'}`,
       type: 'info' as const,
     })),
     ...qcRecords.slice(0, 3).map(q => ({
       time: new Date(q.inspection_date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-      msg: `Inspeksi QC ${q.result === 'pass' ? 'lulus ✓' : q.result === 'fail' ? 'gagal ✗' : 'pending'} — ${q.production_orders?.po_number ?? '—'}`,
+      msg: `QC inspection ${q.result === 'pass' ? 'passed ✓' : q.result === 'fail' ? 'failed ✗' : 'pending'} — ${q.production_orders?.po_number ?? '—'}`,
       type: q.result === 'pass' ? 'success' as const : q.result === 'fail' ? 'error' as const : 'info' as const,
     })),
   ].slice(0, 6)
@@ -136,9 +131,9 @@ export function ProductionPageClient() {
         {/* Header */}
         <div className="flex items-end justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#dc2626] mb-1">Produksi</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#dc2626] mb-1">Production</p>
             <ModuleHeader title="Production Dashboard" />
-            <p className="text-slate-500 -mt-4 text-sm">Pantauan real-time modul produksi</p>
+            <p className="text-slate-500 -mt-4 text-sm">Real-time monitoring of the production module</p>
           </div>
           <Button variant="outline" size="sm" className="h-9 gap-2 border-slate-200" onClick={loadAll}>
             <ArrowClockwise className="w-4 h-4" weight="bold" />
@@ -151,30 +146,30 @@ export function ProductionPageClient() {
           <KPICard
             icon={<ListChecks size={20} weight="bold" style={{ color: '#dc2626' }} />}
             bg="bg-red-50"
-            label="Batch Berjalan"
+            label="Active Batches"
             value={loading ? '—' : running.length}
             sub={`${summary?.totalOrders ?? 0} total orders`}
           />
           <KPICard
             icon={<Factory size={20} weight="bold" style={{ color: '#2563eb' }} />}
             bg="bg-blue-50"
-            label="Target Produksi"
+            label="Production Target"
             value={loading ? '—' : running.reduce((s, o) => s + o.planned_qty, 0).toLocaleString()}
-            sub="unit sedang direncanakan"
+            sub="units currently planned"
           />
           <KPICard
             icon={<CheckCircle size={20} weight="bold" style={{ color: '#16a34a' }} />}
             bg="bg-green-50"
-            label="Hasil Bagus (QC Pass)"
+            label="QC Pass"
             value={loading ? '—' : passQC}
-            sub={`dari ${qcRecords.length} inspeksi`}
+            sub={`of ${qcRecords.length} inspections`}
           />
           <KPICard
             icon={<XCircle size={20} weight="bold" style={{ color: '#ea580c' }} />}
             bg="bg-orange-50"
             label="Defects (QC Fail)"
             value={loading ? '—' : failQC}
-            sub="butuh tindakan segera"
+            sub="requires immediate action"
           />
         </div>
 
@@ -186,16 +181,16 @@ export function ProductionPageClient() {
             {/* Running Batches */}
             <section>
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-slate-700">Batch Sedang Berjalan</h2>
-                <Link href="/production/produksi" className="text-xs text-[#dc2626] hover:underline font-medium">Lihat semua →</Link>
+                <h2 className="text-sm font-semibold text-slate-700">Active Batches</h2>
+                <Link href="/production/produksi" className="text-xs text-[#dc2626] hover:underline font-medium">View all →</Link>
               </div>
               {loading ? (
-                <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-400 text-sm">Memuat…</div>
+                <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-400 text-sm">Loading…</div>
               ) : running.length === 0 ? (
                 <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
                   <Factory size={36} className="mx-auto mb-2 text-slate-200" />
-                  <p className="text-sm text-slate-400">Tidak ada batch yang sedang berjalan</p>
-                  <Link href="/production/produksi" className="text-xs text-[#dc2626] hover:underline mt-1 inline-block">Mulai produksi →</Link>
+                  <p className="text-sm text-slate-400">No active batches running</p>
+                  <Link href="/production/produksi" className="text-xs text-[#dc2626] hover:underline mt-1 inline-block">Start production →</Link>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -235,30 +230,29 @@ export function ProductionPageClient() {
             {/* Work Centers */}
             <section>
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-slate-700">Status Mesin / Work Center</h2>
-                <span className="text-xs text-slate-400">{activeWC}/{workCenters.length} aktif · OEE {oee}%</span>
+                <h2 className="text-sm font-semibold text-slate-700">Work Center Status</h2>
+                <span className="text-xs text-slate-400">{activeWC}/{workCenters.length} active · OEE {oee}%</span>
               </div>
               {loading ? (
-                <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-400 text-sm">Memuat…</div>
+                <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-400 text-sm">Loading…</div>
               ) : workCenters.length === 0 ? (
                 <div className="bg-white rounded-xl border border-slate-200 p-6 text-center">
                   <Wrench size={28} className="mx-auto mb-2 text-slate-200" />
-                  <p className="text-xs text-slate-400">Belum ada work center terdaftar</p>
-                  <Link href="/production/planning" className="text-xs text-[#dc2626] hover:underline mt-1 inline-block">Tambah work center →</Link>
+                  <p className="text-xs text-slate-400">No work centers registered</p>
+                  <Link href="/production/planning" className="text-xs text-[#dc2626] hover:underline mt-1 inline-block">Add work center →</Link>
                 </div>
               ) : (
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                   {workCenters.map((wc, idx) => {
-                    const st = WC_ST[wc.status] ?? WC_ST.inactive
+                    const st = (wc.capacity_per_hour ?? 0) > 0 ? WC_ST.active : WC_ST.inactive
                     const util = wcUtil(wc)
                     return (
                       <div key={wc.id} className={`flex items-center px-5 py-3.5 gap-4 ${idx > 0 ? 'border-t border-slate-50' : ''}`}>
                         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${st.dot}`} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-xs text-slate-400">{wc.code}</span>
+                            <span className="font-mono text-xs text-slate-400">{wc.id}</span>
                             <span className="text-sm font-medium text-slate-900 truncate">{wc.name}</span>
-                            {wc.type && <span className="text-xs text-slate-400">· {wc.type}</span>}
                           </div>
                           <div className="mt-1.5 h-1.5 bg-slate-100 rounded-full overflow-hidden w-full max-w-[180px]">
                             <div className={`h-full rounded-full ${st.bar}`} style={{ width: `${util}%` }} />
@@ -280,7 +274,7 @@ export function ProductionPageClient() {
           <div className="space-y-6">
 
             <section>
-              <h2 className="text-sm font-semibold text-slate-700 mb-3">Menu Cepat</h2>
+              <h2 className="text-sm font-semibold text-slate-700 mb-3">Quick Menu</h2>
               <div className="space-y-2">
                 {NAV.map(n => {
                   const Icon = n.icon
@@ -301,10 +295,10 @@ export function ProductionPageClient() {
             </section>
 
             <section>
-              <h2 className="text-sm font-semibold text-slate-700 mb-3">Log Aktivitas</h2>
+              <h2 className="text-sm font-semibold text-slate-700 mb-3">Activity Log</h2>
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 {activityLog.length === 0 ? (
-                  <div className="p-6 text-center text-slate-400 text-xs">Belum ada aktivitas sistem</div>
+                  <div className="p-6 text-center text-slate-400 text-xs">No system activity yet</div>
                 ) : (
                   <div className="divide-y divide-slate-50">
                     {activityLog.map((log, idx) => (
@@ -328,13 +322,13 @@ export function ProductionPageClient() {
             <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="text-xs font-semibold text-slate-700">Status Sistem</span>
+                <span className="text-xs font-semibold text-slate-700">System Status</span>
               </div>
               <div className="space-y-2 text-xs text-slate-600">
                 {[
                   ['Database', 'Online'],
                   ['API Service', 'Normal'],
-                  ['Sinkronisasi', 'Real-time'],
+                  ['Sync', 'Real-time'],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between">
                     <span>{k}</span>
