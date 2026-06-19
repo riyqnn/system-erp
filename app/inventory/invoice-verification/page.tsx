@@ -26,12 +26,12 @@ interface GoodsReceipt {
   product_id: number;
   quantity: number;
   receipt_date: string;
-  ms_products: {
+  ms_product: {
     product_code: string;
     product_name: string;
-    units: string;
+    uom: string;
   } | null;
-  ms_suppliers: {
+  ms_supplier: {
     supplier_name: string;
   } | null;
 }
@@ -78,12 +78,32 @@ export default function InvoiceVerificationPage() {
     if (!selectedGR) return;
     setIsSubmitting(true);
     
-    // Simulate API call for invoice verification
-    setTimeout(() => {
-      setSuccessMsg(`Invoice for ${selectedGR.gr_code} Verified! Accounts Payable Draft Created.`);
+    try {
+      const res = await fetch("/api/inventory/invoice-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          receipt_id: selectedGR.receipt_id,
+          po_id: selectedGR.pr_id, // assuming pr_id holds po_id or is sent as po_id
+          supplier_id: selectedGR.supplier_id,
+          invoice_amount: invoiceAmount,
+          unit_price: unitPrice
+        })
+      });
+
+      if (res.ok) {
+        setSuccessMsg(`Invoice for ${selectedGR.gr_code} Verified! Accounts Payable Draft Created.`);
+        fetchData();
+      } else {
+        const json = await res.json();
+        alert(`Error: ${json.error}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to verify invoice");
+    } finally {
       setIsSubmitting(false);
-      fetchData(); // In real app, we would mark this GR as 'Invoiced'
-    }, 1500);
+    }
   };
 
   /* ── Variance Check ────────────────────────────────────────────── */
@@ -124,8 +144,8 @@ export default function InvoiceVerificationPage() {
               </div>
             ) : (
               data.filter(d => 
-                d.gr_code.toLowerCase().includes(search.toLowerCase()) || 
-                d.ms_suppliers?.supplier_name.toLowerCase().includes(search.toLowerCase())
+                (d.gr_code || "").toLowerCase().includes(search.toLowerCase()) || 
+                (d.ms_supplier?.supplier_name || "").toLowerCase().includes(search.toLowerCase())
               ).map((gr) => (
                 <div 
                   key={gr.receipt_id}
@@ -140,8 +160,8 @@ export default function InvoiceVerificationPage() {
                     <span className="font-mono text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">{gr.gr_code}</span>
                     <span className="text-xs text-slate-500">{new Date(gr.receipt_date).toLocaleDateString()}</span>
                   </div>
-                  <h3 className="font-medium text-slate-900">{gr.ms_suppliers?.supplier_name}</h3>
-                  <p className="text-xs text-slate-500 mt-1">{gr.quantity.toLocaleString()} {gr.ms_products?.units} of {gr.ms_products?.product_name}</p>
+                  <h3 className="font-medium text-slate-900">{gr.ms_supplier?.supplier_name}</h3>
+                  <p className="text-xs text-slate-500 mt-1">{gr.quantity.toLocaleString()} {gr.ms_product?.uom} of {gr.ms_product?.product_name}</p>
                 </div>
               ))
             )}
@@ -180,15 +200,15 @@ export default function InvoiceVerificationPage() {
                       <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
                         <div>
                           <p className="text-xs text-slate-500 mb-1">Product Received</p>
-                          <p className="font-medium text-sm text-slate-900">{selectedGR.ms_products?.product_name}</p>
+                          <p className="font-medium text-sm text-slate-900">{selectedGR.ms_product?.product_name}</p>
                         </div>
                         <div>
                           <p className="text-xs text-slate-500 mb-1">Quantity (GR)</p>
-                          <p className="font-bold text-blue-600 tabular-nums">{selectedGR.quantity.toLocaleString()} <span className="text-xs font-normal text-slate-500">{selectedGR.ms_products?.units}</span></p>
+                          <p className="font-bold text-blue-600 tabular-nums">{selectedGR.quantity.toLocaleString()} <span className="text-xs font-normal text-slate-500">{selectedGR.ms_product?.uom}</span></p>
                         </div>
                         <div>
                           <p className="text-xs text-slate-500 mb-1">Supplier</p>
-                          <p className="font-medium text-sm text-slate-900">{selectedGR.ms_suppliers?.supplier_name}</p>
+                          <p className="font-medium text-sm text-slate-900">{selectedGR.ms_supplier?.supplier_name}</p>
                         </div>
                       </div>
 

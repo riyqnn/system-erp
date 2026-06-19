@@ -46,9 +46,11 @@ type TabType = 'ALL' | 'APPROVAL' | 'WARNING' | 'INFORMATION'
 function NotificationItem({
   n,
   onRead,
+  onClose,
 }: {
   n: Notification
   onRead: (id: string) => void
+  onClose: () => void
 }) {
   const cfg  = TYPE_CONFIG[n.type]
   const Icon = cfg.icon
@@ -87,10 +89,10 @@ function NotificationItem({
     </div>
   )
 
-  return n.action_url ? (
-    <Link href={n.action_url} className="block">{inner}</Link>
-  ) : (
-    <div>{inner}</div>
+  return (
+    <Link href={`/notifications/${n.id}`} onClick={() => onClose()} className="block">
+      {inner}
+    </Link>
   )
 }
 
@@ -130,12 +132,12 @@ function NotificationDropdown({
       <div className="fixed inset-0 z-30" onClick={onClose} />
 
       {/* Panel */}
-      <div className="absolute right-0 top-full mt-2 w-[22rem] bg-white rounded-xl shadow-xl border border-slate-200 z-40 overflow-hidden flex flex-col">
+      <div className="absolute right-0 top-full mt-3 w-[24rem] bg-white/95 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-200/60 z-40 overflow-hidden flex flex-col">
 
         {/* Header */}
-        <div className="px-4 pt-4 pb-3 border-b border-slate-100">
+        <div className="px-5 pt-5 pb-3 border-b border-slate-100/80">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Notifications</h3>
+            <h3 className="text-base font-bold text-slate-800 tracking-tight">Notifications</h3>
             {unreadCount > 0 && (
               <button
                 onClick={onMarkAllAsRead}
@@ -157,10 +159,10 @@ function NotificationDropdown({
                 <button
                   key={t.key}
                   onClick={() => setTab(t.key)}
-                  className={`flex-1 text-[11px] font-medium py-1.5 rounded-lg transition-colors ${
+                  className={`flex-1 text-[11px] font-semibold py-1.5 rounded-md transition-all duration-200 ${
                     tab === t.key
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-500 hover:bg-slate-100'
+                      ? 'bg-slate-800 text-white shadow-md'
+                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
                   }`}
                 >
                   {t.label}
@@ -193,18 +195,18 @@ function NotificationDropdown({
               <NotificationItem
                 key={n.id}
                 n={n}
-                onRead={(id) => { onMarkAsRead([id]); onClose() }}
+                onRead={(id) => { onMarkAsRead([id]); }}
+                onClose={onClose}
               />
             ))
           )}
         </div>
 
-        {/* Footer */}
-        <div className="border-t border-slate-100 px-4 py-2.5">
+        <div className="border-t border-slate-100/80 px-4 py-3 bg-slate-50/50">
           <Link
             href="/notifications"
             onClick={onClose}
-            className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors"
+            className="flex items-center justify-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
           >
             View all notifications
             <ArrowRight weight="bold" className="w-3 h-3" />

@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
       sourceModule: 'INVENTORY',
       sourceRefId: body.prd_code,
       sourceRefType: 'PRODUCTION_REQUEST',
-      actionUrl: `/apps/production/orders`,
+      actionUrl: `/production/orders`,
       createdBy: user.user_id,
     })
 

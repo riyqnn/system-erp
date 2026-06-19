@@ -123,6 +123,7 @@ export default function BOMVerificationPage() {
         body: JSON.stringify({ status: "In Progress" }),
       });
       if (res.ok) {
+        Swal.fire("Success", "BOM Verified. Notification sent to Production.", "success");
         setSelectedReq(null);
         fetchData();
       } else {
@@ -233,14 +234,14 @@ export default function BOMVerificationPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {bomData.map((item) => {
+                        {bomData.map((item, idx) => {
                           const reqQty = item.qty_required * selectedReq.qty_requested;
                           const availQty = stockMap[item.rm_product_id] || 0;
                           const isShort = availQty < reqQty;
                           if (isShort) hasShortage = true;
 
                           return (
-                            <tr key={item.bom_id} className={isShort ? "bg-red-50/30" : ""}>
+                            <tr key={`${item.bom_id}-${idx}`} className={isShort ? "bg-red-50/30" : ""}>
                               <td className="px-6 py-4">
                                 <p className="font-medium text-slate-900">{item.ms_products.product_name}</p>
                                 <p className="text-xs text-slate-500">{item.ms_products.product_code}</p>

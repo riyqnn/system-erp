@@ -35,8 +35,8 @@ export async function GET() {
     // If the view is missing or PostgREST returns a schema error, fall back
     // to computing the stock summary from `ms_product` + `tr_stock_balance`.
     const errMsg = error?.message || ''
-    if (error) console.error('[STOCK] vw_stock_summary error:', errMsg, error)
     if (error && /vw_stock_summary|could not find the table|PGRST205/i.test(errMsg)) {
+      console.warn('[STOCK] vw_stock_summary not in cache, using fallback computation...');
       // Fetch master products and balances in parallel
       const [prodRes, balRes] = await Promise.all([
         supabase.from('ms_product').select('product_id, product_name, category, uom, minimum_stock, status, created_at, updated_at'),
