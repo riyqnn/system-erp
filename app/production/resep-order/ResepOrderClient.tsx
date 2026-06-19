@@ -10,7 +10,7 @@ import { ModuleHeader } from '@/components/shared'
 
 type BomItem = { id: string; material_id: string | null; quantity: number; unit: string; products: { name: string; sku: string } | null }
 type Bom = { id: string; product_id: string | null; version: string; status: string; production_bom_details?: BomItem[] }
-type RoutingRow = { id: string; work_center_id: string | null; sequence: number; operation_name: string; duration_hours: number | null }
+type RoutingRow = { id: string; product_id: string | null; work_center_id: string | null; sequence: number; operation_name: string; duration_hours: number | null }
 
 type Order = {
   id: string

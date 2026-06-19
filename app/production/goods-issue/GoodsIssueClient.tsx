@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
 import { X, Warning, MagnifyingGlass, Package, Eye, DownloadSimple, ArrowRight } from '@phosphor-icons/react'
@@ -43,8 +43,8 @@ const fmtDate = (s: string) =>
   new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
 
 type MaterialLine = { product_id: string; product_name: string; sku: string; unit: string; qty_required: number; qty_actual: string }
-type FormState = { production_order_id: string; issue_date: string; status: string }
-const emptyForm: FormState = { production_order_id: '', issue_date: new Date().toISOString().slice(0, 10), status: 'issued' }
+type FormState = { production_order_id: string; issue_date: string; status: string; notes: string }
+const emptyForm: FormState = { production_order_id: '', issue_date: new Date().toISOString().slice(0, 10), status: 'issued', notes: '' }
 
 export function GoodsIssueClient() {
   const [rows, setRows] = useState<GoodsIssue[]>([])
@@ -103,7 +103,7 @@ export function GoodsIssueClient() {
       if (res.ok) {
         const data = await res.json()
         if (data.bom_materials?.length > 0) {
-          setMaterialLines(data.bom_materials.map((m) => ({
+          setMaterialLines(data.bom_materials.map((m: { kode_bahan: string; nama_material: string; satuan: string; kebutuhan_total: number }) => ({
             product_id: m.kode_bahan,
             product_name: m.nama_material,
             sku: m.kode_bahan,

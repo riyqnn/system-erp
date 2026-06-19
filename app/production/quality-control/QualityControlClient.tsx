@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
 import { X, Warning, MagnifyingGlass, CheckCircle, XCircle, Eye, ArrowRight, Flask } from '@phosphor-icons/react'
@@ -14,6 +14,7 @@ type Order = {
   product_id: string | null
   status: string
   planned_qty: number
+  actual_qty?: number
   products: { name: string; sku: string } | null
 }
 
@@ -24,6 +25,7 @@ type QCRecord = {
   inspection_date: string
   result: 'pass' | 'fail' | 'pending'
   defect_qty: number | null
+  notes?: string | null
   production_orders: { po_number: string } | null
 }
 
@@ -55,6 +57,8 @@ type FormState = {
   inspection_date: string
   defect_qty: string
   supervisor_decision: 'approved' | 'rework' | 'scrap' | ''
+  rework_notes: string
+  notes: string
 }
 const emptyForm: FormState = {
   production_order_id: '',
@@ -62,6 +66,8 @@ const emptyForm: FormState = {
   inspection_date: new Date().toISOString().slice(0, 10),
   defect_qty: '',
   supervisor_decision: '',
+  rework_notes: '',
+  notes: '',
 }
 
 export function QualityControlClient() {

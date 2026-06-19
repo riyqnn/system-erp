@@ -39,11 +39,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     end_date: data.end_date,
     status: data.status,
     notes: null,
-    products: data.ms_product ? {
-      id: data.ms_product.product_id,
-      sku: data.ms_product.product_id,
-      name: data.ms_product.product_name
-    } : null
+    products: (() => { const p = Array.isArray(data.ms_product) ? data.ms_product[0] : data.ms_product; return p ? { id: p.product_id, sku: p.product_id, name: p.product_name } : null; })()
   }
 
   return NextResponse.json(formattedData)

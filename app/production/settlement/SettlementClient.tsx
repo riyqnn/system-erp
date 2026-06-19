@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
 import { X, Warning, MagnifyingGlass, Receipt, Eye, Lock, ArrowRight } from '@phosphor-icons/react'
@@ -22,6 +22,7 @@ type Settlement = {
   actual_cost: number | null
   variance: number | null
   status: 'draft' | 'settled' | 'cancelled'
+  notes?: string | null
   production_orders: { po_number: string } | null
 }
 
@@ -48,6 +49,8 @@ type FormState = {
   labor_cost: string
   overhead_cost: string
   standard_cost: string
+  root_cause: string
+  notes: string
 }
 const emptyForm: FormState = {
   production_order_id: '',
@@ -56,6 +59,8 @@ const emptyForm: FormState = {
   labor_cost: '',
   overhead_cost: '',
   standard_cost: '',
+  root_cause: '',
+  notes: '',
 }
 
 const VARIANCE_THRESHOLD = 5

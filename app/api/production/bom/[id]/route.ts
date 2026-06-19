@@ -26,19 +26,22 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     notes: null,
     created_at: data.created_at,
     products: null,
-    production_bom_details: (data.ms_bom_detail || []).map((d) => ({
-      id: String(d.bom_detail_id),
-      bom_id: d.bom_id,
-      material_id: d.component_id,
-      quantity: Number(d.qty_required),
-      unit: d.ms_product?.uom ?? '',
-      notes: null,
-      products: d.ms_product ? {
-        id: d.ms_product.product_id,
-        sku: d.ms_product.product_id,
-        name: d.ms_product.product_name,
-      } : null,
-    })),
+    production_bom_details: (data.ms_bom_detail || []).map((d) => {
+      const product = Array.isArray(d.ms_product) ? d.ms_product[0] : d.ms_product;
+      return {
+        id: String(d.bom_detail_id),
+        bom_id: d.bom_id,
+        material_id: d.component_id,
+        quantity: Number(d.qty_required),
+        unit: product?.uom ?? '',
+        notes: null,
+        products: product ? {
+          id: product.product_id,
+          sku: product.product_id,
+          name: product.product_name,
+        } : null,
+      };
+    }),
   }
 
   return NextResponse.json(mapped)

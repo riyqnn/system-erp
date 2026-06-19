@@ -25,19 +25,22 @@ export async function GET() {
     HOLD: 'pending',
   }
 
-  const mapped = (data || []).map((r) => ({
-    id: r.qc_id,
-    production_order_id: r.prod_order_id,
-    batch_number: r.batch_number,
-    inspector: r.inspected_by ? String(r.inspected_by) : null,
-    inspection_date: r.inspection_date,
-    result: qcStatusMap[r.qc_status] ?? 'pending',
-    defect_qty: null,
-    notes: null,
-    production_orders: r.tr_production_order
-      ? { po_number: r.tr_production_order.prod_order_id }
-      : null,
-  }))
+  const mapped = (data || []).map((r) => {
+    const prodOrder = Array.isArray(r.tr_production_order) ? r.tr_production_order[0] : r.tr_production_order;
+    return {
+      id: r.qc_id,
+      production_order_id: r.prod_order_id,
+      batch_number: r.batch_number,
+      inspector: r.inspected_by ? String(r.inspected_by) : null,
+      inspection_date: r.inspection_date,
+      result: qcStatusMap[r.qc_status] ?? 'pending',
+      defect_qty: null,
+      notes: null,
+      production_orders: prodOrder
+        ? { po_number: prodOrder.prod_order_id }
+        : null,
+    };
+  })
 
   return NextResponse.json(mapped)
 }

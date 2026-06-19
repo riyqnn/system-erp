@@ -42,7 +42,9 @@ export async function GET() {
 
   const formattedData = data.map((item) => {
     const rawStatus = String(item.status ?? '').toUpperCase()
-    const requestDate = item.tr_production_request?.request_date ?? null
+    const prodReq = Array.isArray(item.tr_production_request) ? item.tr_production_request[0] : item.tr_production_request
+    const product = Array.isArray(item.ms_product) ? item.ms_product[0] : item.ms_product
+    const requestDate = prodReq?.request_date ?? null
     return {
       id: item.prod_order_id,
       po_number: item.prod_order_id,
@@ -53,10 +55,10 @@ export async function GET() {
       end_date: item.end_date ?? requestDate,
       status: statusMap[rawStatus] ?? item.status?.toLowerCase() ?? 'planned',
       notes: null,
-      products: item.ms_product ? {
-        id: item.ms_product.product_id,
-        sku: item.ms_product.product_id,
-        name: item.ms_product.product_name
+      products: product ? {
+        id: product.product_id,
+        sku: product.product_id,
+        name: product.product_name
       } : null
     }
   })

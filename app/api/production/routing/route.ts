@@ -11,16 +11,19 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const mapped = (data || []).map((r) => ({
-    id: r.routing_id,
-    product_id: r.product_id,
-    work_center_id: r.wc_id,
-    operation_name: r.operation_name,
-    setup_time: r.setup_time,
-    process_time: r.process_time,
-    created_at: r.created_at,
-    work_center_name: r.ms_work_center?.wc_name ?? null,
-  }))
+  const mapped = (data || []).map((r) => {
+    const wc = Array.isArray(r.ms_work_center) ? r.ms_work_center[0] : r.ms_work_center;
+    return {
+      id: r.routing_id,
+      product_id: r.product_id,
+      work_center_id: r.wc_id,
+      operation_name: r.operation_name,
+      setup_time: r.setup_time,
+      process_time: r.process_time,
+      created_at: r.created_at,
+      work_center_name: wc?.wc_name ?? null,
+    };
+  })
 
   return NextResponse.json(mapped)
 }

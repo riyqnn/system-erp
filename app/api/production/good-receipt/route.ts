@@ -18,18 +18,21 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const mapped = (data || []).map((r) => ({
-    id: r.prod_receipt_id,
-    production_order_id: r.prod_order_id,
-    quantity_received: Number(r.qty_received),
-    batch_number: r.batch_number,
-    receipt_date: r.receipt_date,
-    status: 'received',
-    notes: null,
-    production_orders: r.tr_production_order
-      ? { po_number: r.tr_production_order.prod_order_id }
-      : null,
-  }))
+  const mapped = (data || []).map((r) => {
+    const prodOrder = Array.isArray(r.tr_production_order) ? r.tr_production_order[0] : r.tr_production_order;
+    return {
+      id: r.prod_receipt_id,
+      production_order_id: r.prod_order_id,
+      quantity_received: Number(r.qty_received),
+      batch_number: r.batch_number,
+      receipt_date: r.receipt_date,
+      status: 'received',
+      notes: null,
+      production_orders: prodOrder
+        ? { po_number: prodOrder.prod_order_id }
+        : null,
+    };
+  })
 
   return NextResponse.json(mapped)
 }
