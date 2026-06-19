@@ -19,9 +19,19 @@ export type UserWithRole = UserProfile
 /**
  * Check if user has a specific role
  */
+/**
+ * Helper to normalize role strings by ignoring spaces, hyphens, and underscores case-insensitively
+ */
+function normalizeRole(role: string): string {
+  return role.toUpperCase().replace(/[\s\-_]/g, '');
+}
+
+/**
+ * Check if user has a specific role
+ */
 export function hasRole(user: UserWithRole | null, roleName: string): boolean {
   if (!user) return false
-  return user.role.toUpperCase() === roleName.toUpperCase()
+  return normalizeRole(user.role) === normalizeRole(roleName)
 }
 
 /**
@@ -29,7 +39,8 @@ export function hasRole(user: UserWithRole | null, roleName: string): boolean {
  */
 export function hasAnyRole(user: UserWithRole | null, roleNames: string[]): boolean {
   if (!user) return false
-  return roleNames.some(r => r.toUpperCase() === user.role.toUpperCase())
+  const userNorm = normalizeRole(user.role)
+  return roleNames.some(r => normalizeRole(r) === userNorm)
 }
 
 /**
@@ -47,7 +58,7 @@ export function requireRole(user: UserWithRole | null, roleName: string): void {
   if (!user) {
     throw new AuthError('User not authenticated', 401)
   }
-  if (user.role.toUpperCase() !== roleName.toUpperCase()) {
+  if (normalizeRole(user.role) !== normalizeRole(roleName)) {
     throw new AuthError(`Access denied. Required role: ${roleName}. Your role: ${user.role}`, 403)
   }
 }
@@ -59,7 +70,8 @@ export function requireAnyRole(user: UserWithRole | null, roleNames: string[]): 
   if (!user) {
     throw new AuthError('User not authenticated', 401)
   }
-  if (!roleNames.some(r => r.toUpperCase() === user.role.toUpperCase())) {
+  const userNorm = normalizeRole(user.role)
+  if (!roleNames.some(r => normalizeRole(r) === userNorm)) {
     throw new AuthError(
       `Access denied. Required role(s): ${roleNames.join(', ')}. Your role: ${user.role}`,
       403

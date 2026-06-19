@@ -31,7 +31,7 @@ import { AreaChart } from '@/components/shared/charts'
 interface PermintaanPembayaran {
   id_permintaan: number;
   no_permintaan: string;
-  hutang_id: number;
+  hutang_id: string | number;
   jumlah_bayar: number;
   metode_pembayaran: 'TRANSFER' | 'KAS_KECIL' | 'GIRO';
   keterangan: string;
@@ -54,6 +54,8 @@ interface TransaksiKas {
   akun_kas_id: number;
   akun_lawan_id: number;
   reference_id?: string;
+  created_at?: string;
+  transaction_date?: string;
 }
 
 interface Akun {
@@ -61,6 +63,30 @@ interface Akun {
   kode_akun: string;
   nama_akun: string;
   saldo_berjalan: number;
+}
+
+interface ReconcilingEntry {
+  id: number;
+  type: string;
+  amount: number;
+  sender: string;
+  ref: string;
+  isCredit: boolean;
+  verified: boolean;
+  transaction_id?: number | string;
+}
+
+interface ReconcileInvoice {
+  id_piutang?: number;
+  inv_number?: string;
+  customer_name?: string;
+  jumlah?: number;
+  sisa_pembayaran: number;
+  status: string;
+  ap_id?: number;
+  no_invoice?: string;
+  supplier_name?: string;
+  ap_amount?: number;
 }
 
 function GlassCard({
@@ -107,6 +133,18 @@ export default function TreasuryPage() {
   const [loading, setLoading] = useState(false)
   const [notif, setNotif] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
+  // Filter states
+  const [showFilterOptions, setShowFilterOptions] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState<'ALL' | 'HIGH' | 'NORMAL'>('ALL')
+
+  // Bank Reconciliation states
+  const [arList, setArList] = useState<ReconcileInvoice[]>([])
+  const [apList, setApList] = useState<ReconcileInvoice[]>([])
+  const [reconcilingEntry, setReconcilingEntry] = useState<ReconcilingEntry | null>(null)
+  const [selectedReconcileInvoice, setSelectedReconcileInvoice] = useState<ReconcileInvoice | null>(null)
+  const [reconcileBankAccountId, setReconcileBankAccountId] = useState<number>(0)
+
   // Rejection Dialog State
   const [rejectingPmt, setRejectingPmt] = useState<PermintaanPembayaran | null>(null)
   const [alasanTolak, setAlasanTolak] = useState('')
@@ -123,11 +161,11 @@ export default function TreasuryPage() {
   const [chartView, setChartView] = useState<'inflow' | 'outflow'>('inflow')
 
   // Unverified cash entries mock state
-  const [unverifiedCount, setUnverifiedCount] = useState(12)
+  const [unverifiedCount, setUnverifiedCount] = useState(3)
   const [recentCashEntries, setRecentCashEntries] = useState([
-    { id: 1, type: 'Wire Transfer In', amount: 125000, sender: 'TechCorp Inc.', ref: 'WT-9921', isCredit: true, verified: false },
-    { id: 2, type: 'ACH Auto-Debit', amount: -14200, sender: 'Utility Co.', ref: 'ACH-001', isCredit: false, verified: false },
-    { id: 3, type: 'Check Deposit', amount: 8500, sender: 'Local Retailer', ref: 'CHK-442', isCredit: true, verified: false },
+    { id: 1, type: 'Wire Transfer In', amount: 420000000, sender: 'PT Indomarco Prismatama', ref: 'WT-9921', isCredit: true, verified: false },
+    { id: 2, type: 'ACH Auto-Debit', amount: -156000000, sender: 'PT Gelora Karya Utama', ref: 'ACH-001', isCredit: false, verified: false },
+    { id: 3, type: 'Check Deposit', amount: 365000000, sender: 'PT Sumber Alfaria Trijaya Tbk', ref: 'CHK-442', isCredit: true, verified: false },
   ])
 
   // Mock Liquidity Forecast Data (calibrated USD scale)
@@ -176,6 +214,31 @@ export default function TreasuryPage() {
       const histJson = await histRes.json()
       if (histJson.data) setHistoryKasList(histJson.data)
 
+      // Get AR list for reconciliation
+      const arRes = await fetch(`/api/finance/receivable?mock_role=${userRole}`)
+      const arJson = await arRes.json()
+      if (arJson.data) {
+        const data = arJson.data as ReconcileInvoice[]
+        setArList(data.filter((x) => x.status !== 'LUNAS'))
+      }
+
+      // Get AP list for reconciliation
+      const apRes = await fetch(`/api/finance/payable?mock_role=${userRole}`)
+      const apJson = await apRes.json()
+      if (apJson.data) {
+        const data = apJson.data as ReconcileInvoice[]
+        setApList(data.filter((x) => x.status !== 'LUNAS'))
+      }
+
+      // Get unverified cash entries from database
+      const unverifiedRes = await fetch(`/api/finance/treasury?mode=unverified&mock_role=${userRole}`)
+      const unverifiedJson = await unverifiedRes.json()
+      if (unverifiedJson.data) {
+        const data = unverifiedJson.data as ReconcilingEntry[]
+        setRecentCashEntries(data)
+        setUnverifiedCount(data.filter((x) => !x.verified).length)
+      }
+
       // Reset selection on reload
       setSelectedIds([])
     } catch (e) {
@@ -189,6 +252,13 @@ export default function TreasuryPage() {
   useEffect(() => {
     loadData()
   }, [userRole])
+
+  useEffect(() => {
+    if (reconcilingEntry) {
+      setSelectedReconcileInvoice(null)
+      setReconcileBankAccountId(0)
+    }
+  }, [reconcilingEntry])
 
   const showNotif = (type: 'success' | 'error', message: string) => {
     setNotif({ type, message })
@@ -363,11 +433,43 @@ export default function TreasuryPage() {
     }
   }
 
-  // Verify Recent Cash Entry Action
-  const handleVerifyEntry = (id: number, type: string, amount: number) => {
-    setRecentCashEntries(prev => prev.map(item => item.id === id ? { ...item, verified: true } : item))
-    setUnverifiedCount(c => Math.max(0, c - 1))
-    showNotif('success', `Cash entry ${type} of $${amount.toLocaleString()} verified successfully!`)
+  // Verify & Reconcile Recent Cash Entry Action
+  const handleVerifyEntry = async (entry: ReconcilingEntry, invoiceId: string | number, selectedKasId: number) => {
+    if (selectedKasId === 0) {
+      showNotif('error', 'Pilih rekening kas/bank pembayar/penerima.')
+      return
+    }
+
+    try {
+      setLoading(true)
+      const res = await fetch(`/api/finance/treasury?mock_role=${userRole}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reconcile',
+          transaction_id: entry.transaction_id || entry.id,
+          type: entry.isCredit ? 'inflow' : 'outflow',
+          invoice_id: invoiceId,
+          amount: Math.abs(entry.amount),
+          akun_kas_id: selectedKasId
+        })
+      })
+      const json = await res.json()
+      if (res.ok) {
+        showNotif('success', `Sukses: Arus kas berhasil direkonsiliasi dengan invoice dan jurnal terposting!`)
+        // Update local mock list state
+        setRecentCashEntries(prev => prev.map(item => item.id === entry.id ? { ...item, verified: true } : item))
+        setUnverifiedCount(c => Math.max(0, c - 1))
+        setReconcilingEntry(null)
+        loadData()
+      } else {
+        showNotif('error', json.error || 'Gagal memproses rekonsiliasi.')
+      }
+    } catch (e) {
+      showNotif('error', 'Koneksi error saat mengirim data rekonsiliasi.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Get Cash / Bank Rekening Info
@@ -375,9 +477,9 @@ export default function TreasuryPage() {
   const bankMandiri = rekeningList.find(r => r.kode_akun === '1002')?.saldo_berjalan || 0
   const bankBCA = rekeningList.find(r => r.kode_akun === '1003')?.saldo_berjalan || 0
 
-  // Format Currency Calibrated to USD ($) as per screenshot reference (Divided by 1000)
+  // Format Currency Calibrated to IDR (Rupiah) instead of USD
   const formatCalibrated = (val: number) => {
-    return '$' + (val / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    return 'Rp ' + Math.round(val).toLocaleString('id-ID')
   }
 
   const formatRupiah = (val: number) => {
@@ -385,7 +487,26 @@ export default function TreasuryPage() {
   }
 
   // Filter approved payments ready for execution (status: DISETUJUI)
-  const approvedPayments = permintaanList.filter(p => p.status === 'DISETUJUI')
+  const approvedPayments = permintaanList
+    .filter(p => p.status === 'DISETUJUI')
+    .filter(p => {
+      const supplierMatch = (p.tr_hutang?.supplier_name || '').toLowerCase().includes(searchQuery.toLowerCase())
+      const invoiceMatch = (p.tr_hutang?.no_invoice || '').toLowerCase().includes(searchQuery.toLowerCase())
+      const priority = getPriority(p.jumlah_bayar)
+      const priorityMatch = priorityFilter === 'ALL' || priority === priorityFilter
+      return (supplierMatch || invoiceMatch) && priorityMatch
+    })
+
+  // Filter pending approvals (status: MENUNGGU_PERSETUJUAN)
+  const pendingPayments = permintaanList
+    .filter(p => p.status === 'MENUNGGU_PERSETUJUAN')
+    .filter(p => {
+      const supplierMatch = (p.tr_hutang?.supplier_name || '').toLowerCase().includes(searchQuery.toLowerCase())
+      const invoiceMatch = (p.tr_hutang?.no_invoice || '').toLowerCase().includes(searchQuery.toLowerCase())
+      const priority = getPriority(p.jumlah_bayar)
+      const priorityMatch = priorityFilter === 'ALL' || priority === priorityFilter
+      return (supplierMatch || invoiceMatch) && priorityMatch
+    })
 
   // Checkboxes select helpers
   const handleSelectAll = (checked: boolean, items: PermintaanPembayaran[]) => {
@@ -410,7 +531,7 @@ export default function TreasuryPage() {
     .reduce((sum, p) => sum + p.jumlah_bayar, 0)
 
   // Determine Priority (High vs Normal) based on amount
-  const getPriority = (amount: number) => {
+  function getPriority(amount: number) {
     return amount >= 150000000 ? 'HIGH' : 'NORMAL'
   }
 
@@ -713,35 +834,163 @@ export default function TreasuryPage() {
                   data={chartView === 'inflow' ? inflowData : outflowData}
                   color="#dc2626"
                   height={300}
-                  valueFormatter={(v) => '$' + v.toLocaleString()}
+                  valueFormatter={(v) => 'Rp ' + (v * 10000).toLocaleString('id-ID')}
                 />
               </div>
             </GlassCard>
 
 
-            {/* Approved Payments Table Card */}
-            <GlassCard className="border border-slate-100">
+            {/* 1. Payment Requests Awaiting Approval */}
+            <GlassCard className="border border-slate-100 mb-6">
               <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800">Approved Payments Ready for Execution</h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5">Select invoices to include in the next payment batch (UC-TR-01).</p>
+                  <h3 className="text-sm font-bold text-slate-800">Payment Requests Awaiting Management Approval</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Review and authorize supplier payment requests.</p>
                 </div>
-                <Button variant="outline" className="flex items-center gap-1.5 border-slate-200 text-slate-700 font-semibold rounded-xl text-xs px-3 py-1.5 h-auto cursor-pointer">
-                  <Filter className="w-3.5 h-3.5" /> Filter
-                </Button>
+                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full">
+                  {pendingPayments.length} Pending
+                </span>
               </div>
 
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader className="bg-slate-50/20">
                     <TableRow className="border-b border-slate-100">
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Supplier Name</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-4 py-3">Invoice Ref</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-4 py-3">Date Requested</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-4 py-3 text-right">Amount</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-4 py-3 text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="text-xs text-slate-700">
+                    {pendingPayments.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 font-semibold text-slate-400">
+                          Tidak ada pengajuan pembayaran yang menunggu persetujuan.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      pendingPayments.map((p) => (
+                        <TableRow key={p.id_permintaan} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
+                          <TableCell className="px-6 py-4 font-bold text-slate-800">
+                            {p.tr_hutang?.supplier_name || 'Supplier'}
+                          </TableCell>
+                          <TableCell className="px-4 py-4 font-mono font-medium text-slate-500">
+                            {p.tr_hutang?.no_invoice || '—'}
+                          </TableCell>
+                          <TableCell className="px-4 py-4 font-medium text-slate-600">
+                            {new Date(p.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </TableCell>
+                          <TableCell className="px-4 py-4 text-right font-mono font-bold text-slate-800">
+                            {formatCalibrated(p.jumlah_bayar)}
+                          </TableCell>
+                          <TableCell className="px-4 py-4 text-right">
+                            {userRole === 'MANAGEMENT' ? (
+                              <div className="flex justify-end gap-3">
+                                <button
+                                  onClick={() => handleApprove(p.id_permintaan)}
+                                  className="text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => setRejectingPmt(p)}
+                                  className="text-xs font-bold text-red-600 hover:text-red-700 hover:underline cursor-pointer"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] font-semibold text-slate-400 italic">
+                                🔒 Awaiting Management Approval
+                              </span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </GlassCard>
+
+            {/* Approved Payments Table Card */}
+            <GlassCard className="border border-slate-100">
+              <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Approved Payments Ready for Execution</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Select invoices to include in the next payment batch.</p>
+                </div>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowFilterOptions(!showFilterOptions)}
+                  className={`flex items-center gap-1.5 border-slate-200 text-slate-700 font-semibold rounded-xl text-xs px-3 py-1.5 h-auto cursor-pointer transition-colors ${
+                    showFilterOptions ? 'bg-slate-100 border-slate-300' : ''
+                  }`}
+                >
+                  <Filter className="w-3.5 h-3.5" /> Filter
+                </Button>
+              </div>
+
+              {showFilterOptions && (
+                <div className="px-6 py-3 bg-slate-50/30 border-b border-slate-100 flex flex-col sm:flex-row items-center gap-3 animate-in fade-in duration-200">
+                  <div className="relative flex-1 w-full">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Input
+                      type="text"
+                      placeholder="Cari Supplier atau Ref Invoice..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9 h-8 text-xs rounded-xl border-slate-200 bg-white"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5 self-stretch sm:self-auto">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">Prioritas:</span>
+                    <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200/50">
+                      {(['ALL', 'HIGH', 'NORMAL'] as const).map((pr) => (
+                        <button
+                          key={pr}
+                          type="button"
+                          onClick={() => setPriorityFilter(pr)}
+                          className={`px-2.5 py-1 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
+                            priorityFilter === pr
+                              ? 'bg-white text-slate-800 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          {pr === 'ALL' ? 'Semua' : pr}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {(searchQuery || priorityFilter !== 'ALL') && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery('')
+                        setPriorityFilter('ALL')
+                      }}
+                      className="text-[10px] font-bold text-slate-400 hover:text-red-600 transition-colors whitespace-nowrap cursor-pointer hover:underline"
+                    >
+                      Reset Filter
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader className="bg-slate-50/20">
+                    <TableRow className="border-b border-slate-100">
                       <TableHead className="w-12 px-6 py-3">
-                        <input
-                          type="checkbox"
-                          checked={approvedPayments.length > 0 && selectedIds.length === approvedPayments.length}
-                          onChange={(e) => handleSelectAll(e.target.checked, approvedPayments)}
-                          className="rounded border-slate-300 text-red-600 focus:ring-red-500 w-4 h-4 cursor-pointer"
-                        />
+                        {userRole === 'TREASURY' && (
+                          <input
+                            type="checkbox"
+                            checked={approvedPayments.length > 0 && selectedIds.length === approvedPayments.length}
+                            onChange={(e) => handleSelectAll(e.target.checked, approvedPayments)}
+                            className="rounded border-slate-300 text-red-600 focus:ring-red-500 w-4 h-4 cursor-pointer"
+                          />
+                        )}
                       </TableHead>
                       <TableHead className="font-semibold text-slate-400 text-xs px-4 py-3">Supplier Name</TableHead>
                       <TableHead className="font-semibold text-slate-400 text-xs px-4 py-3">Invoice Ref</TableHead>
@@ -765,12 +1014,14 @@ export default function TreasuryPage() {
                         return (
                           <TableRow key={p.id_permintaan} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
                             <TableCell className="px-6 py-4">
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) => handleSelectRow(e.target.checked, p.id_permintaan)}
-                                className="rounded border-slate-300 text-red-600 focus:ring-red-500 w-4 h-4 cursor-pointer"
-                              />
+                              {userRole === 'TREASURY' && (
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) => handleSelectRow(e.target.checked, p.id_permintaan)}
+                                  className="rounded border-slate-300 text-red-600 focus:ring-red-500 w-4 h-4 cursor-pointer"
+                                />
+                              )}
                             </TableCell>
                             <TableCell className="px-4 py-4 font-bold text-slate-800">
                               {p.tr_hutang?.supplier_name || 'Supplier'}
@@ -792,15 +1043,21 @@ export default function TreasuryPage() {
                               {formatCalibrated(p.jumlah_bayar)}
                             </TableCell>
                             <TableCell className="px-4 py-4 text-right">
-                              <button
-                                onClick={() => {
-                                  setExecutingPmt(p)
-                                  setSelectedRekeningBayar(0)
-                                }}
-                                className="text-xs font-bold text-red-600 hover:text-red-700 hover:underline cursor-pointer"
-                              >
-                                Pay Now
-                              </button>
+                              {userRole === 'TREASURY' ? (
+                                <button
+                                  onClick={() => {
+                                    setExecutingPmt(p)
+                                    setSelectedRekeningBayar(0)
+                                  }}
+                                  className="text-xs font-bold text-red-600 hover:text-red-700 hover:underline cursor-pointer"
+                                >
+                                  Pay Now
+                                </button>
+                              ) : (
+                                <span className="text-[10px] font-semibold text-slate-400 italic">
+                                  🔒 Awaiting Treasury Execution
+                                </span>
+                              )}
                             </TableCell>
                           </TableRow>
                         )
@@ -811,7 +1068,7 @@ export default function TreasuryPage() {
               </div>
 
               {/* Batch Processing Footer Summary */}
-              {selectedIds.length > 0 && (
+              {userRole === 'TREASURY' && selectedIds.length > 0 && (
                 <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3 animate-in slide-in-from-bottom-2 duration-300">
                   <div className="text-xs font-semibold text-slate-600">
                     {selectedIds.length} {selectedIds.length === 1 ? 'invoice' : 'invoices'} selected for execution.
@@ -862,7 +1119,7 @@ export default function TreasuryPage() {
                         <span className={`font-mono text-xs font-bold ${
                           entry.isCredit ? 'text-emerald-600' : 'text-slate-800'
                         }`}>
-                          {entry.isCredit ? '+' : '-'}${entry.amount.toLocaleString()}
+                          {entry.isCredit ? '+' : '-'} {formatRupiah(Math.abs(entry.amount))}
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-500 truncate">{entry.sender} • Ref: {entry.ref}</p>
@@ -872,13 +1129,17 @@ export default function TreasuryPage() {
                           <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
                             <CheckCircle className="w-3.5 h-3.5" /> Verified
                           </span>
-                        ) : (
+                        ) : userRole === 'TREASURY' ? (
                           <button
-                            onClick={() => handleVerifyEntry(entry.id, entry.type, entry.amount)}
+                            onClick={() => setReconcilingEntry(entry)}
                             className="text-[10px] font-bold text-red-600 hover:text-red-700 flex items-center gap-0.5 hover:underline cursor-pointer"
                           >
                             Verify Entry <ChevronRight className="w-3 h-3" />
                           </button>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-slate-400 italic flex items-center gap-1">
+                            🔒 Awaiting Treasury Verification
+                          </span>
                         )}
                       </div>
                     </div>
@@ -927,7 +1188,7 @@ export default function TreasuryPage() {
                     <TableRow key={t.id_transaksi_kas} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
                       <TableCell className="font-mono font-bold text-slate-800 px-6 py-4 text-center">{t.no_transaksi}</TableCell>
                       <TableCell className="text-center font-medium text-slate-500 px-6 py-4">
-                        {new Date(t.tanggal).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {new Date(t.tanggal || t.created_at || t.transaction_date || '').toLocaleDateString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                       </TableCell>
                       <TableCell className="text-center px-6 py-4">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${t.tipe === 'MASUK' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
@@ -1124,6 +1385,172 @@ export default function TreasuryPage() {
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 4. BANK RECONCILIATION DIALOG */}
+      {reconcilingEntry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-2xl bg-white rounded-3xl shadow-xl overflow-hidden animate-[fadeIn_0.3s_ease-out] border border-slate-100">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-red-600 animate-pulse" /> Rekonsiliasi & Verifikasi Aliran Kas
+              </h3>
+              <button 
+                onClick={() => setReconcilingEntry(null)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Cash Entry Card */}
+              <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 space-y-3">
+                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Detail Mutasi Koran (Bank Feed)</h4>
+                <div className="grid grid-cols-2 gap-y-3 gap-x-4 text-xs">
+                  <div>
+                    <span className="text-slate-400 font-semibold">Tipe Arus Kas:</span>
+                    <p className="font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
+                      <span className={`w-2 h-2 rounded-full ${reconcilingEntry.isCredit ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                      {reconcilingEntry.type} ({reconcilingEntry.isCredit ? 'KAS MASUK' : 'KAS KELUAR'})
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-semibold">Jumlah Mutasi:</span>
+                    <p className="font-bold text-slate-800 mt-0.5">
+                      {formatRupiah(Math.abs(reconcilingEntry.amount))}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-semibold">Pengirim / Penerima:</span>
+                    <p className="font-bold text-slate-800 mt-0.5">{reconcilingEntry.sender}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-semibold">Referensi Bank:</span>
+                    <p className="font-mono font-bold text-slate-800 mt-0.5">{reconcilingEntry.ref}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bank/Cash Account Selector */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pilih Rekening Kas/Bank Pencatatan</label>
+                <select
+                  value={reconcileBankAccountId}
+                  onChange={(e) => setReconcileBankAccountId(Number(e.target.value))}
+                  className="w-full text-xs font-bold p-2.5 border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-red-500 transition-colors"
+                  required
+                >
+                  <option value={0}>-- PILIH REKENING KAS/BANK --</option>
+                  {rekeningList.map((r) => (
+                    <option key={r.id_akun} value={r.id_akun}>
+                      {r.kode_akun} - {r.nama_akun} (Saldo: {formatCalibrated(r.saldo_berjalan)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Suggestions Table */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Daftar Invoice Outstanding ({reconcilingEntry.isCredit ? 'AR / Piutang' : 'AP / Hutang'})
+                  </label>
+                  <span className="text-[10px] text-red-600 bg-red-50/50 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider text-[8px]">Kecocokan Disorot</span>
+                </div>
+                
+                <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[180px] overflow-y-auto">
+                  <Table>
+                    <TableHeader className="bg-slate-50/50">
+                      <TableRow className="border-b border-slate-100">
+                        <TableHead className="w-10 text-center py-2 px-3"></TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] py-2 px-3">No. Invoice</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] py-2 px-3">Nama Mitra</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] text-right py-2 px-3">Total Invoice</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] text-right py-2 px-3">Sisa Outstanding</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody className="text-xs text-slate-700">
+                      {((reconcilingEntry.isCredit ? arList : apList) || []).length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-8 text-slate-400 font-semibold">
+                            Tidak ada invoice outstanding yang belum lunas.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        ((reconcilingEntry.isCredit ? arList : apList) || []).map((inv: ReconcileInvoice) => {
+                          const invId = reconcilingEntry.isCredit ? inv.id_piutang : inv.ap_id;
+                          const invNum = reconcilingEntry.isCredit ? inv.inv_number : inv.no_invoice;
+                          const partnerName = reconcilingEntry.isCredit ? inv.customer_name : inv.supplier_name;
+                          const amount = (reconcilingEntry.isCredit ? inv.jumlah : inv.ap_amount) || 0;
+                          
+                          // Check if exact match by amount
+                          const isExactMatch = amount === Math.abs(reconcilingEntry.amount);
+                          const isSelected = selectedReconcileInvoice && (reconcilingEntry.isCredit 
+                            ? selectedReconcileInvoice.id_piutang === inv.id_piutang 
+                            : selectedReconcileInvoice.ap_id === inv.ap_id);
+
+                          return (
+                            <TableRow 
+                              key={invId} 
+                              onClick={() => setSelectedReconcileInvoice(inv)}
+                              className={`border-b border-slate-50 hover:bg-slate-50/30 transition-colors cursor-pointer ${
+                                isSelected ? 'bg-red-50/20' : (isExactMatch ? 'bg-emerald-50/20' : '')
+                              }`}
+                            >
+                              <TableCell className="text-center py-2.5 px-3">
+                                <input
+                                  type="radio"
+                                  name="reconcile_invoice"
+                                  checked={!!isSelected}
+                                  onChange={() => setSelectedReconcileInvoice(inv)}
+                                  className="text-red-600 focus:ring-red-500 w-3.5 h-3.5 cursor-pointer"
+                                />
+                              </TableCell>
+                              <TableCell className="font-mono font-bold text-slate-800 py-2.5 px-3">{invNum}</TableCell>
+                              <TableCell className="font-semibold text-slate-600 py-2.5 px-3">{partnerName}</TableCell>
+                              <TableCell className="font-mono text-right text-slate-700 py-2.5 px-3">{formatRupiah(amount)}</TableCell>
+                              <TableCell className="font-mono font-bold text-right text-slate-800 py-2.5 px-3">
+                                {formatRupiah(inv.sisa_pembayaran)}
+                                {isExactMatch && (
+                                  <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wider">MATCH</span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <Button 
+                  type="button" 
+                  onClick={() => setReconcilingEntry(null)} 
+                  variant="ghost"
+                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
+                >
+                  Batal
+                </Button>
+                <Button 
+                  type="button" 
+                  disabled={!selectedReconcileInvoice || reconcileBankAccountId === 0 || loading}
+                  onClick={() => {
+                    if (!selectedReconcileInvoice || !reconcilingEntry) return;
+                    const invId = (reconcilingEntry.isCredit ? selectedReconcileInvoice.id_piutang : selectedReconcileInvoice.ap_id) || '';
+                    handleVerifyEntry(reconcilingEntry, invId, reconcileBankAccountId);
+                  }}
+                  className="flex-1 text-xs font-semibold text-white bg-red-700 hover:bg-red-800 rounded-xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-md transition-all"
+                >
+                  {loading ? 'Memproses Cocokan...' : 'Cocokkan & Verifikasi'}
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       )}

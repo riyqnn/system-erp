@@ -365,8 +365,8 @@ export default function AccountPayablePage() {
             <button
               onClick={() => handleUpdateRole('AP_STAFF')}
               className={`px-3 py-1.5 text-[11px] font-bold rounded-xl transition-all cursor-pointer ${userRole === 'AP_STAFF'
-                  ? 'bg-white text-slate-800 shadow-sm border border-slate-200/30'
-                  : 'text-slate-500 hover:text-slate-800'
+                ? 'bg-white text-slate-800 shadow-sm border border-slate-200/30'
+                : 'text-slate-500 hover:text-slate-800'
                 }`}
             >
               Staf AP
@@ -374,8 +374,8 @@ export default function AccountPayablePage() {
             <button
               onClick={() => handleUpdateRole('MANAGEMENT')}
               className={`px-3 py-1.5 text-[11px] font-bold rounded-xl transition-all cursor-pointer ${userRole === 'MANAGEMENT'
-                  ? 'bg-white text-slate-800 shadow-sm border border-slate-200/30'
-                  : 'text-slate-500 hover:text-slate-800'
+                ? 'bg-white text-slate-800 shadow-sm border border-slate-200/30'
+                : 'text-slate-500 hover:text-slate-800'
                 }`}
             >
               Pimpinan
@@ -401,7 +401,7 @@ export default function AccountPayablePage() {
                 <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
                   <FileCheck2 className="w-4.5 h-4.5" />
                 </div>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Invoices to Verify (UC-AP-01)</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Invoices to Verify</span>
               </div>
               <p className="text-3xl font-bold tracking-tight text-slate-800 mt-2">
                 {pendingPO}
@@ -421,7 +421,7 @@ export default function AccountPayablePage() {
                 <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
                   <CheckSquare className="w-4.5 h-4.5" />
                 </div>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Requests for Review (UC-AP-04)</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Requests for Review</span>
               </div>
               <p className="text-3xl font-bold tracking-tight text-slate-800 mt-2">
                 {pendingReviews.length}
@@ -467,7 +467,7 @@ export default function AccountPayablePage() {
           <GlassCard>
             <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-base font-semibold text-slate-800">Invoice Verification (UC-AP-01)</h3>
+                <h3 className="text-base font-semibold text-slate-800">Invoice Verification</h3>
               </div>
               <div className="flex items-center gap-4">
                 <div className="relative">
@@ -489,9 +489,9 @@ export default function AccountPayablePage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
               <Table>
-                <TableHeader className="bg-slate-50/50">
+                <TableHeader className="bg-slate-50/50 sticky top-0 z-10">
                   <TableRow className="border-b border-slate-100">
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-32">Invoice #</TableHead>
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Supplier</TableHead>
@@ -572,7 +572,7 @@ export default function AccountPayablePage() {
             <div className="space-y-1.5 max-w-[480px]">
               <h4 className="text-base font-bold text-slate-800">Initiate Payment Request</h4>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Compile verified invoices and submit a new payment request (UC-AP-03) for managerial review and treasury processing.
+                Compile verified invoices and submit a new payment request for managerial review and treasury processing.
               </p>
             </div>
           </div>
@@ -585,57 +585,18 @@ export default function AccountPayablePage() {
             <GlassCard className="h-full flex flex-col">
               <div className="px-6 py-5 border-b border-slate-100">
                 <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
-                  <CheckSquare className="w-5 h-5 text-red-600" /> Payment Review (UC-AP-04)
+                  <CheckSquare className="w-5 h-5 text-red-600" /> Payment Review
                 </h3>
-                <p className="text-xs text-slate-400 mt-1">Pending your approval</p>
+                <p className="text-xs text-slate-400 mt-1">{pendingReviews.length} pengajuan menunggu persetujuan</p>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              <div className="flex-1 overflow-y-auto max-h-[400px] p-6 space-y-4">
                 {pendingReviews.length === 0 ? (
-                  // Fallback Mock data from screenshot if no active pending requests exist in API
-                  <>
-                    <div className="border border-red-100 bg-red-50/20 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-start">
-                          <span className="font-mono text-[10px] font-bold text-slate-400">PRQ-2023-110</span>
-                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
-                        </div>
-                        <p className="text-xs font-semibold text-slate-700">Batched IT hardware purchases</p>
-                      </div>
-                      <div className="flex justify-between items-end mt-4">
-                        <p className="text-base font-bold text-slate-800">Rp 675.000.000</p>
-                        <div className="flex gap-1">
-                          <button className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer">
-                            <X className="w-4 h-4" />
-                          </button>
-                          <button className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm">
-                            <Check className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="border border-red-100 bg-red-50/20 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-start">
-                          <span className="font-mono text-[10px] font-bold text-slate-400">PRQ-2023-112</span>
-                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">Pending Review</span>
-                        </div>
-                        <p className="text-xs font-semibold text-slate-700">Q3 Office Lease Payment</p>
-                      </div>
-                      <div className="flex justify-between items-end mt-4">
-                        <p className="text-base font-bold text-slate-800">Rp 1.807.500.000</p>
-                        <div className="flex gap-1">
-                          <button className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-colors cursor-pointer">
-                            <X className="w-4 h-4" />
-                          </button>
-                          <button className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 flex items-center justify-center transition-colors cursor-pointer shadow-sm">
-                            <Check className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </>
+                  <div className="flex flex-col items-center justify-center h-48 text-center px-4">
+                    <p className="text-xs font-medium text-slate-400 italic">
+                      Tidak ada pengajuan pembayaran yang perlu ditinjau.
+                    </p>
+                  </div>
                 ) : (
                   pendingReviews.map((pmt) => (
                     <div key={pmt.id_permintaan} className="border border-slate-100 bg-slate-50/30 rounded-2xl p-4 flex flex-col justify-between min-h-[140px] relative overflow-hidden">

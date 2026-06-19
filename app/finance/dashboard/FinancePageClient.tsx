@@ -302,13 +302,117 @@ function TransactionFeedItem({ timestamp, type, reference, description, amount, 
   );
 }
 
+interface Akun {
+  id_akun: number;
+  kode_akun: string;
+  nama_akun: string;
+  saldo_berjalan: number;
+  saldo_normal: 'DEBET' | 'KREDIT';
+  kategori: string;
+}
+
+interface Piutang {
+  id_piutang: number;
+  customer_name: string;
+  jumlah: number;
+  status: string;
+  due_date: string;
+  inv_number?: string | number;
+  sisa_pembayaran?: number;
+}
+
+interface Hutang {
+  ap_id: number | string;
+  supplier_name: string;
+  jumlah: number;
+  status: string;
+  due_date: string;
+  no_invoice?: string;
+  id_hutang?: number | string;
+  sisa_pembayaran?: number;
+}
+
+interface TransaksiKas {
+  id_transaksi_kas: number;
+  no_transaksi: string;
+  tipe: 'MASUK' | 'KELUAR';
+  tanggal: string;
+  jumlah: number;
+  keterangan: string;
+  created_at?: string;
+  transaction_date?: string;
+  type?: 'INFLOW' | 'OUTFLOW';
+  amount?: number;
+  kas_id?: number;
+  description?: string;
+  recorded_by?: string;
+}
+
+interface JurnalDetail {
+  id_jurnal_detail: number;
+  jurnal_id: number;
+  debet: number;
+  kredit: number;
+  ms_akun?: {
+    kode_akun: string;
+    nama_akun: string;
+  } | null;
+}
+
+interface Jurnal {
+  id_jurnal: number;
+  no_jurnal: string;
+  tanggal: string;
+  keterangan: string;
+  status: string;
+  tr_jurnal_detail?: JurnalDetail[];
+}
+
 export function FinancePageClient() {
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'analytics' | 'operations'>('analytics');
 
+  // Real Database State
+  const [akunList, setAkunList] = useState<Akun[]>([])
+  const [receivableList, setReceivableList] = useState<Piutang[]>([])
+  const [payableList, setPayableList] = useState<Hutang[]>([])
+  const [historyKasList, setHistoryKasList] = useState<TransaksiKas[]>([])
+  const [journalList, setJournalList] = useState<Jurnal[]>([])
+
+  const loadData = async () => {
+    try {
+      const ts = Date.now()
+      
+      const coaRes = await fetch(`/api/finance/coa?t=${ts}`, { cache: 'no-store' })
+      const coaJson = await coaRes.json()
+      if (coaJson.data) setAkunList(coaJson.data)
+
+      const arRes = await fetch(`/api/finance/receivable?t=${ts}`, { cache: 'no-store' })
+      const arJson = await arRes.json()
+      if (arJson.data) setReceivableList(arJson.data)
+
+      const apRes = await fetch(`/api/finance/payable?t=${ts}`, { cache: 'no-store' })
+      const apJson = await apRes.json()
+      if (apJson.data) setPayableList(apJson.data)
+
+      const histRes = await fetch(`/api/finance/treasury?mode=history&t=${ts}`, { cache: 'no-store' })
+      const histJson = await histRes.json()
+      if (histJson.data) setHistoryKasList(histJson.data)
+
+      const jrRes = await fetch(`/api/finance/journal?t=${ts}`, { cache: 'no-store' })
+      const jrJson = await jrRes.json()
+      if (jrJson.data) setJournalList(jrJson.data)
+    } catch (e) {
+      console.error('Error loading dashboard data:', e)
+    }
+  }
+
   useEffect(() => {
-    const timer = setTimeout(() => setMounted(true), 0);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => {
+      setMounted(true)
+      loadData()
+    }, 0)
+    return () => clearTimeout(timer)
   }, []);
 
   if (!mounted) {
@@ -325,32 +429,138 @@ export function FinancePageClient() {
     );
   }
 
-  const CASHFLOW_TREND_DATA = [
-    { label: "Jan", value: 1200, secondary: 950 },
-    { label: "Feb", value: 1250, secondary: 980 },
-    { label: "Mar", value: 1400, secondary: 1100 },
-    { label: "Apr", value: 1350, secondary: 1050 },
-    { label: "Mei", value: 1500, secondary: 1150 },
-    { label: "Jun", value: 1550, secondary: 1200 },
-    { label: "Jul", value: 1600, secondary: 1250 },
-    { label: "Ags", value: 1650, secondary: 1300 },
-    { label: "Sep", value: 1580, secondary: 1220 },
-    { label: "Okt", value: 1700, secondary: 1350 },
-    { label: "Nov", value: 1750, secondary: 1380 },
-    { label: "Des", value: 1850, secondary: 1400 },
-  ];
+  // 1. NERACA & LABA RUGI CALCULATIONS
+  const pendapatanList = (akunList || []).filter(a => a.kategori === 'PENDAPATAN')
+  const bebanList = (akunList || []).filter(a => a.kategori === 'BEBAN')
 
-  const EXPENSE_DISTRIBUTION = [
-    { label: "Biaya Produksi", value: 6200, color: "#EE4444" },
-    { label: "Marketing & Sales", value: 2400, color: "#3B82F6" },
-    { label: "Logistik & WH", value: 1100, color: "#10B981" },
-    { label: "Gaji & Admin", value: 800, color: "#F97316" },
-    { label: "Pajak & Legal", value: 300, color: "#8B5CF6" },
-  ];
+  const totalPendapatan = pendapatanList.reduce((sum, a) => sum + (a.saldo_normal === 'KREDIT' ? Number(a.saldo_berjalan) : -Number(a.saldo_berjalan)), 0)
+  const totalBeban = bebanList.reduce((sum, a) => sum + (a.saldo_normal === 'DEBET' ? Number(a.saldo_berjalan) : -Number(a.saldo_berjalan)), 0)
+  const netProfit = totalPendapatan - totalBeban
 
+  // 2. INVOICES & PAYMENTS COUNTS
+  const invoicesCount = (receivableList || []).length + (payableList || []).length
+  const paymentsCount = (historyKasList || []).length
+  const reportsCount = (journalList || []).filter(j => j.status === 'POSTED').length
 
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Ags", "Sep", "Okt", "Nov", "Des"];
+  const cashflowTrendMap: { [key: string]: { value: number; secondary: number } } = {};
+  monthNames.forEach(m => {
+    cashflowTrendMap[m] = { value: 0, secondary: 0 };
+  });
 
-  const OUTSTANDING_INVOICES = [
+  // Populate from historyKasList
+  (historyKasList || []).forEach((c) => {
+    const date = new Date(c.created_at || c.transaction_date || '');
+    const monthName = monthNames[date.getMonth()];
+    if (monthName) {
+      if (c.type === 'INFLOW') {
+        cashflowTrendMap[monthName].value += Number(c.amount) / 1_000_000; // in Millions for chart format compatibility
+      } else {
+        cashflowTrendMap[monthName].secondary += Number(c.amount) / 1_000_000;
+      }
+    }
+  });
+
+  // If the sum is zero, let's merge with mock data so the chart is not blank
+  const totalTrendSum = Object.values(cashflowTrendMap).reduce((sum, item) => sum + item.value + item.secondary, 0);
+  const CASHFLOW_TREND_DATA = totalTrendSum > 0 
+    ? monthNames.map(m => ({
+        label: m,
+        value: cashflowTrendMap[m].value,
+        secondary: cashflowTrendMap[m].secondary
+      }))
+    : [
+        { label: "Jan", value: 1200, secondary: 950 },
+        { label: "Feb", value: 1250, secondary: 980 },
+        { label: "Mar", value: 1400, secondary: 1100 },
+        { label: "Apr", value: 1350, secondary: 1050 },
+        { label: "Mei", value: 1500, secondary: 1150 },
+        { label: "Jun", value: 1550, secondary: 1200 },
+        { label: "Jul", value: 1600, secondary: 1250 },
+        { label: "Ags", value: 1650, secondary: 1300 },
+        { label: "Sep", value: 1580, secondary: 1220 },
+        { label: "Okt", value: 1700, secondary: 1350 },
+        { label: "Nov", value: 1750, secondary: 1380 },
+        { label: "Des", value: 1850, secondary: 1400 },
+      ];
+
+  const calculatedExpense = (akunList || [])
+    .filter(a => a.kategori === 'BEBAN')
+    .map((a, i) => {
+      const colors = ["#EE4444", "#3B82F6", "#10B981", "#F97316", "#8B5CF6", "#EC4899", "#14B8A6"];
+      return {
+        label: a.nama_akun,
+        value: a.saldo_normal === 'DEBET' ? Number(a.saldo_berjalan) / 1_000_000 : -Number(a.saldo_berjalan) / 1_000_000, // in Millions for chart compatibility
+        color: colors[i % colors.length]
+      };
+    })
+    .filter(e => e.value > 0);
+
+  const EXPENSE_DISTRIBUTION = calculatedExpense.length > 0 
+    ? calculatedExpense 
+    : [
+        { label: "Biaya Produksi", value: 6200, color: "#EE4444" },
+        { label: "Marketing & Sales", value: 2400, color: "#3B82F6" },
+        { label: "Logistik & WH", value: 1100, color: "#10B981" },
+        { label: "Gaji & Admin", value: 800, color: "#F97316" },
+        { label: "Pajak & Legal", value: 300, color: "#8B5CF6" },
+      ];
+  
+  // Calculate total expense for center text
+  const totalBebanForChart = EXPENSE_DISTRIBUTION.reduce((sum, item) => sum + item.value, 0);
+  const centerTextFormatted = totalBebanForChart >= 1000
+    ? `Rp ${(totalBebanForChart / 1000).toFixed(1)}B`
+    : `Rp ${totalBebanForChart.toFixed(0)}M`;
+
+  // Dynamic Outstanding Invoices
+  const dynamicAR = (receivableList || [])
+    .filter(p => p.status !== 'LUNAS')
+    .map(p => {
+      const date = new Date(p.due_date);
+      const isOverdue = date < new Date();
+      return {
+        rawDate: date,
+        code: String(p.inv_number || `INV-${p.id_piutang}`),
+        name: p.customer_name,
+        amount: Number(p.sisa_pembayaran || p.jumlah),
+        dueDate: p.due_date,
+        type: "customer" as const,
+        status: isOverdue ? ("overdue" as const) : ("sent" as const)
+      };
+    });
+
+  const dynamicAP = (payableList || [])
+    .filter(h => h.status !== 'LUNAS')
+    .map(h => {
+      const date = new Date(h.due_date);
+      const isOverdue = date < new Date();
+      return {
+        rawDate: date,
+        code: String(h.no_invoice || `BILL-${h.id_hutang}`),
+        name: h.supplier_name,
+        amount: Number(h.sisa_pembayaran || h.jumlah),
+        dueDate: h.due_date,
+        type: "vendor" as const,
+        status: isOverdue ? ("overdue" as const) : ("pending" as const)
+      };
+    });
+
+  const combinedSorted = [...dynamicAR, ...dynamicAP]
+    .sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime())
+    .slice(0, 5)
+    .map(item => {
+      const formattedDate = item.rawDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+      return {
+        code: item.code,
+        name: item.name,
+        amount: item.amount,
+        dueDate: formattedDate,
+        type: item.type,
+        status: item.status
+      };
+    });
+
+  const OUTSTANDING_INVOICES = combinedSorted.length > 0 ? combinedSorted : [
     { code: "INV-2026-001", name: "PT Indomarco Prismatama", amount: 1250000000, dueDate: "10 Jun 2026", type: "customer" as const, status: "sent" as const },
     { code: "INV-2026-008", name: "PT Sumber Alfaria Trijaya", amount: 980000000, dueDate: "28 Mei 2026", type: "customer" as const, status: "overdue" as const },
     { code: "BILL-2026-045", name: "Wilmar Chemical Indonesia", amount: 1500000000, dueDate: "15 Jun 2026", type: "vendor" as const, status: "pending" as const },
@@ -358,7 +568,38 @@ export function FinancePageClient() {
     { code: "BILL-2026-049", name: "PT Chevron Pacific Indonesia", amount: 320000000, dueDate: "25 Mei 2026", type: "vendor" as const, status: "overdue" as const },
   ];
 
-  const RECENT_TRANSACTIONS = [
+  const dynamicTransactions = (historyKasList || [])
+    .slice(0, 5)
+    .map(c => {
+      const dateObj = new Date(c.created_at || c.transaction_date || '');
+      const timeStr = dateObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      
+      let type: "revenue" | "disbursement" | "payroll" | "tax" | "transfer" = "disbursement";
+      if (c.type === 'INFLOW') {
+        type = "revenue";
+      } else {
+        const desc = (c.description || '').toLowerCase();
+        if (desc.includes('gaji') || desc.includes('payroll')) {
+          type = "payroll";
+        } else if (desc.includes('pajak') || desc.includes('ppn') || desc.includes('pph')) {
+          type = "tax";
+        } else if (desc.includes('transfer') || desc.includes('kas internal')) {
+          type = "transfer";
+        }
+      }
+
+      return {
+        timestamp: timeStr,
+        type,
+        reference: c.no_transaksi || `KAS-${c.kas_id}`,
+        description: c.description || 'Transaksi Kas',
+        amount: Number(c.amount),
+        account: c.type === 'INFLOW' ? 'BCA Mandiri' : 'Mandiri Corp',
+        performer: 'System Auto'
+      };
+    });
+
+  const RECENT_TRANSACTIONS = dynamicTransactions.length > 0 ? dynamicTransactions : [
     { timestamp: "15:30", type: "revenue" as const, reference: "TX-90218", description: "Penerimaan Invoice INV-2026-004", amount: 850000000, account: "BCA Mandiri", performer: "Ahmad Y." },
     { timestamp: "14:15", type: "disbursement" as const, reference: "TX-90217", description: "Pembayaran Vendor BILL-2026-019", amount: 420000000, account: "Mandiri Corp", performer: "Sarah K." },
     { timestamp: "11:00", type: "payroll" as const, reference: "TX-90216", description: "Gaji Karyawan Mayora HO - Mei", amount: 2450000000, account: "Mandiri Corp", performer: "Auto" },
@@ -454,7 +695,7 @@ export function FinancePageClient() {
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
             <PremiumKPICard
               title="Net Profit"
-              value="Rp 18.60B"
+              value={formatNumber(netProfit)}
               change="12.5% vs last month"
               icon={Building}
               color="green"
@@ -463,7 +704,7 @@ export function FinancePageClient() {
             />
             <PremiumKPICard
               title="Total Revenue"
-              value="Rp 68.70B"
+              value={formatNumber(totalPendapatan)}
               change="8.2% vs last month"
               icon={ChartBar}
               color="green"
@@ -472,7 +713,7 @@ export function FinancePageClient() {
             />
             <PremiumKPICard
               title="Operating Expenses"
-              value="Rp 50.10B"
+              value={formatNumber(totalBeban)}
               change="4.1% vs last month"
               isNegative
               icon={FileText}
@@ -597,54 +838,42 @@ export function FinancePageClient() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700 text-xs">
-                  <tr className="hover:bg-slate-50/30 transition-colors">
-                    <td className="py-4 px-6 font-medium text-slate-500">Oct 26, 14:32</td>
-                    <td className="py-4 px-6 font-bold text-slate-800">Q3 Tax Provision Adjustment</td>
-                    <td className="py-4 px-6 flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-[10px]">SJ</div>
-                      <span className="font-medium text-slate-800">Sarah Jenkins</span>
-                    </td>
-                    <td className="py-4 px-6 text-center">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">Approved</span>
-                    </td>
-                    <td className="py-4 px-6 text-right font-mono font-bold text-red-600">-Rp 2.175.000.000</td>
-                  </tr>
-                  <tr className="hover:bg-slate-50/30 transition-colors">
-                    <td className="py-4 px-6 font-medium text-slate-500">Oct 26, 11:15</td>
-                    <td className="py-4 px-6 font-bold text-slate-800">Bulk Payroll Processing (Oct)</td>
-                    <td className="py-4 px-6 flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold text-[10px]">MR</div>
-                      <span className="font-medium text-slate-800">Mike Ross</span>
-                    </td>
-                    <td className="py-4 px-6 text-center">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">Processing</span>
-                    </td>
-                    <td className="py-4 px-6 text-right font-mono font-bold text-red-600">-Rp 13.386.750.000</td>
-                  </tr>
-                  <tr className="hover:bg-slate-50/30 transition-colors">
-                    <td className="py-4 px-6 font-medium text-slate-500">Oct 25, 16:45</td>
-                    <td className="py-4 px-6 font-bold text-slate-800">Client Payment Received (Acme Corp)</td>
-                    <td className="py-4 px-6 flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-[10px]">SA</div>
-                      <span className="font-medium text-slate-800">System Auto</span>
-                    </td>
-                    <td className="py-4 px-6 text-center">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">Completed</span>
-                    </td>
-                    <td className="py-4 px-6 text-right font-mono font-bold text-emerald-600">+Rp 18.750.000.000</td>
-                  </tr>
-                  <tr className="hover:bg-slate-50/30 transition-colors">
-                    <td className="py-4 px-6 font-medium text-slate-500">Oct 25, 09:30</td>
-                    <td className="py-4 px-6 font-bold text-slate-800">Monthly Server Infrastructure Bill</td>
-                    <td className="py-4 px-6 flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-[10px]">SA</div>
-                      <span className="font-medium text-slate-800">System Auto</span>
-                    </td>
-                    <td className="py-4 px-6 text-center">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-100">Failed</span>
-                    </td>
-                    <td className="py-4 px-6 text-right font-mono font-bold text-red-600">-Rp 678.000.000</td>
-                  </tr>
+                  {historyKasList.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-400 font-medium italic">
+                        Belum ada aktivitas transaksi kas tercatat di database.
+                      </td>
+                    </tr>
+                  ) : (
+                    historyKasList.slice(0, 4).map((c) => {
+                      const dateObj = new Date(c.created_at || c.transaction_date || '')
+                      const timeStr = dateObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+                      const dateStr = dateObj.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })
+                      
+                      const isCredit = c.type === 'INFLOW'
+                      const displayAmount = (isCredit ? '+' : '-') + 'Rp ' + Number(c.amount).toLocaleString('id-ID')
+                      
+                      const initials = c.recorded_by === '1' ? 'AD' : 'SA'
+                      const userName = c.recorded_by === '1' ? 'Admin Finance' : 'System Auto'
+                      
+                      return (
+                        <tr key={c.kas_id} className="hover:bg-slate-50/30 transition-colors">
+                          <td className="py-4 px-6 font-medium text-slate-500">{`${dateStr}, ${timeStr}`}</td>
+                          <td className="py-4 px-6 font-bold text-slate-800">{c.description}</td>
+                          <td className="py-4 px-6 flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-red-600 text-white flex items-center justify-center font-bold text-[10px]">{initials}</div>
+                            <span className="font-medium text-slate-800">{userName}</span>
+                          </td>
+                          <td className="py-4 px-6 text-center">
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">Completed</span>
+                          </td>
+                          <td className={`py-4 px-6 text-right font-mono font-bold ${isCredit ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {displayAmount}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -659,29 +888,29 @@ export function FinancePageClient() {
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
             <PremiumKPICard
               title="Invoices"
-              value="847"
+              value={String(invoicesCount)}
               change="+12%"
               icon={Receipt}
               color="blue"
-              trendData={[700, 720, 750, 740, 780, 810, 847]}
+              trendData={[700, 720, 750, 740, 780, 810, invoicesCount]}
               index={3}
             />
             <PremiumKPICard
               title="Payments"
-              value="1,523"
+              value={String(paymentsCount)}
               change="+8%"
               icon={Coins}
               color="green"
-              trendData={[1300, 1350, 1320, 1400, 1420, 1480, 1523]}
+              trendData={[1300, 1350, 1320, 1400, 1420, 1480, paymentsCount]}
               index={4}
             />
             <PremiumKPICard
               title="Reports"
-              value="45"
+              value={String(reportsCount)}
               change="+5%"
               icon={FileText}
               color="purple"
-              trendData={[38, 40, 42, 41, 43, 44, 45]}
+              trendData={[38, 40, 42, 41, 43, 44, reportsCount]}
               index={5}
             />
           </div>
@@ -739,7 +968,7 @@ export function FinancePageClient() {
                     strokeWidth={30}
                     showLabels
                     showCenterText
-                    centerText="Rp 10.8B"
+                    centerText={centerTextFormatted}
                     centerSubtext="Total Expenses"
                   />
                 </div>
@@ -772,7 +1001,7 @@ export function FinancePageClient() {
                 </div>
                 <div className="divide-y divide-slate-100">
                   {OUTSTANDING_INVOICES.map((inv, index) => (
-                    <InvoiceItem key={inv.code} {...inv} index={index} />
+                    <InvoiceItem key={`${inv.type}-${inv.code}-${index}`} {...inv} index={index} />
                   ))}
                 </div>
               </GlassCard>
@@ -787,8 +1016,8 @@ export function FinancePageClient() {
                   </Link>
                 </div>
                 <div className="divide-y divide-slate-100">
-                  {RECENT_TRANSACTIONS.map((tx) => (
-                    <TransactionFeedItem key={tx.reference} {...tx} />
+                  {RECENT_TRANSACTIONS.map((tx, idx) => (
+                    <TransactionFeedItem key={`${tx.reference}-${idx}`} {...tx} />
                   ))}
                 </div>
               </GlassCard>
