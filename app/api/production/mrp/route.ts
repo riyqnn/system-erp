@@ -50,10 +50,14 @@ export async function GET(request: Request) {
       const totalStock = stockData ? stockData.reduce((sum, item) => sum + Number(item.quantity), 0) : 0
       const isSafe = totalStock >= totalNeeded
 
+      const product = Array.isArray(detail.ms_product)
+        ? detail.ms_product[0]
+        : detail.ms_product
+
       return {
         kode_bahan: compId,
-        nama_material: detail.ms_product?.product_name || 'Unknown',
-        satuan: detail.ms_product?.uom || 'KG',
+        nama_material: product?.product_name || 'Unknown',
+        satuan: product?.uom || 'KG',
         kebutuhan_total: totalNeeded,
         stok_aktual: totalStock,
         status_stok: isSafe ? 'STOK AMAN' : 'PESAN LAGI'
