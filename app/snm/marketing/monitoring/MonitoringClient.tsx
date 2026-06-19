@@ -3,27 +3,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChartLineUp } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 import { BarChart } from '@/components/shared/charts'
 import { createClient } from '@/lib/supabase/client'
+import { currentPeriode } from '@/lib/snm'
 
 type Row = {
-  forecast_id: string
+  forecast_id: number
+  product_id: string
   product_name: string
-  sku: string
-  unit: string
+  uom: string
   wilayah: string
-  periode: string
   target_qty: number
   actual_qty: number
   achievement_pct: number
-}
-
-const currentPeriode = () => {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
 const pctColor = (p: number) => (p >= 100 ? 'text-green-600' : p >= 60 ? 'text-amber-600' : 'text-[#dc2626]')
@@ -33,18 +27,77 @@ export function MonitoringClient() {
   const supabase = useMemo(() => createClient(), [])
   const [periode, setPeriode] = useState(currentPeriode())
   const [wilayah, setWilayah] = useState('')
+  const [regions, setRegions] = useState<string[]>([])
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
+
+  // region list for the filter
+  useEffect(() => {
+    let active = true
+    supabase.from('an_sales_forecast').select('wilayah').not('wilayah', 'is', null).then(({ data }) => {
+      if (!active) return
+      const set = new Set<string>()
+      ;(data as { wilayah: string }[] ?? []).forEach((r) => r.wilayah && set.add(r.wilayah))
+      setRegions(Array.from(set).sort())
+    })
+    return () => { active = false }
+  }, [supabase])
 
   useEffect(() => {
     let active = true
     const load = async () => {
       setLoading(true)
-      let q = supabase.from('v_forecast_vs_actual').select('*').eq('periode', periode)
-      if (wilayah) q = q.eq('wilayah', wilayah)
-      const { data } = await q.order('product_name')
+      // 1) forecast targets for the period (UC-SLS-04 target source)
+      let fq = supabase.from('an_sales_forecast')
+        .select('forecast_id, product_id, wilayah, target_qty, ms_product(product_name, uom)')
+        .eq('periode', periode)
+      if (wilayah) fq = fq.eq('wilayah', wilayah)
+      // 2) approved SO headers (realisasi source) joined to customer region
+      const [fcRes, soRes] = await Promise.all([
+        fq,
+        supabase.from('tr_so_header')
+          .select('so_id, so_date, approval_status, ms_customer(wilayah)')
+          .eq('approval_status', 'APPROVED'),
+      ])
       if (!active) return
-      setRows((data as Row[]) ?? [])
+
+      // headers in this period → so_id → region
+      const headerRegion: Record<string, string> = {}
+      ;(soRes.data as unknown as { so_id: string; so_date: string; ms_customer: { wilayah: string } | null }[] ?? [])
+        .filter((h) => (h.so_date ?? '').slice(0, 7) === periode)
+        .forEach((h) => { headerRegion[h.so_id] = h.ms_customer?.wilayah ?? '' })
+
+      const soIds = Object.keys(headerRegion)
+      // 3) details for those SOs → aggregate actual qty per product+region
+      const actual: Record<string, number> = {}
+      if (soIds.length) {
+        const { data: dets } = await supabase.from('tr_so_detail')
+          .select('so_id, product_id, qty_order').in('so_id', soIds)
+        ;(dets as { so_id: string; product_id: string; qty_order: number }[] ?? []).forEach((d) => {
+          const region = headerRegion[d.so_id] ?? ''
+          const key = `${d.product_id}|${region}`
+          actual[key] = (actual[key] ?? 0) + (Number(d.qty_order) || 0)
+        })
+      }
+
+      const result: Row[] = (fcRes.data as unknown as {
+        forecast_id: number; product_id: string; wilayah: string; target_qty: number; ms_product: { product_name: string; uom: string } | null
+      }[] ?? []).map((f) => {
+        const act = actual[`${f.product_id}|${f.wilayah}`] ?? 0
+        const target = Number(f.target_qty) || 0
+        return {
+          forecast_id: f.forecast_id,
+          product_id: f.product_id,
+          product_name: f.ms_product?.product_name ?? f.product_id,
+          uom: f.ms_product?.uom ?? '',
+          wilayah: f.wilayah,
+          target_qty: target,
+          actual_qty: act,
+          achievement_pct: target > 0 ? Math.round((act / target) * 100) : 0,
+        }
+      }).sort((a, b) => a.product_name.localeCompare(b.product_name))
+
+      setRows(result)
       setLoading(false)
     }
     load()
@@ -56,11 +109,7 @@ export function MonitoringClient() {
   const totalActual = rows.reduce((s, r) => s + Number(r.actual_qty), 0)
   const overallPct = totalTarget > 0 ? Math.round((totalActual / totalTarget) * 100) : 0
 
-  const chartData = rows.map((r) => ({
-    label: r.sku,
-    value: Number(r.actual_qty),
-    target: Number(r.target_qty),
-  }))
+  const chartData = rows.map((r) => ({ label: r.product_id, value: Number(r.actual_qty), target: Number(r.target_qty) }))
 
   return (
     <ModuleLayout
@@ -90,7 +139,8 @@ export function MonitoringClient() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Wilayah (opsional)</label>
-                <Input value={wilayah} onChange={(e) => setWilayah(e.target.value)} placeholder="Semua wilayah" className="h-10 border-slate-200 w-48" />
+                <input list="snm-mon-regions" value={wilayah} onChange={(e) => setWilayah(e.target.value)} placeholder="Semua wilayah" className="h-10 px-3 border border-slate-200 rounded-md text-sm bg-white w-48" />
+                <datalist id="snm-mon-regions">{regions.map((r) => <option key={r} value={r} />)}</datalist>
               </div>
             </CardContent>
           </Card>

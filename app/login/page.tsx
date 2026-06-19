@@ -39,11 +39,10 @@ export default function LoginPage() {
       // Debug: log user role
       console.log('User data:', user)
       console.log('User role:', user?.role)
-      console.log('Role name:', user?.role?.name)
 
       // Role-based redirect
-      // API returns role as object: {id, name, description}
-      const roleName = user?.role?.name?.toUpperCase() || 'USER'
+      // API returns role as direct string from ms_user table
+      const roleName = (user?.role || 'USER').toUpperCase()
       const roleRedirects: Record<string, string> = {
         'INVENTORY': '/inventory',
         'FINANCE': '/finance',

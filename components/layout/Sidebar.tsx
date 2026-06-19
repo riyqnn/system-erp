@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useSearchParams } from 'next/navigation'
@@ -28,6 +27,12 @@ import {
   Wrench,
   CalendarCheck,
   CheckSquare,
+  FileText,
+  Handshake,
+  Scales,
+
+  Bell,
+
 } from '@phosphor-icons/react'
 
 interface SubItem {
@@ -38,7 +43,7 @@ interface SubItem {
 interface MenuItem {
   label: string
   href: string
-  icon: any
+  icon: React.ElementType
   roles?: string[]
   children?: SubItem[]
 }
@@ -50,9 +55,6 @@ interface SidebarProps {
   activeModule?: string
 }
 
-/**
- * Get module-specific navigation items based on active module
- */
 const getModuleNavigation = (activeModule?: string): MenuItem[] => {
   const moduleMenus: Record<string, MenuItem[]> = {
     admin: [
@@ -121,10 +123,15 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
       { label: 'Cost Accounting', href: '/finance/cost-accounting', icon: Calculator },
     ],
     purchasing: [
-      { label: 'Overview', href: '/apps/purchasing', icon: GridFour },
-      { label: 'Purchase Orders', href: '/apps/purchasing/orders', icon: ShoppingCart },
-      { label: 'Vendors', href: '/apps/purchasing/vendors', icon: ShoppingCart },
-      { label: 'Requests', href: '/apps/purchasing/requests', icon: ShoppingCart },
+      { label: 'Dashboard', href: '/apps/purchasing', icon: GridFour },
+      { label: 'Suppliers', href: '/apps/purchasing/suppliers', icon: Users },
+      { label: 'Purchase Requisition', href: '/apps/purchasing/purchase-requisition', icon: ClipboardText },
+      { label: 'RFQ / Sourcing', href: '/apps/purchasing/rfq-sourcing', icon: FileText },
+      { label: 'Price Negotiation', href: '/apps/purchasing/negotiation', icon: Handshake },
+      { label: 'Purchase Order', href: '/apps/purchasing/purchase-orders', icon: ShoppingCart },
+      { label: 'Monitoring', href: '/apps/purchasing/delivery-monitoring', icon: Truck },
+      { label: 'Goods Receipt', href: '/apps/purchasing/goods-receipt', icon: Package },
+      { label: 'Three-Way Matching', href: '/apps/purchasing/three-way-matching', icon: Scales },
     ],
     production: [
       { label: 'Dashboard', href: '/production', icon: GridFour },
@@ -149,6 +156,9 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
           { label: 'Ditolak', href: '/snm/sales?status=REJECTED_CREDIT' },
         ],
       },
+      { label: 'Approval Manager', href: '/snm/approvals', icon: CheckSquare },
+      { label: 'Delivery Orders', href: '/snm/deliveries', icon: Truck },
+      { label: 'Invoices', href: '/snm/invoices', icon: Receipt },
       {
         label: 'Customers',
         href: '/snm/customers',
@@ -171,20 +181,14 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
         ],
       },
     ],
+    notifications: [
+      { label: 'All Notifications', href: '/notifications', icon: Bell },
+    ],
   }
 
   return moduleMenus[activeModule || ''] || []
 }
 
-/**
- * Sidebar Component
- *
- * Fix v2:
- * - Parent items with children do NOT navigate — they only toggle the submenu.
- * - useEffect auto-expands the correct parent when navigating via URL.
- * - Smooth max-height + opacity CSS transition for submenu animation.
- * - Child clicks are isolated (stopPropagation) so they don't trigger parent toggle.
- */
 export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const pathname = usePathname()
@@ -192,14 +196,13 @@ export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) 
 
   const menuItems = getModuleNavigation(activeModule)
 
-  // ── Match a child href against current URL + query params ─────────
-  const isChildActive = (childHref: string) => {
+  const isChildActive = useCallback((childHref: string) => {
     const [path, query] = childHref.split('?')
     if (pathname !== path) return false
     if (!query) return !searchParams?.get('status') && !searchParams?.get('category')
     const [key, value] = query.split('=')
     return searchParams?.get(key) === value
-  }
+  }, [pathname, searchParams])
 
   // ── A parent is active if any child matches current URL ───────────
   const isParentActive = (item: MenuItem): boolean => {
@@ -217,15 +220,15 @@ export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) 
   const toggle = (href: string) =>
     setOpen((prev) => {
       const current = prev[href]
-      // If never touched, current is undefined → treat as "was open if active" → close it
       const wasOpen = current === undefined ? isParentActive(menuItems.find((m) => m.href === href)!) : current
       return { ...prev, [href]: !wasOpen }
     })
 
   // Auto-expand parent whose child matches current path (e.g. on page load or deep link)
   useEffect(() => {
-    setOpen((prev) => {
-      const next = { ...prev }
+    const timer = setTimeout(() => {
+      setOpen((prev) => {
+        const next = { ...prev }
       menuItems.forEach((item) => {
         if (item.children?.length) {
           const anyChildActive = item.children.some((c) => isChildActive(c.href))
@@ -237,8 +240,9 @@ export function Sidebar({ isOpen = true, onClose, activeModule }: SidebarProps) 
       })
       return next
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, searchParams])
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [pathname, searchParams, isChildActive, menuItems])
 
   return (
     <>

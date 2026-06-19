@@ -2,27 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ClipboardText, Users, Megaphone, ArrowRight, Bell, Receipt } from '@phosphor-icons/react'
+import { ClipboardText, Users, Megaphone, ArrowRight, Bell, Receipt, CheckCircle } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 import { MiniChart } from '@/components/shared/charts'
 import { createClient } from '@/lib/supabase/client'
+import { rupiah, fmtDateShort, SO_STATUS_BADGE } from '@/lib/snm'
 
-const rupiah = (n: number) => 'Rp ' + Math.round(n || 0).toLocaleString('id-ID')
-const fmtDate = (s: string | null) =>
-  s ? new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) : '—'
-
-const STATUS_BADGE: Record<string, string> = {
-  DRAFT: 'bg-slate-100 text-slate-600',
-  WAITING_APPROVAL: 'bg-amber-100 text-amber-700',
-  APPROVED: 'bg-green-100 text-green-700',
-  REJECTED_CREDIT: 'bg-red-100 text-red-700',
-  CANCELLED: 'bg-slate-100 text-slate-400',
-}
-
-type SO = { id: string; so_number: string; so_date: string; grand_total: number; approval_status: string; created_at: string; customers: { cust_name: string } | null }
-type Notif = { id: string; title: string; message: string | null; created_at: string; is_read: boolean }
+type SO = { so_id: string; so_date: string; grand_total: number; approval_status: string; created_at: string; ms_customer: { cust_name: string } | null }
+type Notif = { id: string; title: string; message: string | null; created_at: string; status: string }
 
 // Bucket timestamps into the last `months` monthly counts.
 function monthlyCounts(dates: string[], months = 12): number[] {
@@ -62,21 +51,24 @@ export function SnmPageClient() {
   const [custDates, setCustDates] = useState<string[]>([])
   const [forecastDates, setForecastDates] = useState<string[]>([])
   const [notifs, setNotifs] = useState<Notif[]>([])
+  const [waiting, setWaiting] = useState(0)
 
   useEffect(() => {
     let active = true
     const load = async () => {
-      const [soRes, custRes, fcRes, ntRes] = await Promise.all([
-        supabase.from('sales_orders').select('id, so_number, so_date, grand_total, approval_status, created_at, customers(cust_name)').order('created_at', { ascending: false }),
-        supabase.from('customers').select('created_at'),
+      const [soRes, custRes, fcRes, ntRes, waitRes] = await Promise.all([
+        supabase.from('tr_so_header').select('so_id, so_date, grand_total, approval_status, created_at, ms_customer(cust_name)').order('created_at', { ascending: false }),
+        supabase.from('ms_customer').select('created_at'),
         supabase.from('an_sales_forecast').select('created_at'),
-        supabase.from('notifications').select('id, title, message, created_at, is_read').eq('recipient_role', 'SNM').order('created_at', { ascending: false }).limit(6),
+        supabase.from('notifications').select('id, title, message, created_at, status').eq('recipient_role', 'SNM').order('created_at', { ascending: false }).limit(6),
+        supabase.from('tr_so_header').select('so_id', { count: 'exact', head: true }).eq('approval_status', 'WAITING_APPROVAL'),
       ])
       if (!active) return
       setOrders((soRes.data as unknown as SO[]) ?? [])
       setCustDates(((custRes.data as { created_at: string }[]) ?? []).map((r) => r.created_at))
       setForecastDates(((fcRes.data as { created_at: string }[]) ?? []).map((r) => r.created_at))
       setNotifs((ntRes.data as Notif[]) ?? [])
+      setWaiting(waitRes.count ?? 0)
     }
     load()
     const interval = setInterval(load, 30000)
@@ -126,6 +118,14 @@ export function SnmPageClient() {
             <p className="text-2xl font-bold text-slate-900 tabular-nums">{rupiah(totalRevenue)}</p>
           </div>
         </div>
+
+        {waiting > 0 && (
+          <Link href="/snm/approvals" className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 hover:bg-amber-100 transition-colors">
+            <CheckCircle className="w-4 h-4" weight="fill" />
+            <span><b>{waiting}</b> Sales Order menunggu persetujuan manager.</span>
+            <ArrowRight className="w-4 h-4 ml-auto" weight="bold" />
+          </Link>
+        )}
 
         {/* Stats Cards with Charts */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -178,14 +178,14 @@ export function SnmPageClient() {
                 {recent.length === 0 ? (
                   <p className="text-sm text-slate-400 text-center py-8">Belum ada Sales Order</p>
                 ) : recent.map((o) => (
-                  <div key={o.id} className="flex items-center justify-between py-3">
+                  <div key={o.so_id} className="flex items-center justify-between py-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">{o.customers?.cust_name ?? '—'}</p>
-                      <p className="text-xs text-slate-400 font-mono">{o.so_number} · {fmtDate(o.so_date)}</p>
+                      <p className="text-sm font-medium text-slate-800 truncate">{o.ms_customer?.cust_name ?? '—'}</p>
+                      <p className="text-xs text-slate-400 font-mono">{o.so_id} · {fmtDateShort(o.so_date)}</p>
                     </div>
                     <div className="text-right flex-shrink-0 ml-3">
                       <p className="text-sm font-semibold text-slate-900 tabular-nums">{rupiah(o.grand_total)}</p>
-                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[o.approval_status]}`}>{o.approval_status.replace('_', ' ')}</span>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${SO_STATUS_BADGE[o.approval_status] ?? 'bg-slate-100 text-slate-600'}`}>{o.approval_status.replace('_', ' ')}</span>
                     </div>
                   </div>
                 ))}
@@ -201,7 +201,7 @@ export function SnmPageClient() {
                   <p className="text-sm text-slate-400 text-center py-8">Belum ada notifikasi</p>
                 ) : notifs.map((n) => (
                   <div key={n.id} className="flex items-start gap-2">
-                    <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${n.is_read ? 'bg-slate-200' : 'bg-red-500'}`} />
+                    <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${n.status === 'UNREAD' ? 'bg-red-500' : 'bg-slate-200'}`} />
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-800">{n.title}</p>
                       {n.message && <p className="text-xs text-slate-500">{n.message}</p>}

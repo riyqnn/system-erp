@@ -18,7 +18,7 @@ export async function GET() {
     console.error('[Auth Me Error]', error)
     const statusCode = error instanceof Error && 'statusCode' in error ? (error as any).statusCode : 500
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: error instanceof Error ? error.message : String(error) || 'Internal server error' },
       { status: statusCode }
     )
   }

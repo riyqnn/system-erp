@@ -1,35 +1,19 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server'
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac'
 
 export async function GET() {
   try {
-    // Require authentication and ADMIN role
     const user = await requireAuth()
     requireAnyRole(user, ['ADMIN'])
 
     const { createRouteHandlerClient } = await import('@/lib/supabase/server')
     const supabase = await createRouteHandlerClient()
 
-    // Fetch all pending users with their roles
+    // Fetch all users with status != 'ACTIVE' (pending/inactive)
     const { data: pendingUsers, error } = await supabase
-      .from('users')
-      .select(
-        `
-        id,
-        email,
-        full_name,
-        role_id,
-        is_pending,
-        created_at,
-        roles (
-          id,
-          name,
-          description
-        )
-      `
-      )
-      .eq('is_pending', true)
+      .from('ms_user')
+      .select('user_id, username, full_name, email, role, status, created_at')
+      .neq('status', 'ACTIVE')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -39,17 +23,13 @@ export async function GET() {
       )
     }
 
-    return NextResponse.json({
-      pendingUsers: pendingUsers?.map(u => ({
-        ...u,
-        role: (u as any).roles,
-      })) || [],
-    })
+    return NextResponse.json({ pendingUsers: pendingUsers || [] })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('[Pending Users Error]', error)
     const statusCode = error.statusCode || 500
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: error instanceof Error ? error.message : String(error) || 'Internal server error' },
       { status: statusCode }
     )
   }

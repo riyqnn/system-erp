@@ -1,43 +1,228 @@
 'use client'
 
 import Link from 'next/link'
-import { ShoppingCart, Users, Package, ArrowRight } from '@phosphor-icons/react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  ShoppingCart,
+  Users,
+  Package,
+  ArrowRight,
+  ClipboardText,
+  FileText,
+  Handshake,
+  CheckCircle,
+  Truck,
+  Scales,
+  WarningCircle,
+} from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 import { MiniChart } from '@/components/shared/charts'
 
-const quickActions = [
-  {
-    label: 'Purchase Orders',
-    href: '/apps/purchasing/orders',
-    icon: ShoppingCart,
-    count: '567',
-    description: 'Active POs',
-    trend: '+10%',
-    chartData: [50, 58, 65, 72, 80, 75, 85, 92, 88, 98, 95, 105]
-  },
-  {
-    label: 'Vendors',
-    href: '/apps/purchasing/vendors',
-    icon: Users,
-    count: '234',
-    description: 'Supplier management',
-    trend: '+4%',
-    chartData: [40, 48, 55, 62, 70, 68, 75, 82, 78, 88, 85, 92]
-  },
-  {
-    label: 'Requests',
-    href: '/apps/purchasing/requests',
-    icon: Package,
-    count: '89',
-    description: 'Purchase requests',
-    trend: '+7%',
-    chartData: [30, 38, 45, 52, 58, 55, 65, 72, 68, 78, 75, 82]
-  },
-]
+type DashboardSummary = {
+  totalSuppliers: number
+  totalPurchaseRequisitions: number
+  totalRFQ: number
+  totalNegotiations: number
+  totalPurchaseOrders: number
+  totalGoodsReceipts: number
+  totalThreeWayMatchings: number
+  totalTrackingReports: number
+  pendingApprovalPO: number
+  releasedPO: number
+  agreedNegotiations: number
+  matchedDocuments: number
+}
+
+type MonthlyPO = {
+  month: string
+  count: number
+  value: number
+}
+
+type OverviewItem = {
+  label: string
+  value: number
+}
+
+type AlertItem = {
+  title: string
+  value: number
+  description: string
+}
+
+type DashboardData = {
+  summary: DashboardSummary
+  monthlyPurchaseOrders: MonthlyPO[]
+  poStatusOverview: OverviewItem[]
+  supplierStatusOverview: OverviewItem[]
+  alerts: AlertItem[]
+}
+
+const emptySummary: DashboardSummary = {
+  totalSuppliers: 0,
+  totalPurchaseRequisitions: 0,
+  totalRFQ: 0,
+  totalNegotiations: 0,
+  totalPurchaseOrders: 0,
+  totalGoodsReceipts: 0,
+  totalThreeWayMatchings: 0,
+  totalTrackingReports: 0,
+  pendingApprovalPO: 0,
+  releasedPO: 0,
+  agreedNegotiations: 0,
+  matchedDocuments: 0,
+}
+
+const poStatusClassMap: Record<string, string> = {
+  Draft: 'bg-slate-400',
+  'Pending Approval': 'bg-orange-500',
+  Approved: 'bg-blue-500',
+  Released: 'bg-green-500',
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('id-ID').format(value || 0)
+}
+
+function getPercentage(value: number, total: number) {
+  if (!total) return 0
+
+  return Math.round((value / total) * 100)
+}
+
+function getMonthlyHeight(value: number) {
+  if (value <= 0) return 16
+
+  return Math.max(value * 20, 32)
+}
 
 export function PurchasingPageClient() {
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [errorMessage, setErrorMessage] = useState('')
+
+  const fetchDashboard = async () => {
+    try {
+      setIsLoading(true)
+      setErrorMessage('')
+
+      const response = await fetch('/api/purchasing/dashboard')
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to fetch dashboard data')
+      }
+
+      setDashboardData(result.data)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to fetch dashboard data'
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchDashboard()
+  }, [])
+
+  const summary = dashboardData?.summary || emptySummary
+  const monthlyPOTrend = dashboardData?.monthlyPurchaseOrders || []
+  const poStatusOverview = dashboardData?.poStatusOverview || []
+  const supplierStatusOverview = dashboardData?.supplierStatusOverview || []
+  const alerts = dashboardData?.alerts || []
+
+  const quickActions = useMemo(
+    () => [
+      {
+        label: 'Suppliers',
+        href: '/apps/purchasing/suppliers',
+        icon: Users,
+        count: summary.totalSuppliers,
+        description: 'Supplier product profiles',
+        trend: 'Live data',
+        chartData: [2, 3, 4, 5, 6, summary.totalSuppliers],
+      },
+      {
+        label: 'Purchase Requisition',
+        href: '/apps/purchasing/purchase-requisition',
+        icon: ClipboardText,
+        count: summary.totalPurchaseRequisitions,
+        description: 'Purchase requests',
+        trend: 'Live data',
+        chartData: [1, 2, 3, 5, 7, summary.totalPurchaseRequisitions],
+      },
+      {
+        label: 'RFQ / Sourcing',
+        href: '/apps/purchasing/rfq-sourcing',
+        icon: FileText,
+        count: summary.totalRFQ,
+        description: 'Supplier quotations',
+        trend: 'Live data',
+        chartData: [1, 1, 2, 2, 3, summary.totalRFQ],
+      },
+      {
+        label: 'Price Negotiation',
+        href: '/apps/purchasing/negotiation',
+        icon: Handshake,
+        count: summary.totalNegotiations,
+        description: 'Price negotiations',
+        trend: 'Live data',
+        chartData: [1, 1, 2, 2, 3, summary.totalNegotiations],
+      },
+      {
+        label: 'Purchase Order',
+        href: '/apps/purchasing/purchase-orders',
+        icon: ShoppingCart,
+        count: summary.totalPurchaseOrders,
+        description: 'Purchase orders',
+        trend: 'Live data',
+        chartData: [1, 2, 4, 5, 6, summary.totalPurchaseOrders],
+      },
+      {
+        label: 'Monitoring',
+        href: '/apps/purchasing/delivery-monitoring',
+        icon: Truck,
+        count: summary.totalTrackingReports,
+        description: 'Tracking reports',
+        trend: 'Live data',
+        chartData: [1, 2, 3, 4, 5, summary.totalTrackingReports],
+      },
+      {
+        label: 'Goods Receipt',
+        href: '/apps/purchasing/goods-receipt',
+        icon: Package,
+        count: summary.totalGoodsReceipts,
+        description: 'Received goods',
+        trend: 'Live data',
+        chartData: [1, 1, 2, 3, 4, summary.totalGoodsReceipts],
+      },
+      {
+        label: 'Three-Way Matching',
+        href: '/apps/purchasing/three-way-matching',
+        icon: Scales,
+        count: summary.totalThreeWayMatchings,
+        description: 'PO, GR, and invoice match',
+        trend: 'Live data',
+        chartData: [1, 1, 2, 2, 3, summary.totalThreeWayMatchings],
+      },
+    ],
+    [summary]
+  )
+
+  const totalPOStatus = poStatusOverview.reduce(
+    (total, item) => total + item.value,
+    0
+  )
+
+  const totalSupplierStatus = supplierStatusOverview.reduce(
+    (total, item) => total + item.value,
+    0
+  )
+
   return (
     <ModuleLayout
       activeModule="purchasing"
@@ -48,49 +233,250 @@ export function PurchasingPageClient() {
       ]}
     >
       <div className="space-y-6">
-        <ModuleHeader title="Purchasing Overview" />
+        <ModuleHeader
+          title="Purchasing Dashboard"
+          description="Monitor purchasing activities, supplier readiness, purchase orders, delivery status, and document matching."
+        />
 
-        {/* Stats Cards with Charts */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {quickActions.map((action) => (
-            <Card key={action.href} className="border border-slate-200 bg-white hover:shadow-lg transition-all">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div
-                    className="p-3 rounded-xl"
-                    style={{ backgroundColor: '#dc262610' }}
-                  >
-                    <action.icon weight="bold" size={24} style={{ color: '#dc2626' }} />
+        {errorMessage && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
+            Loading purchasing dashboard data...
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">
+                      Monthly Purchase Order Trend
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Purchase order volume based on database transaction period.
+                    </p>
                   </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-black">{action.label}</h3>
-                    <p className="text-xs text-slate-500">{action.description}</p>
-                  </div>
+
+                  <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
+                    {summary.totalPurchaseOrders} total PO
+                  </span>
                 </div>
 
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-3xl font-bold text-black">{action.count}</span>
-                    <span className="text-xs font-medium px-2 py-1 rounded-full bg-green-100 text-green-700">
-                      {action.trend}
-                    </span>
+                <div className="mt-8 flex h-56 items-end gap-5">
+                  {monthlyPOTrend.map((item) => (
+                    <div
+                      key={item.month}
+                      className="flex flex-1 flex-col items-center justify-end"
+                    >
+                      <div
+                        className="w-full rounded-t-xl bg-red-600 transition hover:bg-red-700"
+                        style={{ height: `${getMonthlyHeight(item.count)}px` }}
+                      />
+                      <p className="mt-3 text-xs font-medium text-slate-500">
+                        {item.month}
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-slate-900">
+                        {item.count}
+                      </p>
+                    </div>
+                  ))}
+
+                  {monthlyPOTrend.length === 0 && (
+                    <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">
+                      No monthly purchase order data available.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h3 className="text-lg font-semibold text-slate-900">
+                  PO Status Overview
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Current distribution of purchase order status.
+                </p>
+
+                <div className="mt-6 space-y-4">
+                  {poStatusOverview.map((item) => {
+                    const percentage = getPercentage(item.value, totalPOStatus)
+
+                    return (
+                      <div key={item.label}>
+                        <div className="mb-2 flex items-center justify-between text-sm">
+                          <span className="font-medium text-slate-700">
+                            {item.label}
+                          </span>
+                          <span className="font-semibold text-slate-900">
+                            {item.value} PO
+                          </span>
+                        </div>
+
+                        <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className={`h-full rounded-full ${
+                              poStatusClassMap[item.label] || 'bg-red-600'
+                            }`}
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h3 className="text-lg font-semibold text-slate-900">
+                  Supplier Status Distribution
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Supplier profile composition based on active status.
+                </p>
+
+                <div className="mt-6 space-y-5">
+                  {supplierStatusOverview.map((item) => {
+                    const percentage = getPercentage(
+                      item.value,
+                      totalSupplierStatus
+                    )
+
+                    return (
+                      <div key={item.label}>
+                        <div className="mb-2 flex items-center justify-between text-sm">
+                          <span className="font-medium text-slate-700">
+                            {item.label}
+                          </span>
+                          <span className="font-semibold text-slate-900">
+                            {item.value} suppliers
+                          </span>
+                        </div>
+
+                        <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full bg-red-600"
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">
+                      Purchasing Alerts
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Items that need purchasing team attention.
+                    </p>
                   </div>
+
+                  <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">
+                    {alerts.length} alerts
+                  </span>
                 </div>
 
-                <MiniChart data={action.chartData} color="#dc2626" height={80} />
+                <div className="space-y-3">
+                  {alerts.map((alert) => {
+                    const AlertIcon =
+                      alert.value > 0 ? WarningCircle : CheckCircle
 
-                <Link
-                  href={action.href}
-                  className="mt-4 flex items-center justify-center w-full py-2 text-sm font-medium rounded-lg border border-slate-200 hover:bg-red-50 hover:border-red-200 transition-all"
-                  style={{ color: '#dc2626' }}
+                    return (
+                      <div
+                        key={alert.title}
+                        className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4"
+                      >
+                        <div className="rounded-lg bg-white p-2 text-red-600">
+                          <AlertIcon size={20} weight="bold" />
+                        </div>
+
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {alert.value} {alert.title}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {alert.description}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+              {quickActions.map((action) => (
+                <Card
+                  key={action.href}
+                  className="border border-slate-200 bg-white transition-all hover:shadow-lg"
                 >
-                  View Details
-                  <ArrowRight weight="bold" className="h-4 w-4 ml-2" />
-                </Link>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                  <CardContent className="p-6">
+                    <div className="mb-4 flex items-center gap-3">
+                      <div
+                        className="rounded-xl p-3"
+                        style={{ backgroundColor: '#dc262610' }}
+                      >
+                        <action.icon
+                          weight="bold"
+                          size={24}
+                          style={{ color: '#dc2626' }}
+                        />
+                      </div>
+
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-black">
+                          {action.label}
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          {action.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-3xl font-bold text-black">
+                          {formatNumber(action.count)}
+                        </span>
+
+                        <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">
+                          {action.trend}
+                        </span>
+                      </div>
+                    </div>
+
+                    <MiniChart
+                      data={action.chartData}
+                      color="#dc2626"
+                      height={80}
+                    />
+
+                    <Link
+                      href={action.href}
+                      className="mt-4 flex w-full items-center justify-center rounded-lg border border-slate-200 py-2 text-sm font-medium transition-all hover:border-red-200 hover:bg-red-50"
+                      style={{ color: '#dc2626' }}
+                    >
+                      View Details
+                      <ArrowRight weight="bold" className="ml-2 h-4 w-4" />
+                    </Link>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </ModuleLayout>
   )

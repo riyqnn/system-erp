@@ -8,18 +8,15 @@ import { Input } from '@/components/ui/input'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
+import { currentPeriode } from '@/lib/snm'
 
-type Product = { id: string; sku: string; name: string; unit: string }
-type Forecast = { id: string; product_id: string; target_qty: number }
+type Product = { product_id: string; product_name: string; uom: string }
+type Forecast = { forecast_id: number; product_id: string; target_qty: number }
 
-const currentPeriode = () => {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
-
-export function ForecastClient() {
+export function ForecastClient({ userId }: { userId: number }) {
   const supabase = useMemo(() => createClient(), [])
   const [products, setProducts] = useState<Product[]>([])
+  const [regions, setRegions] = useState<string[]>([])
   const [periode, setPeriode] = useState(currentPeriode())
   const [wilayah, setWilayah] = useState('')
   const [existing, setExisting] = useState<Record<string, Forecast>>({})
@@ -28,15 +25,21 @@ export function ForecastClient() {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
-  // load FG products once
+  // load FG products + known regions once
   useEffect(() => {
     let active = true
     const load = async () => {
-      const { data } = await supabase
-        .from('products')
-        .select('id, sku, name, unit')
-        .eq('is_active', true).eq('type', 'FINISHED_GOOD').order('name')
-      if (active) setProducts((data as Product[]) ?? [])
+      const [pRes, cRes] = await Promise.all([
+        supabase.from('ms_product').select('product_id, product_name, uom').eq('category', 'FG').eq('status', 1).order('product_name'),
+        supabase.from('ms_customer').select('wilayah').not('wilayah', 'is', null),
+      ])
+      if (!active) return
+      setProducts((pRes.data as Product[]) ?? [])
+      const set = new Set<string>()
+      ;(cRes.data as { wilayah: string }[] ?? []).forEach((r) => r.wilayah && set.add(r.wilayah))
+      const list = Array.from(set).sort()
+      setRegions(list)
+      setWilayah((w) => w || list[0] || '')
     }
     load()
     return () => { active = false }
@@ -46,10 +49,11 @@ export function ForecastClient() {
   useEffect(() => {
     let active = true
     const load = async () => {
+      if (!wilayah) { if (active) setLoading(false); return }
       setLoading(true); setMsg(null)
       const { data } = await supabase
         .from('an_sales_forecast')
-        .select('id, product_id, target_qty')
+        .select('forecast_id, product_id, target_qty')
         .eq('periode', periode)
         .eq('wilayah', wilayah)
       if (!active) return
@@ -68,41 +72,35 @@ export function ForecastClient() {
 
   async function handleSave() {
     setMsg(null)
-    // validasi: target_qty harus bilangan positif
-    const entries = Object.entries(targets)
-    for (const [, v] of entries) {
+    if (!wilayah) { setMsg({ type: 'err', text: 'Pilih wilayah terlebih dahulu.' }); return }
+    // validation: target_qty must be a positive number
+    for (const [, v] of Object.entries(targets)) {
       if (v !== '' && !(Number(v) > 0)) {
         setMsg({ type: 'err', text: 'Target kuantitas harus berupa bilangan positif.' }); return
       }
     }
     setSaving(true)
-    const { data: auth } = await supabase.auth.getUser()
 
-    const toUpsert = products
-      .filter((p) => targets[p.id] && Number(targets[p.id]) > 0)
+    const toInsert = products
+      .filter((p) => targets[p.product_id] && Number(targets[p.product_id]) > 0)
       .map((p) => ({
-        product_id: p.id, wilayah, periode,
-        target_qty: Number(targets[p.id]),
-        created_by: auth.user?.id ?? null,
+        product_id: p.product_id, wilayah, periode,
+        target_qty: Number(targets[p.product_id]),
+        created_by: userId,
       }))
 
-    // produk yang sebelumnya ada target tapi sekarang dikosongkan -> hapus
-    const toDelete = Object.values(existing)
-      .filter((f) => !targets[f.product_id] || Number(targets[f.product_id]) <= 0)
-      .map((f) => f.id)
-
-    let err
-    if (toUpsert.length) {
-      ;({ error: err } = await supabase.from('an_sales_forecast').upsert(toUpsert, { onConflict: 'product_id,wilayah,periode' }))
-    }
-    if (!err && toDelete.length) {
-      ;({ error: err } = await supabase.from('an_sales_forecast').delete().in('id', toDelete))
+    // Overwrite semantics: clear this period+region then insert the new set.
+    const { error: delErr } = await supabase.from('an_sales_forecast').delete().eq('periode', periode).eq('wilayah', wilayah)
+    let err = delErr
+    if (!err && toInsert.length) {
+      ;({ error: err } = await supabase.from('an_sales_forecast').insert(toInsert))
     }
     setSaving(false)
     if (err) { setMsg({ type: 'err', text: err.message }); return }
-    setMsg({ type: 'ok', text: `Forecast periode ${periode}${wilayah ? ` · ${wilayah}` : ''} berhasil disimpan.` })
+    setMsg({ type: 'ok', text: `Forecast periode ${periode} · ${wilayah} berhasil disimpan.` })
+
     // reload existing
-    const { data } = await supabase.from('an_sales_forecast').select('id, product_id, target_qty').eq('periode', periode).eq('wilayah', wilayah)
+    const { data } = await supabase.from('an_sales_forecast').select('forecast_id, product_id, target_qty').eq('periode', periode).eq('wilayah', wilayah)
     const map: Record<string, Forecast> = {}
     ;(data as Forecast[] ?? []).forEach((f) => { map[f.product_id] = f })
     setExisting(map)
@@ -134,8 +132,11 @@ export function ForecastClient() {
               <input type="month" value={periode} onChange={(e) => setPeriode(e.target.value)} className="h-10 px-3 border border-slate-200 rounded-md text-sm bg-white" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Wilayah (opsional)</label>
-              <Input value={wilayah} onChange={(e) => setWilayah(e.target.value)} placeholder="Semua / e.g. DKI Jakarta" className="h-10 border-slate-200 w-56" />
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Wilayah</label>
+              <input list="snm-regions" value={wilayah} onChange={(e) => setWilayah(e.target.value)} placeholder="Pilih / ketik wilayah" className="h-10 px-3 border border-slate-200 rounded-md text-sm bg-white w-56" />
+              <datalist id="snm-regions">
+                {regions.map((r) => <option key={r} value={r} />)}
+              </datalist>
             </div>
             {hasExisting && (
               <span className="text-xs text-amber-600 flex items-center gap-1.5 pb-2.5">
@@ -152,7 +153,7 @@ export function ForecastClient() {
               <thead className="bg-slate-50/80 text-slate-500 border-b border-slate-100">
                 <tr>
                   <th className="px-6 py-3.5 font-medium">Produk</th>
-                  <th className="px-6 py-3.5 font-medium">SKU</th>
+                  <th className="px-6 py-3.5 font-medium">Kode</th>
                   <th className="px-6 py-3.5 font-medium text-right w-56">Target Qty</th>
                 </tr>
               </thead>
@@ -165,19 +166,19 @@ export function ForecastClient() {
                     <p className="text-sm font-medium">Belum ada produk Finished Good</p>
                   </td></tr>
                 ) : products.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50/60">
-                    <td className="px-6 py-3 font-medium text-slate-900">{p.name}</td>
+                  <tr key={p.product_id} className="hover:bg-slate-50/60">
+                    <td className="px-6 py-3 font-medium text-slate-900">{p.product_name}</td>
                     <td className="px-6 py-3">
-                      <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded-md text-slate-600">{p.sku}</span>
+                      <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded-md text-slate-600">{p.product_id}</span>
                     </td>
                     <td className="px-6 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Input
-                          type="number" value={targets[p.id] ?? ''}
-                          onChange={(e) => setTargets({ ...targets, [p.id]: e.target.value })}
+                          type="number" value={targets[p.product_id] ?? ''}
+                          onChange={(e) => setTargets({ ...targets, [p.product_id]: e.target.value })}
                           placeholder="0" className="h-9 w-32 border-slate-200 text-right"
                         />
-                        <span className="text-xs text-slate-400 w-10">{p.unit}</span>
+                        <span className="text-xs text-slate-400 w-10">{p.uom}</span>
                       </div>
                     </td>
                   </tr>

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac'
 
@@ -7,7 +6,6 @@ export async function POST(
   { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    // Require authentication and ADMIN role
     const user = await requireAuth()
     requireAnyRole(user, ['ADMIN'])
 
@@ -16,11 +14,11 @@ export async function POST(
     const { createRouteHandlerClient } = await import('@/lib/supabase/server')
     const supabase = await createRouteHandlerClient()
 
-    // Check if user exists and is pending
+    // Check if user exists
     const { data: targetUser, error: fetchError } = await supabase
-      .from('users')
-      .select('id, email, full_name, is_pending')
-      .eq('id', userId)
+      .from('ms_user')
+      .select('user_id, username, full_name, email, status')
+      .eq('user_id', parseInt(userId))
       .single()
 
     if (fetchError || !targetUser) {
@@ -30,21 +28,18 @@ export async function POST(
       )
     }
 
-    if (!targetUser.is_pending) {
+    if (targetUser.status === 'ACTIVE') {
       return NextResponse.json(
-        { error: 'User is not pending approval' },
+        { error: 'User is already active' },
         { status: 400 }
       )
     }
 
-    // Approve user: set is_active to true and is_pending to false
+    // Approve user: set status to ACTIVE
     const { error: updateError } = await supabase
-      .from('users')
-      .update({
-        is_active: true,
-        is_pending: false,
-      })
-      .eq('id', userId)
+      .from('ms_user')
+      .update({ status: 'ACTIVE' })
+      .eq('user_id', parseInt(userId))
 
     if (updateError) {
       return NextResponse.json(
@@ -57,11 +52,12 @@ export async function POST(
       message: 'User approved successfully',
       user: targetUser,
     })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('[Approve User Error]', error)
     const statusCode = error.statusCode || 500
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: error instanceof Error ? error.message : String(error) || 'Internal server error' },
       { status: statusCode }
     )
   }

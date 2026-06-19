@@ -16,20 +16,15 @@ export interface ModuleLayoutProps {
  * Shared layout for all module pages with sidebar and topbar
  * Use this to ensure consistent UI across all modules
  */
-export function ModuleLayout({ children, breadcrumbs = [], activeModule, moduleTitle }: ModuleLayoutProps) {
+export function ModuleLayout({
+  children,
+  activeModule,
+  moduleTitle,
+}: ModuleLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-
-  // Default breadcrumbs if not provided
-  const defaultBreadcrumbs = [
-    { label: 'Dashboard', href: '/dashboard' },
-    { label: moduleTitle, href: `/apps/${activeModule}` },
-  ]
-
-  const finalBreadcrumbs = breadcrumbs.length > 0 ? breadcrumbs : defaultBreadcrumbs
 
   return (
     <div className="flex h-screen bg-slate-50">
-      {/* Sidebar (Suspense required because Sidebar uses useSearchParams) */}
       <Suspense fallback={<aside className="hidden lg:block w-56 border-r border-slate-200 bg-white" />}>
         <Sidebar
           isOpen={sidebarOpen}
@@ -43,7 +38,6 @@ export function ModuleLayout({ children, breadcrumbs = [], activeModule, moduleT
         {/* Top Bar */}
         <TopBar
           moduleName={moduleTitle}
-          breadcrumbs={finalBreadcrumbs}
           onMenuClick={() => setSidebarOpen(true)}
         />
 
