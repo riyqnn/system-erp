@@ -927,6 +927,7 @@ export async function getDaftarHutang(): Promise<HutangUI[]> {
     jumlah: Number(h.ap_amount),
     sisa_pembayaran: h.ap_status === 'PAID' ? 0 : Number(h.ap_amount),
     due_date: h.due_date,
+    ap_status: h.ap_status,
     status: h.ap_status === 'PAID' ? 'LUNAS' : (h.ap_status === 'OVERDUE' ? 'OVERDUE' : 'BELUM_LUNAS'),
     created_at: h.created_at || new Date().toISOString()
   }));

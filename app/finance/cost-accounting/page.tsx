@@ -22,6 +22,7 @@ import {
   SlidersHorizontal,
   Download
 } from 'lucide-react'
+import Swal from 'sweetalert2'
 import { CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,7 +35,7 @@ interface BiayaProduksi {
   jumlah: number;
   tanggal: string;
   keterangan: string;
-  status: 'SUBMITTED' | 'JOURNALED';
+  status: 'SUBMITTED' | 'JOURNALED' | 'RETURNED' | 'RECEIVED' | string;
 }
 
 interface HppCalculation {
@@ -483,36 +484,75 @@ export default function CostAccountingPage() {
                 </div>
               </div>
 
-              {/* Cost Pools Table */}
+              {/* Cost Pools / Biaya Produksi Table */}
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader className="bg-slate-50/50">
                     <TableRow className="border-b border-slate-100">
-                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Cost Pool</TableHead>
-                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Allocation Base</TableHead>
-                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right">Applied Rate</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">No. Dokumen</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Nama Biaya</TableHead>
                       <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right">Total Applied</TableHead>
+                      <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody className="text-xs text-slate-700">
-                    <TableRow className="border-b border-slate-100">
-                      <TableCell className="font-bold text-slate-800 px-6 py-4">Machine Setup</TableCell>
-                      <TableCell className="font-medium text-slate-500 px-6 py-4">Machine Hours</TableCell>
-                      <TableCell className="text-right font-semibold text-slate-800 px-6 py-4">Rp 45,000 / hr</TableCell>
-                      <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp 120,500</TableCell>
-                    </TableRow>
-                    <TableRow className="border-b border-slate-100">
-                      <TableCell className="font-bold text-slate-800 px-6 py-4">Quality Control</TableCell>
-                      <TableCell className="font-medium text-slate-500 px-6 py-4">Inspection Count</TableCell>
-                      <TableCell className="text-right font-semibold text-slate-800 px-6 py-4">Rp 12,500 / unit</TableCell>
-                      <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp 85,240</TableCell>
-                    </TableRow>
-                    <TableRow className="border-b border-slate-100">
-                      <TableCell className="font-bold text-slate-800 px-6 py-4">Facility Maintenance</TableCell>
-                      <TableCell className="font-medium text-slate-500 px-6 py-4">Square Footage</TableCell>
-                      <TableCell className="text-right font-semibold text-slate-800 px-6 py-4">Rp 5,000 / sqft</TableCell>
-                      <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp 162,300</TableCell>
-                    </TableRow>
+                    {biayaList.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center py-8 text-slate-400 italic">Belum ada dokumen biaya produksi</TableCell>
+                      </TableRow>
+                    ) : (
+                      biayaList.slice(0, 5).map((biaya) => (
+                        <TableRow key={biaya.id_biaya_produksi} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                          <TableCell className="font-bold text-slate-800 px-6 py-4">{biaya.no_dokumen}</TableCell>
+                          <TableCell className="font-medium text-slate-500 px-6 py-4">
+                            {biaya.nama_biaya}
+                            {biaya.status === 'RETURNED' && <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">RETURNED</span>}
+                            {biaya.status === 'RECEIVED' && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">RECEIVED</span>}
+                          </TableCell>
+                          <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp {biaya.jumlah.toLocaleString()}</TableCell>
+                          <TableCell className="text-center px-6 py-4">
+                            {biaya.status !== 'RETURNED' ? (
+                              <button
+                                onClick={async () => {
+                                  const result = await Swal.fire({
+                                    title: 'Return to Production?',
+                                    text: `Tandai dokumen ${biaya.no_dokumen} tidak lengkap dan minta Production merevisi?`,
+                                    icon: 'warning',
+                                    showCancelButton: true,
+                                    confirmButtonText: 'Ya, Kembalikan',
+                                    cancelButtonText: 'Batal'
+                                  });
+                                  if (result.isConfirmed) {
+                                    Swal.fire({ title: 'Memproses...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                                    try {
+                                      const res = await fetch('/api/finance/return-cost-document', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ settlement_id: biaya.id_biaya_produksi })
+                                      });
+                                      if (res.ok) {
+                                        Swal.fire('Berhasil!', 'Dokumen dikembalikan ke antrean Production.', 'success');
+                                        loadData();
+                                      } else {
+                                        const json = await res.json();
+                                        Swal.fire('Gagal', json.error || 'Terjadi kesalahan sistem.', 'error');
+                                      }
+                                    } catch (e) {
+                                      Swal.fire('Gagal', 'Koneksi bermasalah', 'error');
+                                    }
+                                  }
+                                }}
+                                className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold transition-colors cursor-pointer text-[10px]"
+                              >
+                                Return
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-bold bg-slate-100 px-2 py-0.5 rounded-md">Returned</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </div>
@@ -617,6 +657,39 @@ export default function CostAccountingPage() {
                 className="w-full bg-[#800000] hover:bg-[#800000]/90 text-white font-bold text-xs py-3 rounded-2xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Initiate Reconciliation
+              </button>
+
+              <button
+                onClick={async () => {
+                  Swal.fire({
+                    title: 'Memproses...',
+                    text: 'Mengirim request audit fisik ke Gudang',
+                    allowOutsideClick: false,
+                    didOpen: () => { Swal.showLoading() }
+                  });
+                  try {
+                    const res = await fetch('/api/finance/stock-opname-requests', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        product_id: 'FG-001',
+                        system_qty: 1500,
+                        reason: 'Audit fisik rutin dari Finance (Discrepancy)'
+                      })
+                    });
+                    const json = await res.json();
+                    if(res.ok) {
+                      Swal.fire('Berhasil!', 'Request audit fisik telah terkirim ke modul Inventory!', 'success');
+                    } else {
+                      Swal.fire('Gagal', json.error || 'Terjadi kesalahan pada sistem.', 'error');
+                    }
+                  } catch (e) {
+                    Swal.fire('Gagal', 'Koneksi bermasalah', 'error');
+                  }
+                }}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3 rounded-2xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer mt-3"
+              >
+                <CheckCircle className="w-3.5 h-3.5" /> Request Audit Fisik (Ke Gudang)
               </button>
 
               <div className="text-center pt-2">

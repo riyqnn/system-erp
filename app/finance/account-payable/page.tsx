@@ -22,6 +22,7 @@ import {
   ArrowDownRight,
   Link
 } from 'lucide-react'
+import Swal from 'sweetalert2'
 import { CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -36,6 +37,7 @@ interface Hutang {
   sisa_pembayaran: number;
   due_date: string;
   status: 'BELUM_LUNAS' | 'LUNAS' | 'OVERDUE';
+  ap_status?: string;
   created_at: string;
 }
 
@@ -518,16 +520,56 @@ export default function AccountPayablePage() {
                         <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp {h.jumlah.toLocaleString()}</TableCell>
                         <TableCell className="text-center px-6 py-4">
                           {h.status !== 'LUNAS' ? (
-                            <button
-                              onClick={() => {
-                                setSelectedHutang(h);
-                                setJumlahBayarPengajuan(h.sisa_pembayaran);
-                                setIsRequestOpen(true);
-                              }}
-                              className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold transition-colors cursor-pointer text-[10px]"
-                            >
-                              Verify
-                            </button>
+                            <div className="flex gap-1 justify-center">
+                              <button
+                                onClick={() => {
+                                  setSelectedHutang(h);
+                                  setJumlahBayarPengajuan(h.sisa_pembayaran);
+                                  setIsRequestOpen(true);
+                                }}
+                                className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-colors cursor-pointer text-[10px]"
+                              >
+                                Verify
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (h.ap_status === 'PRICE_MISMATCH') {
+                                    Swal.fire('Info', 'Invoice ini sudah dikembalikan ke Purchasing.', 'info');
+                                    return;
+                                  }
+                                  const result = await Swal.fire({
+                                    title: 'Kembalikan ke Purchasing?',
+                                    text: `Tandai invoice ${h.no_invoice} sebagai Discrepancy dan minta Purchasing untuk review ulang?`,
+                                    icon: 'warning',
+                                    showCancelButton: true,
+                                    confirmButtonText: 'Ya, Kembalikan',
+                                    cancelButtonText: 'Batal'
+                                  });
+                                  if (result.isConfirmed) {
+                                    Swal.fire({ title: 'Memproses...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                                    try {
+                                      const res = await fetch('/api/finance/invoice-discrepancy', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ ap_id: h.id_hutang, no_invoice: h.no_invoice })
+                                      });
+                                      if (res.ok) {
+                                        Swal.fire('Berhasil!', 'Invoice dikembalikan ke antrean Purchasing.', 'success');
+                                        loadData();
+                                      } else {
+                                        const json = await res.json();
+                                        Swal.fire('Gagal', json.error || 'Terjadi kesalahan sistem.', 'error');
+                                      }
+                                    } catch (e) {
+                                      Swal.fire('Gagal', 'Koneksi bermasalah', 'error');
+                                    }
+                                  }
+                                }}
+                                className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold transition-colors cursor-pointer text-[10px]"
+                              >
+                                Return
+                              </button>
+                            </div>
                           ) : (
                             <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md">Paid</span>
                           )}
