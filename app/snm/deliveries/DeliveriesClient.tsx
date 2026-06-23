@@ -3,11 +3,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Truck, Warning } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
-import { fmtDate, notify, DO_BADGE } from '@/lib/snm'
+import { fmtDate, DO_BADGE } from '@/lib/snm'
 
 type DO = {
   do_id: string
@@ -25,12 +24,11 @@ const TAB_LABEL: Record<string, string> = {
   ALL: 'Semua', CREATED: 'Dibuat', SENT: 'Dikirim', DELIVERED: 'Diterima', RETURNED: 'Dikembalikan',
 }
 
-export function DeliveriesClient({ userId }: { userId: number }) {
+export function DeliveriesClient() {
   const supabase = useMemo(() => createClient(), [])
   const [rows, setRows] = useState<DO[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<string>('ALL')
-  const [busy, setBusy] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -47,24 +45,6 @@ export function DeliveriesClient({ userId }: { userId: number }) {
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // UC-SLS-11: advance status (normally Staf Gudang in modul Inventory)
-  async function advance(d: DO, status: string) {
-    setBusy(true)
-    const patch: Record<string, unknown> = { status }
-    if (status === 'DELIVERED') patch.delivered_at = new Date().toISOString()
-    const { error } = await supabase.from('tr_delivery_order').update(patch).eq('do_id', d.do_id)
-    setBusy(false)
-    if (error) { alert(error.message); return }
-    if (status === 'DELIVERED') {
-      await notify(supabase, {
-        recipientRole: 'SNM', type: 'INFORMATION',
-        title: 'Barang diterima customer', message: `${d.do_id} berstatus Delivered — Sales Invoice siap diterbitkan.`,
-        sourceRefId: d.do_id, sourceRefType: 'DO', actionUrl: '/snm/sales', createdBy: userId,
-      })
-    }
-    await load()
-  }
 
   const filtered = tab === 'ALL' ? rows : rows.filter((d) => d.status === tab)
   const counts = useMemo(() => {
@@ -124,7 +104,6 @@ export function DeliveriesClient({ userId }: { userId: number }) {
                     <th className="px-6 py-3.5 font-medium">Tanggal</th>
                     <th className="px-6 py-3.5 font-medium">Status</th>
                     <th className="px-6 py-3.5 font-medium">Diterima</th>
-                    <th className="px-6 py-3.5 font-medium text-right">Aksi (Gudang)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -143,15 +122,6 @@ export function DeliveriesClient({ userId }: { userId: number }) {
                       <td className="px-6 py-4 text-slate-500 text-xs">{fmtDate(d.do_date)}</td>
                       <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${DO_BADGE[d.status]}`}>{d.status}</span></td>
                       <td className="px-6 py-4 text-slate-500 text-xs">{d.delivered_at ? fmtDate(d.delivered_at) : '—'}</td>
-                      <td className="px-6 py-4 text-right">
-                        {d.status === 'CREATED' && (
-                          <Button variant="outline" size="sm" className="h-8 border-slate-200 text-xs" disabled={busy} onClick={() => advance(d, 'SENT')}>Tandai Dikirim</Button>
-                        )}
-                        {d.status === 'SENT' && (
-                          <Button variant="outline" size="sm" className="h-8 border-slate-200 text-xs" disabled={busy} onClick={() => advance(d, 'DELIVERED')}>Tandai Diterima</Button>
-                        )}
-                        {(d.status === 'DELIVERED' || d.status === 'RETURNED' || d.status === 'VOID') && <span className="text-slate-300 text-xs">—</span>}
-                      </td>
                     </tr>
                   ))}
                 </tbody>

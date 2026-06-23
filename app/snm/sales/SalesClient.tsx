@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Plus, X, Eye, Trash, Warning, ClipboardText, CheckCircle,
+  Plus, X, Trash, Warning, ClipboardText, CheckCircle,
   Truck, Receipt, Package, Factory,
 } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -292,24 +292,6 @@ export function SalesClient({ initialStatus, userId }: { initialStatus?: string;
     await refreshDetail(o.so_id)
   }
 
-  // UC-SLS-11: DO status progression (normally Staf Gudang / Inventory)
-  async function updateDOStatus(d: DeliveryOrder, status: string) {
-    setBusy(true)
-    const patch: Record<string, unknown> = { status }
-    if (status === 'DELIVERED') patch.delivered_at = new Date().toISOString()
-    const { error } = await supabase.from('tr_delivery_order').update(patch).eq('do_id', d.do_id)
-    setBusy(false)
-    if (error) { alert(error.message); return }
-    if (status === 'DELIVERED') {
-      await notify(supabase, {
-        recipientRole: 'SNM', type: 'INFORMATION',
-        title: 'Barang diterima customer', message: `${d.do_id} berstatus Delivered — Sales Invoice siap diterbitkan.`,
-        sourceRefId: d.do_id, sourceRefType: 'DO', actionUrl: '/snm/sales', createdBy: userId,
-      })
-    }
-    await refreshDetail(d.so_id)
-  }
-
   // UC-SLS-12 + UC-SLS-13: Issue invoice and transmit receivable to Finance (piutang)
   async function createInvoice(o: SalesOrder, d: DeliveryOrder) {
     if (d.status !== 'DELIVERED') { alert('Invoice hanya dapat dibuat setelah DO berstatus Delivered.'); return }
@@ -431,7 +413,7 @@ export function SalesClient({ initialStatus, userId }: { initialStatus?: string;
                     <th className="px-6 py-3.5 font-medium">Status SO</th>
                     <th className="px-6 py-3.5 font-medium">Pengiriman</th>
                     <th className="px-6 py-3.5 font-medium">Invoice</th>
-                    <th className="px-6 py-3.5 font-medium text-right">Aksi</th>
+                    <th className="px-6 py-3.5 font-medium">Delivery / Invoice</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -467,9 +449,9 @@ export function SalesClient({ initialStatus, userId }: { initialStatus?: string;
                         <td className="px-6 py-4">
                           {inv ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${PAYMENT_BADGE[inv.payment_status] ?? 'bg-slate-100 text-slate-600'}`}>{inv.payment_status}</span> : <span className="text-slate-300 text-xs">—</span>}
                         </td>
-                        <td className="px-6 py-4 text-right">
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700" onClick={(e) => { e.stopPropagation(); openDetail(o) }}>
-                            <Eye className="w-4 h-4" />
+                        <td className="px-6 py-4">
+                          <Button onClick={(e) => { e.stopPropagation(); openDetail(o) }} className="bg-[#dc2626] hover:bg-[#b91c1c] text-white h-10 px-2 gap-2">
+                            <Plus className="w-4 h-4" weight="bold" /> Buat
                           </Button>
                         </td>
                       </tr>
@@ -653,17 +635,7 @@ export function SalesClient({ initialStatus, userId }: { initialStatus?: string;
                     <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> {detailDO.do_id}</span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${DO_BADGE[detailDO.status]}`}>{detailDO.status}</span>
                   </div>
-                  {detailDO.status !== 'DELIVERED' && detailDO.status !== 'RETURNED' && (
-                    <div className="flex gap-2">
-                      {detailDO.status === 'CREATED' && (
-                        <Button variant="outline" size="sm" className="h-8 border-slate-200 text-xs" disabled={busy} onClick={() => updateDOStatus(detailDO, 'SENT')}>Tandai Dikirim (Sent)</Button>
-                      )}
-                      {detailDO.status === 'SENT' && (
-                        <Button variant="outline" size="sm" className="h-8 border-slate-200 text-xs" disabled={busy} onClick={() => updateDOStatus(detailDO, 'DELIVERED')}>Tandai Diterima (Delivered)</Button>
-                      )}
-                    </div>
-                  )}
-                  <p className="text-[11px] text-slate-400">Pembaruan status pengiriman normalnya dilakukan Staf Gudang (modul Inventory).</p>
+                  <p className="text-[11px] text-slate-400">Pembaruan status pengiriman dilakukan Staf Gudang (modul Inventory).</p>
                 </div>
               )}
 
