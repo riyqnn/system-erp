@@ -16,6 +16,7 @@ export default function StockOpnameClient() {
   
   // Form State
   const [actualQty, setActualQty] = useState<{ [key: string]: string }>({})
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     fetchRequests()
@@ -83,7 +84,12 @@ export default function StockOpnameClient() {
         </div>
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Cari ID valuasi..." className="pl-8 bg-background/50 backdrop-blur-sm" />
+          <Input 
+            placeholder="Cari ID valuasi..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8 bg-background/50 backdrop-blur-sm" 
+          />
         </div>
       </div>
 
@@ -92,7 +98,10 @@ export default function StockOpnameClient() {
           <div className="flex justify-center p-8">
             <Loader2 className="h-8 w-8 animate-spin text-teal-600" />
           </div>
-        ) : requests.length === 0 ? (
+        ) : requests.filter(req => 
+            String(req.valuation_id).toLowerCase().includes(searchQuery.toLowerCase()) || 
+            (req.product_id || '').toLowerCase().includes(searchQuery.toLowerCase())
+          ).length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <FileSearch className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
@@ -101,7 +110,12 @@ export default function StockOpnameClient() {
             </CardContent>
           </Card>
         ) : (
-          requests.map((req) => (
+          requests
+            .filter(req => 
+              String(req.valuation_id).toLowerCase().includes(searchQuery.toLowerCase()) || 
+              (req.product_id || '').toLowerCase().includes(searchQuery.toLowerCase())
+            )
+            .map((req) => (
             <Card key={req.valuation_id} className={`overflow-hidden border-l-4 ${req.status === 'VALIDATED' ? 'border-l-emerald-500 opacity-70' : 'border-l-amber-500 shadow-md'}`}>
               <div className="flex flex-col md:flex-row">
                 {/* Left Side: Request Info */}
@@ -125,7 +139,7 @@ export default function StockOpnameClient() {
                     </div>
                     <div>
                       <p className="text-muted-foreground text-xs">System Quantity</p>
-                      <p className="font-medium text-blue-600">{req.quantity} units</p>
+                      <p className="font-medium text-blue-600">{Number(req.unit_cost) || req.quantity} units</p>
                     </div>
                   </div>
 

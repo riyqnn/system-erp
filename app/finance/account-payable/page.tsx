@@ -497,6 +497,7 @@ export default function AccountPayablePage() {
                   <TableRow className="border-b border-slate-100">
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-32">Invoice #</TableHead>
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Supplier</TableHead>
+                    <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-28">Status</TableHead>
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center">Date</TableHead>
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-right">Amount</TableHead>
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 text-center w-24">Action</TableHead>
@@ -505,7 +506,7 @@ export default function AccountPayablePage() {
                 <TableBody className="text-xs text-slate-700">
                   {filteredHutang.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-12 font-semibold text-slate-400">
+                      <TableCell colSpan={6} className="text-center py-12 font-semibold text-slate-400">
                         Tidak ada tagihan hutang terdaftar.
                       </TableCell>
                     </TableRow>
@@ -514,6 +515,23 @@ export default function AccountPayablePage() {
                       <TableRow key={h.id_hutang} className="border-b border-slate-100 hover:bg-slate-50/30 transition-colors">
                         <TableCell className="font-mono font-bold text-slate-800 px-6 py-4">{h.no_invoice}</TableCell>
                         <TableCell className="font-bold text-slate-800 px-6 py-4">{h.supplier_name}</TableCell>
+                        <TableCell className="text-center px-6 py-4">
+                          {h.ap_status === 'PRICE_MISMATCH' && (
+                            <span className="text-[10px] text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100 font-bold">Returned</span>
+                          )}
+                          {h.ap_status === 'PENDING_VERIFICATION' && (
+                            <span className="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100 font-bold">Resubmitted</span>
+                          )}
+                          {h.ap_status === 'DRAFT' && (
+                            <span className="text-[10px] text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 font-bold">Draft</span>
+                          )}
+                          {h.ap_status === 'OUTSTANDING' && (
+                            <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100 font-bold">Outstanding</span>
+                          )}
+                          {h.ap_status === 'PAID' && (
+                            <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 font-bold">Paid</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-center font-medium text-slate-500 px-6 py-4">
                           {new Date(h.due_date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </TableCell>
@@ -523,11 +541,16 @@ export default function AccountPayablePage() {
                             <div className="flex gap-1 justify-center">
                               <button
                                 onClick={() => {
+                                  if (h.ap_status === 'PRICE_MISMATCH') {
+                                    Swal.fire('Info', 'Invoice ini sedang dikembalikan ke Purchasing untuk koreksi.', 'info');
+                                    return;
+                                  }
                                   setSelectedHutang(h);
                                   setJumlahBayarPengajuan(h.sisa_pembayaran);
                                   setIsRequestOpen(true);
                                 }}
-                                className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-colors cursor-pointer text-[10px]"
+                                disabled={h.ap_status === 'PRICE_MISMATCH'}
+                                className={`px-2 py-1 rounded-lg text-white font-bold transition-colors cursor-pointer text-[10px] ${h.ap_status === 'PRICE_MISMATCH' ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
                               >
                                 Verify
                               </button>
@@ -565,7 +588,8 @@ export default function AccountPayablePage() {
                                     }
                                   }
                                 }}
-                                className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold transition-colors cursor-pointer text-[10px]"
+                                disabled={h.ap_status === 'PRICE_MISMATCH'}
+                                className={`px-2 py-1 rounded-lg text-white font-bold transition-colors cursor-pointer text-[10px] ${h.ap_status === 'PRICE_MISMATCH' ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-amber-500 hover:bg-amber-600'}`}
                               >
                                 Return
                               </button>

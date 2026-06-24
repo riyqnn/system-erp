@@ -16,6 +16,7 @@ export default function InvoiceReturnsClient() {
   
   // Form State
   const [notes, setNotes] = useState<{ [key: string]: string }>({})
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     fetchInvoices()
@@ -90,7 +91,12 @@ export default function InvoiceReturnsClient() {
         </div>
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Cari nomor invoice..." className="pl-8 bg-background/50 backdrop-blur-sm" />
+          <Input 
+            placeholder="Cari nomor invoice..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8 bg-background/50 backdrop-blur-sm" 
+          />
         </div>
       </div>
 
@@ -99,7 +105,10 @@ export default function InvoiceReturnsClient() {
           <div className="flex justify-center p-8">
             <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
           </div>
-        ) : invoices.length === 0 ? (
+        ) : invoices.filter(inv => 
+            inv.inv_supp_no.toLowerCase().includes(searchQuery.toLowerCase()) || 
+            (inv.ms_supplier?.supplier_name || '').toLowerCase().includes(searchQuery.toLowerCase())
+          ).length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <FileSearch className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
@@ -108,7 +117,12 @@ export default function InvoiceReturnsClient() {
             </CardContent>
           </Card>
         ) : (
-          invoices.map((inv) => (
+          invoices
+            .filter(inv => 
+              inv.inv_supp_no.toLowerCase().includes(searchQuery.toLowerCase()) || 
+              (inv.ms_supplier?.supplier_name || '').toLowerCase().includes(searchQuery.toLowerCase())
+            )
+            .map((inv) => (
             <Card key={inv.ap_id} className={`overflow-hidden border-l-4 ${inv.ap_status === 'PENDING_VERIFICATION' ? 'border-l-blue-500 opacity-70' : 'border-l-rose-500 shadow-md'}`}>
               <div className="flex flex-col md:flex-row">
                 {/* Left Side: Info */}

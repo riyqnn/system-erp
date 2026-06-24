@@ -19,7 +19,8 @@ import {
   ChevronRight,
   FileText,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  X
 } from 'lucide-react'
 import { CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -82,6 +83,7 @@ export default function AccountReceivablePage() {
   const [akunList, setAkunList] = useState<Akun[]>([])
   const [loading, setLoading] = useState(false)
   const [notif, setNotif] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [isAgingModalOpen, setIsAgingModalOpen] = useState(false)
 
   // Payment Form States
   const [selectedPiutang, setSelectedPiutang] = useState<Piutang | null>(null)
@@ -679,7 +681,7 @@ export default function AccountReceivablePage() {
 
                   <div className="pt-3 border-t border-slate-100 text-center">
                     <button
-                      onClick={() => showNotif('success', `Rincian Umur Piutang: Belum Jatuh Tempo (Rp ${aging.current.toLocaleString()}), 1-30 Hari (Rp ${aging.overdue_1_30.toLocaleString()}), >30 Hari (Rp ${aging.overdue_90plus.toLocaleString()}).`)}
+                      onClick={() => setIsAgingModalOpen(true)}
                       className="text-xs font-semibold text-red-600 hover:underline cursor-pointer"
                     >
                       View Detailed Aging Report
@@ -693,6 +695,128 @@ export default function AccountReceivablePage() {
         </div>
 
       </div>
+
+      {/* 3. DETAILED AGING REPORT MODAL */}
+      {isAgingModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-4xl bg-white rounded-3xl shadow-xl overflow-hidden animate-[fadeIn_0.3s_ease-out]">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-red-600" /> Detailed Accounts Receivable Aging Report
+              </h3>
+              <button
+                onClick={() => setIsAgingModalOpen(false)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+              {/* Summary KPIs inside Modal */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Current</p>
+                  <p className="text-sm font-bold text-emerald-600 mt-1">Rp {aging.current.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">1-30 Days</p>
+                  <p className="text-sm font-bold text-slate-700 mt-1">Rp {aging.overdue_1_30.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">31-60 Days</p>
+                  <p className="text-sm font-bold text-amber-600 mt-1">Rp {aging.overdue_31_60.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">&gt;60 Days</p>
+                  <p className="text-sm font-bold text-red-600 mt-1">Rp {aging.overdue_90plus.toLocaleString()}</p>
+                </div>
+                <div className="bg-red-50/50 p-3 rounded-2xl border border-red-100 col-span-2 md:col-span-1">
+                  <p className="text-[10px] font-semibold text-red-600 uppercase tracking-wider">Total Outstanding</p>
+                  <p className="text-sm font-bold text-[#800000] mt-1">Rp {outstandingAR.toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Individual Invoice Details Table */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Outstanding Invoices Breakdown</h4>
+                <div className="border border-slate-100 rounded-2xl overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-slate-50/50">
+                      <TableRow className="border-b border-slate-100">
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5">Invoice No.</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5">Customer Name</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5 text-center">Due Date</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5 text-center">Days Overdue</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5 text-center">Category</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5 text-right">Outstanding Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody className="text-xs text-slate-700">
+                      {piutangList.filter(p => p.status !== 'LUNAS').length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-6 text-slate-400 italic">No outstanding invoices</TableCell>
+                        </TableRow>
+                      ) : (
+                        piutangList
+                          .filter(p => p.status !== 'LUNAS')
+                          .map(p => {
+                            const dueDate = new Date(p.due_date)
+                            const diffTime = today.getTime() - dueDate.getTime()
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                            
+                            let category = "Current"
+                            let badgeClass = "text-emerald-600 bg-emerald-50 border-emerald-100"
+                            if (diffDays > 0 && diffDays <= 30) {
+                              category = "1-30 Days"
+                              badgeClass = "text-slate-600 bg-slate-100 border-slate-200"
+                            } else if (diffDays > 30 && diffDays <= 60) {
+                              category = "31-60 Days"
+                              badgeClass = "text-amber-600 bg-amber-50 border-amber-200"
+                            } else if (diffDays > 60) {
+                              category = ">60 Days"
+                              badgeClass = "text-red-600 bg-red-50 border-red-200"
+                            }
+                            
+                            return (
+                              <TableRow key={p.id_piutang} className="border-b border-slate-100 hover:bg-slate-50/20">
+                                <TableCell className="font-mono font-bold text-slate-800 px-4 py-3">{p.inv_number}</TableCell>
+                                <TableCell className="font-bold text-slate-800 px-4 py-3">{p.customer_name}</TableCell>
+                                <TableCell className="text-center text-slate-500 px-4 py-3">
+                                  {new Date(p.due_date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </TableCell>
+                                <TableCell className="text-center font-bold px-4 py-3">
+                                  {diffDays > 0 ? `${diffDays} days` : '0 days (Not due)'}
+                                </TableCell>
+                                <TableCell className="text-center px-4 py-3">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold border ${badgeClass}`}>
+                                    {category}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-right font-bold text-slate-800 px-4 py-3">
+                                  Rp {p.sisa_pembayaran.toLocaleString()}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-slate-100">
+                <Button
+                  onClick={() => setIsAgingModalOpen(false)}
+                  className="text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer px-6"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
