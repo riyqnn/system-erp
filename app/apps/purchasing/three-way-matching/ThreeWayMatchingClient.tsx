@@ -12,7 +12,7 @@ import {
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type MatchStatus = 'MATCHED' | 'MISMATCH' | 'PENDING'
+type MatchStatus = 'MATCHED' | 'MISMATCH' | 'PENDING' | string
 
 type MatchingResult = {
   id: string
@@ -71,11 +71,15 @@ function formatCurrency(value: number) {
 function formatDate(value?: string | null) {
   if (!value) return '-'
 
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '-'
+
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function formatNumber(value: number) {
@@ -83,7 +87,7 @@ function formatNumber(value: number) {
 }
 
 function formatMatchStatus(status: MatchStatus) {
-  const statusMap: Record<MatchStatus, string> = {
+  const statusMap: Record<string, string> = {
     MATCHED: 'Matched',
     MISMATCH: 'Mismatch',
     PENDING: 'Pending',
@@ -93,7 +97,7 @@ function formatMatchStatus(status: MatchStatus) {
 }
 
 function getMatchStatusClass(status: MatchStatus) {
-  const statusClassMap: Record<MatchStatus, string> = {
+  const statusClassMap: Record<string, string> = {
     MATCHED: 'bg-green-100 text-green-700',
     MISMATCH: 'bg-red-100 text-red-700',
     PENDING: 'bg-amber-100 text-amber-700',

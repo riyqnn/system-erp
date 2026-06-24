@@ -50,13 +50,16 @@ type MonitoringStatus = 'On Track' | 'Due Today' | 'Overdue'
 function formatDate(value?: string | null) {
   if (!value) return '-'
 
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '-'
+
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
-
 function formatNumber(value: number) {
   return new Intl.NumberFormat('id-ID').format(value || 0)
 }
@@ -68,8 +71,12 @@ function getDateOnly(value: Date) {
 function getDaysLeft(dateValue?: string | null) {
   if (!dateValue) return null
 
+  const parsedDate = new Date(dateValue)
+
+  if (Number.isNaN(parsedDate.getTime())) return null
+
   const today = getDateOnly(new Date())
-  const targetDate = getDateOnly(new Date(dateValue))
+  const targetDate = getDateOnly(parsedDate)
   const diffTime = targetDate.getTime() - today.getTime()
 
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24))
@@ -179,7 +186,7 @@ export function DeliveryMonitoringClient() {
       const matchesSupplier =
         supplier === 'All Suppliers' || item.supplierName === supplier
 
-      const matchesDate = !dateRange || deliveryDate === dateRange
+      const matchesDate = !dateRange || deliveryDate?.slice(0, 10) === dateRange
 
       return matchesSearch && matchesStatus && matchesSupplier && matchesDate
     })

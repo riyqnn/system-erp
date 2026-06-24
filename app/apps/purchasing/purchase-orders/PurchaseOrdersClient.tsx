@@ -22,7 +22,9 @@ type POStatus =
   | 'REVISION_REQUIRED'
   | 'APPROVED'
   | 'RELEASED'
+  | 'REJECTED'
   | 'CANCELLED'
+  | string
 
 type PurchaseOrderItem = {
   id: string
@@ -76,20 +78,25 @@ function formatCurrency(value: number) {
 function formatDate(value?: string | null) {
   if (!value) return '-'
 
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '-'
+
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function formatStatus(status: POStatus) {
-  const statusMap: Record<POStatus, string> = {
+  const statusMap: Record<string, string> = {
     DRAFT: 'Draft',
     PENDING_APPROVAL: 'Pending Approval',
     REVISION_REQUIRED: 'Revision Required',
     APPROVED: 'Approved',
     RELEASED: 'Released',
+    REJECTED: 'Rejected',
     CANCELLED: 'Cancelled',
   }
 
@@ -97,12 +104,13 @@ function formatStatus(status: POStatus) {
 }
 
 function getStatusClass(status: POStatus) {
-  const statusClassMap: Record<POStatus, string> = {
+  const statusClassMap: Record<string, string> = {
     DRAFT: 'bg-slate-100 text-slate-600',
     PENDING_APPROVAL: 'bg-orange-100 text-orange-700',
     REVISION_REQUIRED: 'bg-yellow-100 text-yellow-700',
     APPROVED: 'bg-green-100 text-green-700',
     RELEASED: 'bg-blue-100 text-blue-700',
+    REJECTED: 'bg-red-100 text-red-700',
     CANCELLED: 'bg-red-100 text-red-700',
   }
 
@@ -178,7 +186,7 @@ export function PurchaseOrdersClient() {
       const matchesSupplier =
         supplier === 'All Suppliers' || order.supplierName === supplier
 
-      const matchesDate = !dateRange || order.poDate === dateRange
+      const matchesDate = !dateRange || order.poDate?.slice(0, 10) === dateRange
 
       return matchesSearch && matchesStatus && matchesSupplier && matchesDate
     })
@@ -364,6 +372,7 @@ export function PurchaseOrdersClient() {
                 <option>Revision Required</option>
                 <option>Approved</option>
                 <option>Released</option>
+                <option>Rejected</option>
                 <option>Cancelled</option>
               </select>
 

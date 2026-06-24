@@ -7,9 +7,11 @@ import { ModuleHeader } from '@/components/shared'
 type RFQStatus =
   | 'WAITING_RESPONSE'
   | 'OFFER_RECEIVED'
+  | 'RESPONDED'
   | 'SELECTED'
   | 'CLOSED'
   | 'CANCELLED'
+  | string
 
 type RFQSourcing = {
   id: string
@@ -33,17 +35,21 @@ type RFQSourcing = {
   quotationDeadline: string | null
   specificationNotes: string
   status: RFQStatus
-  createdAt: string
+  createdAt: string | null
 }
 
 function formatDate(value?: string | null) {
   if (!value) return '-'
 
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '-'
+
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function formatNumber(value: number) {
@@ -51,9 +57,10 @@ function formatNumber(value: number) {
 }
 
 function formatStatus(status: RFQStatus) {
-  const statusMap: Record<RFQStatus, string> = {
+  const statusMap: Record<string, string> = {
     WAITING_RESPONSE: 'Waiting Response',
     OFFER_RECEIVED: 'Offer Received',
+    RESPONDED: 'Responded',
     SELECTED: 'Selected',
     CLOSED: 'Closed',
     CANCELLED: 'Cancelled',
@@ -63,9 +70,10 @@ function formatStatus(status: RFQStatus) {
 }
 
 function getStatusClass(status: RFQStatus) {
-  const statusClassMap: Record<RFQStatus, string> = {
+  const statusClassMap: Record<string, string> = {
     WAITING_RESPONSE: 'bg-yellow-100 text-yellow-700',
     OFFER_RECEIVED: 'bg-blue-100 text-blue-700',
+    RESPONDED: 'bg-blue-100 text-blue-700',
     SELECTED: 'bg-green-100 text-green-700',
     CLOSED: 'bg-slate-100 text-slate-600',
     CANCELLED: 'bg-red-100 text-red-700',
@@ -104,7 +112,7 @@ export function RFQSourcingClient() {
         throw new Error(result.message || 'Failed to fetch RFQ sourcing data')
       }
 
-      const data = result.data || []
+      const data: RFQSourcing[] = result.data || []
       setRfqData(data)
 
       if (data.length > 0) {
@@ -184,6 +192,7 @@ export function RFQSourcingClient() {
           prNumber: selectedRfq.prNo,
           productSku: selectedRfq.productCode,
           requiredQty: selectedRfq.requiredQty,
+          supplierCode: selectedRfq.supplierId,
           candidateSupplierName: form.companyName || selectedRfq.supplierName,
           picName: form.picName,
           email: form.email,
@@ -244,9 +253,7 @@ export function RFQSourcingClient() {
                   1
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-red-600">
-                    Send RFQ
-                  </p>
+                  <p className="text-sm font-semibold text-red-600">Send RFQ</p>
                   <p className="mt-1 text-xs leading-relaxed text-slate-500">
                     Send quotation request to candidate supplier.
                   </p>
@@ -286,8 +293,7 @@ export function RFQSourcingClient() {
           <div className="space-y-5">
             <div className="overflow-hidden rounded-xl border border-red-100 bg-white shadow-sm">
               <div className="border-b border-red-50 bg-yellow-50 px-5 py-3 text-sm text-yellow-800">
-                This product does not have an active registered supplier. Please
-                start sourcing a new supplier.
+                This page displays supplier quotation data from the purchasing database.
               </div>
 
               <div className="space-y-6 p-5">
@@ -503,7 +509,7 @@ export function RFQSourcingClient() {
                         <button
                           type="button"
                           onClick={handleSendRFQ}
-                          disabled={isSending}
+                          disabled={isSending || !selectedRfq}
                           className="rounded-lg bg-red-600 px-5 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
                         >
                           {isSending ? 'Sending...' : 'Send RFQ'}

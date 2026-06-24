@@ -17,9 +17,11 @@ import { ModuleHeader } from '@/components/shared'
 type NegotiationStatus =
   | 'SENT'
   | 'RESPONDED'
+  | 'COUNTERED'
   | 'AGREED'
   | 'REJECTED'
   | 'CANCELLED'
+  | string
 
 type PriceNegotiation = {
   id: string
@@ -44,7 +46,7 @@ type PriceNegotiation = {
   confirmationDeadline: string | null
   status: NegotiationStatus
   notes: string
-  createdAt: string
+  createdAt: string | null
 }
 
 function formatCurrency(value: number) {
@@ -58,17 +60,22 @@ function formatNumber(value: number) {
 function formatDate(value?: string | null) {
   if (!value) return '-'
 
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '-'
+
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function formatStatus(status: NegotiationStatus) {
-  const statusMap: Record<NegotiationStatus, string> = {
+  const statusMap: Record<string, string> = {
     SENT: 'Sent',
     RESPONDED: 'Responded',
+    COUNTERED: 'Countered',
     AGREED: 'Agreed',
     REJECTED: 'Rejected',
     CANCELLED: 'Cancelled',
@@ -78,9 +85,10 @@ function formatStatus(status: NegotiationStatus) {
 }
 
 function getStatusClass(status: NegotiationStatus) {
-  const statusClassMap: Record<NegotiationStatus, string> = {
+  const statusClassMap: Record<string, string> = {
     SENT: 'bg-blue-100 text-blue-700',
     RESPONDED: 'bg-amber-100 text-amber-700',
+    COUNTERED: 'bg-purple-100 text-purple-700',
     AGREED: 'bg-green-100 text-green-700',
     REJECTED: 'bg-red-100 text-red-700',
     CANCELLED: 'bg-slate-100 text-slate-600',
@@ -91,6 +99,10 @@ function getStatusClass(status: NegotiationStatus) {
 
 function parseCurrencyInput(value: string) {
   return Number(value.replace(/\./g, '').replace(/,/g, '')) || 0
+}
+
+function formatCurrencyInput(value: number) {
+  return new Intl.NumberFormat('id-ID').format(value || 0)
 }
 
 export function PriceNegotiationClient() {
@@ -117,15 +129,19 @@ export function PriceNegotiationClient() {
         throw new Error(result.message || 'Failed to fetch negotiations')
       }
 
-      const data = result.data || []
+      const data: PriceNegotiation[] = result.data || []
       setNegotiations(data)
 
       if (data.length > 0) {
         const firstData = data[0]
         setSelectedNegotiationId(firstData.id)
         setOfferPrice(
-          new Intl.NumberFormat('id-ID').format(
-            firstData.finalPrice || firstData.proposedPrice || 0
+          formatCurrencyInput(
+            firstData.finalPrice ||
+              firstData.supplierResponsePrice ||
+              firstData.proposedPrice ||
+              firstData.referencePrice ||
+              0
           )
         )
         setQuantity(String(firstData.qty || ''))
@@ -150,8 +166,9 @@ export function PriceNegotiationClient() {
   }, [negotiations, selectedNegotiationId])
 
   const agreedCount = negotiations.filter((item) => item.status === 'AGREED').length
-  const waitingCount = negotiations.filter(
-    (item) => item.status === 'SENT' || item.status === 'RESPONDED'
+
+  const waitingCount = negotiations.filter((item) =>
+    ['SENT', 'RESPONDED', 'COUNTERED'].includes(item.status)
   ).length
 
   const handleSelectNegotiation = (id: string) => {
@@ -161,8 +178,12 @@ export function PriceNegotiationClient() {
 
     if (selected) {
       setOfferPrice(
-        new Intl.NumberFormat('id-ID').format(
-          selected.finalPrice || selected.proposedPrice || 0
+        formatCurrencyInput(
+          selected.finalPrice ||
+            selected.supplierResponsePrice ||
+            selected.proposedPrice ||
+            selected.referencePrice ||
+            0
         )
       )
       setQuantity(String(selected.qty || ''))
@@ -456,9 +477,7 @@ export function PriceNegotiationClient() {
                         {formatCurrency(item.proposedPrice)}
                       </td>
                       <td className="px-4 py-4 font-semibold text-slate-900">
-                        {item.finalPrice
-                          ? formatCurrency(item.finalPrice)
-                          : '-'}
+                        {item.finalPrice ? formatCurrency(item.finalPrice) : '-'}
                       </td>
                       <td className="px-4 py-4">
                         <span

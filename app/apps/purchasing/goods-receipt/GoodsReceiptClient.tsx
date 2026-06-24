@@ -10,7 +10,12 @@ import {
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type GoodsReceiptStatus = 'DRAFT' | 'ACCEPTED' | 'PARTIAL' | 'REJECTED'
+type GoodsReceiptStatus =
+  | 'DRAFT'
+  | 'ACCEPTED'
+  | 'PARTIAL'
+  | 'REJECTED'
+  | string
 
 type GoodsReceiptItem = {
   id: string
@@ -28,7 +33,7 @@ type GoodsReceiptItem = {
 type GoodsReceipt = {
   id: string
   grNo: string
-  receiptDate: string
+  receiptDate: string | null
   receivedBy: string
   status: GoodsReceiptStatus
   notes: string
@@ -60,11 +65,15 @@ type GoodsReceipt = {
 function formatDate(value?: string | null) {
   if (!value) return '-'
 
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '-'
+
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function formatNumber(value: number) {
