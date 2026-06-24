@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@/lib/supabase/server'
+import { createRouteHandlerClient, createAdminClient } from '@/lib/supabase/server'
 // Note: If you get a Turbopack TypeError in dev, please restart your next dev server to clear the HMR cache.
 import { type UserProfile, resolveUserProfile } from '@/lib/auth/rbac'
 
@@ -32,7 +32,8 @@ export async function POST(request: NextRequest) {
     let dbProfile: UserProfile | null = null
 
     try {
-      const { data: dbData, error: dbError } = await supabase
+      const adminSupabase = await createAdminClient()
+      const { data: dbData, error: dbError } = await adminSupabase
         .from('ms_user')
         .select('user_id, username, full_name, email, role, status, created_at')
         .eq('email', data.user.email)
