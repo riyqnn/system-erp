@@ -131,17 +131,42 @@ function ChatWindow({
   const bottomRef = useRef<HTMLDivElement>(null)
   const supabase = useMemo(() => createClient(), [])
 
+  const [hasMore, setHasMore] = useState(true)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+
   useEffect(() => {
     setLoading(true)
     setMessages([])
-    fetch(`/api/conversations/${conversationId}/messages`)
+    setHasMore(true)
+    fetch(`/api/conversations/${conversationId}/messages?limit=25`)
       .then((r) => r.json())
-      .then((d: { data?: Message[] }) => setMessages(d.data ?? []))
+      .then((d: { data?: Message[] }) => {
+        const msgs = d.data ?? []
+        setMessages(msgs)
+        if (msgs.length < 25) setHasMore(false)
+      })
       .catch(() => { })
       .finally(() => setLoading(false))
 
     fetch(`/api/conversations/${conversationId}/read`, { method: 'POST' }).catch(() => {})
   }, [conversationId])
+
+  const loadOlder = useCallback(async () => {
+    if (messages.length === 0 || loadingOlder) return
+    setLoadingOlder(true)
+    const oldestMsg = messages[0]
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/messages?limit=25&before=${encodeURIComponent(oldestMsg.created_at)}`)
+      const json = await res.json() as { data?: Message[] }
+      const olderMsgs = json.data ?? []
+      if (olderMsgs.length < 25) setHasMore(false)
+      setMessages(prev => [...olderMsgs, ...prev])
+    } catch {
+      // ignore
+    } finally {
+      setLoadingOlder(false)
+    }
+  }, [messages, conversationId, loadingOlder])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -231,7 +256,19 @@ function ChatWindow({
             <p className="text-xs text-slate-300 mt-1">Start a conversation now!</p>
           </div>
         ) : (
-          messages.map((m) => {
+          <>
+            {hasMore && (
+              <div className="flex justify-center mb-4">
+                <button
+                  onClick={loadOlder}
+                  disabled={loadingOlder}
+                  className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium rounded-full transition-colors disabled:opacity-50"
+                >
+                  {loadingOlder ? "Loading..." : "Load older messages"}
+                </button>
+              </div>
+            )}
+            {messages.map((m) => {
             const isMine = m.sender_id === currentUserId
             return (
               <div key={m.id} className={`flex items-end gap-2 ${isMine ? 'justify-end' : 'justify-start'}`}>
@@ -260,7 +297,8 @@ function ChatWindow({
                 </div>
               </div>
             )
-          })
+          })}
+          </>
         )}
         <div ref={bottomRef} />
       </div>

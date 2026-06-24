@@ -28,7 +28,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         ms_user!sender_id(full_name, username, role)
       `)
       .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false }) // Fetch latest first
       .limit(limit)
 
     if (before) {
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     }
 
     type MsUserRef = { full_name: string | null; username: string; role: string } | null
-    const messages = (data ?? []).map((m) => {
+    let messages = (data ?? []).map((m) => {
       const senderRef = (m.ms_user as unknown) as MsUserRef
       return {
         ...m,
@@ -52,6 +52,9 @@ export async function GET(request: NextRequest, { params }: Params) {
         ms_user: undefined,
       }
     })
+    
+    // Reverse so the oldest is first in the UI
+    messages = messages.reverse()
 
     return NextResponse.json({ data: messages })
   } catch (err) {

@@ -23,6 +23,8 @@ export interface UseNotificationsReturn {
   markAsRead: (ids: string[]) => Promise<void>
   markAllAsRead: () => Promise<void>
   refetch: () => void
+  fetchMore: () => Promise<void>
+  hasMore: boolean
 }
 
 export function useNotifications(userId?: number, userRole?: string): UseNotificationsReturn {
@@ -31,15 +33,25 @@ export function useNotifications(userId?: number, userRole?: string): UseNotific
   const [isLoading, setIsLoading]         = useState(true)
   const supabase = useRef(createClient())
   const activeRef = useRef(true)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
 
-  const fetchNotifications = useCallback(async () => {
+  const fetchNotifications = useCallback(async (pageNum = 1) => {
     try {
-      const res = await fetch('/api/notifications?limit=25')
+      const res = await fetch(`/api/notifications?limit=25&page=${pageNum}`)
       if (!res.ok) return
-      const json = await res.json() as { data: Notification[]; unread: number }
+      const json = await res.json() as { data: Notification[]; unread: number; total: number }
       if (activeRef.current) {
-        setNotifications(json.data ?? [])
+        if (pageNum === 1) {
+          setNotifications(json.data ?? [])
+        } else {
+          setNotifications(prev => {
+            const newNotifs = (json.data ?? []).filter(n => !prev.some(p => p.id === n.id))
+            return [...prev, ...newNotifs]
+          })
+        }
         setUnreadCount(json.unread ?? 0)
+        setHasMore((pageNum * 25) < (json.total ?? 0))
       }
     } catch {
       // ignore fetch errors silently
@@ -47,6 +59,13 @@ export function useNotifications(userId?: number, userRole?: string): UseNotific
       if (activeRef.current) setIsLoading(false)
     }
   }, [])
+
+  const fetchMore = useCallback(async () => {
+    if (!hasMore || isLoading) return
+    const nextPage = page + 1
+    setPage(nextPage)
+    await fetchNotifications(nextPage)
+  }, [hasMore, isLoading, page, fetchNotifications])
 
   
   useEffect(() => {
@@ -120,6 +139,8 @@ export function useNotifications(userId?: number, userRole?: string): UseNotific
     isLoading,
     markAsRead,
     markAllAsRead,
-    refetch: fetchNotifications,
+    refetch: () => { setPage(1); fetchNotifications(1); },
+    fetchMore,
+    hasMore,
   }
 }

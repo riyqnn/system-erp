@@ -35,7 +35,7 @@ const PRIORITY_DOT: Record<string, string> = {
 
 export default function NotificationsPage() {
   const { user } = useProfile();
-  const { notifications, unreadCount, isLoading, markAsRead, markAllAsRead } = useNotifications(
+  const { notifications, unreadCount, isLoading, markAsRead, markAllAsRead, hasMore, fetchMore } = useNotifications(
     user?.user_id,
     user?.role
   );
@@ -242,6 +242,17 @@ export default function NotificationsPage() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+              {hasMore && !isLoading && filtered.length > 0 && (
+                <div className="p-4 border-t border-slate-100 flex justify-center bg-slate-50/50 rounded-b-xl">
+                  <Button 
+                    variant="outline" 
+                    onClick={fetchMore} 
+                    className="text-slate-600 border-slate-200 hover:bg-white w-full max-w-xs"
+                  >
+                    Load Older Notifications
+                  </Button>
                 </div>
               )}
             </CardContent>
