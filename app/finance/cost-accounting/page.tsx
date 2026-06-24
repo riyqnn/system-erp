@@ -59,7 +59,11 @@ interface LaporanPersediaan {
   periode: string;
   total_stok: number;
   total_nilai: number;
-  status: 'SUBMITTED' | 'APPROVED';
+  status: 'DRAFT' | 'SENT' | 'VALIDATED' | string;
+  product_id?: string;
+  product_name?: string;
+  system_qty?: number;
+  actual_qty?: number;
 }
 
 function GlassCard({
@@ -105,6 +109,12 @@ export default function CostAccountingPage() {
   const [isCostOpen, setIsCostOpen] = useState(false)
   const [isHppOpen, setIsHppOpen] = useState(false)
   const [isValuationOpen, setIsValuationOpen] = useState(false)
+  const [isRequestAuditOpen, setIsRequestAuditOpen] = useState(false)
+
+  // Audit Request Form States
+  const [auditProductId, setAuditProductId] = useState('FG-001')
+  const [auditSystemQty, setAuditSystemQty] = useState<number>(0)
+  const [auditReason, setAuditReason] = useState('Audit fisik rutin dari Finance (Discrepancy)')
 
   // Mock Products list for calculator dropdown
   const productsMock = [
@@ -300,6 +310,48 @@ export default function CostAccountingPage() {
     }
   }
 
+  // Submit Request Stock Opname
+  const handleRequestAuditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!auditProductId || auditSystemQty <= 0) {
+      showNotif('error', 'Pilih produk dan masukkan kuantitas sistem.')
+      return
+    }
+
+    Swal.fire({
+      title: 'Memproses...',
+      text: 'Mengirim request audit fisik ke Gudang',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading() }
+    });
+
+    try {
+      setLoading(true)
+      const res = await fetch('/api/finance/stock-opname-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id: auditProductId,
+          system_qty: auditSystemQty,
+          reason: auditReason
+        })
+      });
+      const json = await res.json();
+      if(res.ok) {
+        Swal.fire('Berhasil!', 'Request audit fisik telah terkirim ke modul Inventory!', 'success');
+        setAuditSystemQty(0);
+        setIsRequestAuditOpen(false);
+        loadData();
+      } else {
+        Swal.fire('Gagal', json.error || 'Terjadi kesalahan pada sistem.', 'error');
+      }
+    } catch (e) {
+      Swal.fire('Gagal', 'Koneksi bermasalah', 'error');
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // Format currency
   const formatRupiah = (val: number) => {
     return 'Rp ' + Math.round(val).toLocaleString('id-ID')
@@ -308,6 +360,69 @@ export default function CostAccountingPage() {
   // Summaries
   const totalBiayaProduksiBulanIni = biayaList.reduce((sum, b) => sum + b.jumlah, 0)
   const averageHppBiskuit = hppList.reduce((sum, h) => sum + h.hpp_per_unit, 0) / (hppList.length || 1)
+
+  // Export to CSV Function
+  const handleExportCSV = () => {
+    if (hppList.length === 0 && biayaList.length === 0) {
+      showNotif('error', 'Tidak ada data untuk diexport.')
+      return
+    }
+
+    let csvContent = ''
+
+    if (hppList.length > 0) {
+      csvContent += 'LAPORAN KALKULASI HPP JADI\n'
+      const hppHeaders = ['ID HPP', 'Periode', 'Product ID', 'Product Name', 'Opening Qty', 'Opening Value', 'Incoming Qty', 'Incoming Value', 'Closing Qty', 'Closing Value', 'HPP Per Unit', 'Tanggal Perhitungan']
+      csvContent += hppHeaders.join(',') + '\n'
+      hppList.forEach(h => {
+        const row = [
+          h.id_hpp,
+          h.periode,
+          h.product_id,
+          h.product_name,
+          h.opening_qty,
+          h.opening_value,
+          h.incoming_qty,
+          h.incoming_value,
+          h.closing_qty,
+          h.closing_value,
+          h.hpp_per_unit,
+          h.calculated_at
+        ]
+        csvContent += row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(',') + '\n'
+      })
+      csvContent += '\n'
+    }
+
+    if (biayaList.length > 0) {
+      csvContent += 'LAPORAN DOKUMEN BIAYA PRODUKSI (OVERHEAD)\n'
+      const biayaHeaders = ['ID Biaya', 'No Dokumen', 'Nama Biaya', 'Jumlah', 'Tanggal', 'Keterangan', 'Status']
+      csvContent += biayaHeaders.join(',') + '\n'
+      biayaList.forEach(b => {
+        const row = [
+          b.id_biaya_produksi,
+          b.no_dokumen,
+          b.nama_biaya,
+          b.jumlah,
+          b.tanggal,
+          b.keterangan,
+          b.status
+        ]
+        csvContent += row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(',') + '\n'
+      })
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', `Cost_Accounting_Report_${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    showNotif('success', 'Laporan Cost Accounting berhasil diexport ke CSV.')
+  }
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
@@ -333,7 +448,7 @@ export default function CostAccountingPage() {
 
         <div className="flex items-center gap-3 self-start md:self-auto">
           <Button
-            onClick={() => setIsCostOpen(true)}
+            onClick={handleExportCSV}
             variant="ghost"
             className="h-9 gap-2 text-xs font-semibold text-slate-600 border border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-50"
           >
@@ -635,22 +750,47 @@ export default function CostAccountingPage() {
             <div className="p-6 space-y-5">
               
               {/* Discrepancy Detected Box */}
-              <div className="border border-red-200 bg-red-50/20 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center gap-2 text-red-700 font-bold text-xs">
-                  <AlertCircle className="w-4.5 h-4.5" />
-                  Discrepancy Detected
-                </div>
-                <div className="grid grid-cols-2 gap-y-2 text-xs">
-                  <span className="text-slate-400 font-semibold">System Value:</span>
-                  <span className="text-slate-800 font-bold text-right">Rp 4,250,890</span>
-                  
-                  <span className="text-slate-400 font-semibold">Physical Count:</span>
-                  <span className="text-slate-800 font-bold text-right">Rp 4,238,440</span>
-                  
-                  <span className="text-slate-400 font-semibold">Variance:</span>
-                  <span className="text-red-600 font-bold text-right">-Rp 12,450 (0.29%)</span>
-                </div>
-              </div>
+              {(() => {
+                const latestValidated = (laporanList || []).find(l => l.status === 'VALIDATED');
+                if (latestValidated) {
+                  const hasDiscrepancy = latestValidated.actual_qty !== latestValidated.system_qty;
+                  return (
+                    <div className={`border rounded-2xl p-4 space-y-3 ${
+                      hasDiscrepancy ? 'border-red-200 bg-red-50/20' : 'border-emerald-200 bg-emerald-50/20'
+                    }`}>
+                      <div className={`flex items-center gap-2 font-bold text-xs ${
+                        hasDiscrepancy ? 'text-red-700' : 'text-emerald-700'
+                      }`}>
+                        <AlertCircle className="w-4.5 h-4.5" />
+                        {hasDiscrepancy ? 'Audit Selesai: Selisih Ditemukan' : 'Audit Selesai: Cocok'}
+                      </div>
+                      <div className="grid grid-cols-2 gap-y-2 text-xs">
+                        <span className="text-slate-400 font-semibold">Produk:</span>
+                        <span className="text-slate-800 font-bold text-right">{latestValidated.product_name || latestValidated.product_id}</span>
+
+                        <span className="text-slate-400 font-semibold">System Qty:</span>
+                        <span className="text-slate-800 font-bold text-right">{latestValidated.system_qty} units</span>
+                        
+                        <span className="text-slate-400 font-semibold">Physical Count:</span>
+                        <span className="text-slate-800 font-bold text-right">{latestValidated.actual_qty} units</span>
+                        
+                        <span className="text-slate-400 font-semibold">Selisih:</span>
+                        <span className={`font-bold text-right ${
+                          (latestValidated.actual_qty || 0) - (latestValidated.system_qty || 0) < 0 ? 'text-red-600' : ((latestValidated.actual_qty || 0) === (latestValidated.system_qty || 0) ? 'text-slate-800' : 'text-emerald-600')
+                        }`}>
+                          {(latestValidated.actual_qty || 0) - (latestValidated.system_qty || 0) > 0 ? '+' : ''}
+                          {((latestValidated.actual_qty || 0) - (latestValidated.system_qty || 0)).toLocaleString()} units
+                        </span>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="border border-slate-200 bg-slate-50/50 rounded-2xl p-4 text-center text-xs text-slate-400 italic">
+                    Belum ada data audit fisik terverifikasi.
+                  </div>
+                );
+              })()}
 
               <button
                 onClick={() => setIsValuationOpen(true)}
@@ -660,45 +800,33 @@ export default function CostAccountingPage() {
               </button>
 
               <button
-                onClick={async () => {
-                  Swal.fire({
-                    title: 'Memproses...',
-                    text: 'Mengirim request audit fisik ke Gudang',
-                    allowOutsideClick: false,
-                    didOpen: () => { Swal.showLoading() }
-                  });
-                  try {
-                    const res = await fetch('/api/finance/stock-opname-requests', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        product_id: 'FG-001',
-                        system_qty: 1500,
-                        reason: 'Audit fisik rutin dari Finance (Discrepancy)'
-                      })
-                    });
-                    const json = await res.json();
-                    if(res.ok) {
-                      Swal.fire('Berhasil!', 'Request audit fisik telah terkirim ke modul Inventory!', 'success');
-                    } else {
-                      Swal.fire('Gagal', json.error || 'Terjadi kesalahan pada sistem.', 'error');
-                    }
-                  } catch (e) {
-                    Swal.fire('Gagal', 'Koneksi bermasalah', 'error');
-                  }
-                }}
+                onClick={() => setIsRequestAuditOpen(true)}
                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3 rounded-2xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer mt-3"
               >
                 <CheckCircle className="w-3.5 h-3.5" /> Request Audit Fisik (Ke Gudang)
               </button>
 
-              <div className="text-center pt-2">
-                <button 
-                  onClick={() => showNotif('success', `Histori Valuasi: ${laporanList.length} Laporan terkirim.`)}
-                  className="text-xs font-semibold text-red-600 hover:underline cursor-pointer"
-                >
-                  View Previous Reconciliation Logs
-                </button>
+              {/* Opname reconciliation history list */}
+              <div className="space-y-2 max-h-[220px] overflow-y-auto mt-4 pt-2 border-t border-slate-100">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Histori Hasil Opname</p>
+                {laporanList.filter(l => l.status === 'VALIDATED').length === 0 ? (
+                  <p className="text-xs text-slate-400 italic py-2">Belum ada histori audit selesai.</p>
+                ) : (
+                  laporanList.filter(l => l.status === 'VALIDATED').map((log) => (
+                    <div key={log.id_laporan} className="text-[11px] p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
+                      <div>
+                        <span className="font-bold text-slate-700">VAL-{log.id_laporan} ({log.product_id})</span>
+                        <p className="text-slate-400 font-mono text-[9px]">{log.periode}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-slate-700">{log.actual_qty} / {log.system_qty} units</span>
+                        <p className={`font-bold ${((log.actual_qty || 0) - (log.system_qty || 0)) < 0 ? 'text-red-500' : (((log.actual_qty || 0) === (log.system_qty || 0)) ? 'text-slate-500' : 'text-emerald-500')}`}>
+                          Var: {(log.actual_qty || 0) - (log.system_qty || 0)}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
 
             </div>
@@ -1006,6 +1134,82 @@ export default function CostAccountingPage() {
                   className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer"
                 >
                   {loading ? 'Mengirim...' : 'Kirim Laporan'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 4. REQUEST AUDIT FISIK MODAL */}
+      {isRequestAuditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-xl overflow-hidden animate-[fadeIn_0.3s_ease-out]">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-red-600" /> Request Audit Fisik (Stock Opname)
+              </h3>
+              <button 
+                onClick={() => setIsRequestAuditOpen(false)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRequestAuditSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pilih Produk Yang Diaudit</label>
+                <select
+                  value={auditProductId}
+                  onChange={(e) => setAuditProductId(e.target.value)}
+                  className="w-full text-xs font-bold p-2.5 border border-slate-200 rounded-xl mt-1 focus:outline-none focus:border-slate-300 bg-white"
+                  required
+                >
+                  {productsMock.map((p) => (
+                    <option key={p.id} value={p.code}>{p.code} - {p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Kuantitas di Sistem (System Qty)</label>
+                <Input 
+                  type="number"
+                  value={auditSystemQty || ''} 
+                  onChange={(e) => setAuditSystemQty(Number(e.target.value))}
+                  className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl mt-1 font-bold" 
+                  placeholder="e.g. 1500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Alasan Audit Fisik / Catatan</label>
+                <textarea 
+                  value={auditReason}
+                  onChange={(e) => setAuditReason(e.target.value)}
+                  className="w-full min-h-[80px] p-3 text-xs font-medium border border-slate-200 rounded-xl focus:outline-none focus:border-slate-300 mt-1" 
+                  placeholder="Deskripsi kebutuhan audit fisik..."
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-4">
+                <Button 
+                  type="button" 
+                  onClick={() => setIsRequestAuditOpen(false)}
+                  variant="ghost"
+                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
+                >
+                  Batal
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={loading} 
+                  className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer"
+                >
+                  {loading ? 'Mengirim...' : 'Kirim Request'}
                 </Button>
               </div>
             </form>

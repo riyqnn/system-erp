@@ -77,7 +77,7 @@ export async function POST(request: Request) {
       sourceModule: 'INVENTORY',
       sourceRefId: ap_id,
       sourceRefType: 'ACCOUNT_PAYABLE',
-      actionUrl: `/finance/ap`,
+      actionUrl: `/finance/account-payable`,
       createdBy: user.user_id,
     }).catch(err => console.error('Failed to send notification', err));
 
