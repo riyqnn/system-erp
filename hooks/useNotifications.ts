@@ -48,18 +48,15 @@ export function useNotifications(userId?: number, userRole?: string): UseNotific
     }
   }, [])
 
-  // Initial load + polling every 30s
+  
   useEffect(() => {
     activeRef.current = true
     fetchNotifications()
-    const interval = setInterval(fetchNotifications, 30_000)
     return () => {
       activeRef.current = false
-      clearInterval(interval)
     }
   }, [fetchNotifications])
 
-  // Supabase Realtime subscription (when userId is available)
   useEffect(() => {
     if (!userId || !userRole) return
 

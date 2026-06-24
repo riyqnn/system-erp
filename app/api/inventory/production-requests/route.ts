@@ -70,14 +70,74 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const supabase = await createRouteHandlerClient()
+    const fg_id = body.product_id
+    const qty_req = Number(body.qty_requested)
 
+    // 1. Fetch BOM for the requested FG product
+    const { data: bomData, error: bomError } = await supabase
+      .from('ms_bom_header')
+      .select(`
+        bom_id,
+        ms_bom_detail(component_id, qty_required)
+      `)
+      .eq('product_id', fg_id)
+      .limit(1)
+
+    if (bomError) throw bomError
+
+    const bomDetails = bomData && bomData.length > 0 ? bomData[0].ms_bom_detail : []
+
+    // 2. Fetch Stock for all BOM components
+    const rmIds = bomDetails?.map((b: { component_id: string }) => b.component_id) || []
+    const stockMap: Record<string, number> = {}
+    
+    if (rmIds.length > 0) {
+      const { data: stockData, error: stockError } = await supabase
+        .from('tr_stock_balance')
+        .select('product_id, quantity')
+        .in('product_id', rmIds)
+        .eq('status', 'AVAILABLE')
+
+      if (stockError) throw stockError
+      stockData?.forEach((s: { product_id: string, quantity: number }) => {
+        stockMap[s.product_id] = (stockMap[s.product_id] || 0) + Number(s.quantity)
+      })
+    }
+
+    // 3. Compare Required vs Available
+    let hasShortage = false;
+    const shortages: { product_id: string; required: number; available: number; shortage: number }[] = [];
+
+    bomDetails?.forEach((b: { component_id: string; qty_required: number }) => {
+      const required = Number(b.qty_required) * qty_req;
+      const available = stockMap[b.component_id] || 0;
+      if (available < required) {
+        hasShortage = true;
+        shortages.push({
+          product_id: b.component_id,
+          required,
+          available,
+          shortage: required - available
+        })
+      }
+    })
+
+    if (hasShortage) {
+      return NextResponse.json({ 
+        error: 'Insufficient materials', 
+        shortage: true, 
+        shortages 
+      }, { status: 400 })
+    }
+
+    // 4. No shortage -> Insert as IN_PROGRESS
     const payload = {
       production_request_id: body.prd_code,
-      fg_product_id: body.product_id,
-      qty_requested: Number(body.qty_requested),
+      fg_product_id: fg_id,
+      qty_requested: qty_req,
       request_date: body.request_date || new Date().toISOString(),
       requested_by: user.user_id,
-      status: body.status ? body.status.toUpperCase().replace(' ', '_') : 'PENDING',
+      status: 'IN_PROGRESS', // Automatically ready for production
       notes: body.notes || null
     }
 
@@ -89,20 +149,20 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error
 
-    // Notify Production that a new request has been made
+    // 5. Notify Production
     const { createNotification } = await import('@/lib/services/notification.service')
     await createNotification({
-      title: `New Production Request: ${body.prd_code}`,
-      message: `A new request has been submitted by Inventory.`,
+      title: `Production Request Verified: ${body.prd_code}`,
+      message: `System automatically verified BOM. Materials are ready for production.`,
       type: 'INFORMATION',
       priority: 'HIGH',
-      recipientRole: 'PRODUCTION', // Notify Production
+      recipientRole: 'PRODUCTION',
       sourceModule: 'INVENTORY',
       sourceRefId: body.prd_code,
       sourceRefType: 'PRODUCTION_REQUEST',
       actionUrl: `/production/orders`,
       createdBy: user.user_id,
-    })
+    }).catch(err => console.error('Failed to send notification', err))
 
     return NextResponse.json({ data }, { status: 201 })
   } catch (error) {

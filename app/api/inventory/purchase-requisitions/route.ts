@@ -102,6 +102,7 @@ export async function POST(request: NextRequest) {
       .from('tr_purchase_requisition')
       .insert({
         pr_id: pr_code,
+        request_date: body.request_date || new Date().toISOString(),
         requested_by: user.user_id,
         status: status ? status.toUpperCase() : 'PENDING',
         notes: notes || null

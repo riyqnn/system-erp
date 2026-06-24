@@ -628,10 +628,8 @@ export function MessagingButton({ currentUser, unreadDmCount = 0 }: MessagingBut
 
   useEffect(() => {
     const timer = setTimeout(() => fetchUnread(), 0)
-    const interval = setInterval(fetchUnread, 15000)
     return () => {
       clearTimeout(timer)
-      clearInterval(interval)
     }
   }, [fetchUnread])
 

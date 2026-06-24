@@ -179,7 +179,7 @@ export default function NotificationDetailPage() {
           </div>
         </CardContent>
 
-        {notification.action_url && notification.type !== 'INFORMATION' && (
+        {notification.action_url && (
           <CardFooter className="px-8 py-6 bg-slate-50 border-t border-slate-100 flex justify-end">
             <Button 
               size="lg" 

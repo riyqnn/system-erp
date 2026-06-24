@@ -15,28 +15,25 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 export async function GET() {
   try {
     const { data, error } = await supabase
-      .from('purchasing_purchase_requisitions')
+      .from('tr_purchase_requisition')
       .select(`
-        id,
-        pr_number,
+        pr_id,
         request_date,
-        requested_by_name,
-        department,
         status,
         notes,
-        purchasing_purchase_requisition_items (
-          id,
-          current_stock,
-          minimum_stock,
-          shortage_qty,
-          request_qty,
-          unit,
-          products (
-            id,
-            sku,
-            name,
+        ms_user (
+          full_name,
+          role
+        ),
+        tr_pr_detail (
+          pr_detail_id,
+          qty_requested,
+          ms_product (
+            product_id,
+            product_name,
             category,
-            unit
+            uom,
+            minimum_stock
           )
         )
       `)
@@ -46,49 +43,48 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch purchase requisitions',
-          error: error instanceof Error ? error.message : String(error),
+          error: error instanceof Error ? error.message : JSON.stringify(error),
         },
         { status: 500 }
       )
     }
 
     const purchaseRequisitions = (data || []).map((item: AnyObject) => {
-      const items = item.purchasing_purchase_requisition_items || []
-
+      const items = item.tr_pr_detail || []
       const firstItem = items[0]
       const totalRequestQty = items.reduce(
-        (total: number, prItem: AnyObject) => total + Number(prItem.request_qty || 0),
+        (total: number, prItem: AnyObject) => total + Number(prItem.qty_requested || 0),
         0
       )
 
       return {
-        id: item.id,
-        prNo: item.pr_number,
+        id: item.pr_id,
+        prNo: item.pr_id,
         requestDate: item.request_date,
-        requestedBy: item.requested_by_name || '-',
-        department: item.department || '-',
+        requestedBy: item.ms_user?.full_name || '-',
+        department: item.ms_user?.role || '-',
         status: item.status,
         notes: item.notes || '-',
 
-        productCode: firstItem?.products?.sku || '-',
-        productName: firstItem?.products?.name || '-',
-        category: firstItem?.products?.category || '-',
-        currentStock: firstItem?.current_stock || 0,
-        minimumStock: firstItem?.minimum_stock || 0,
-        shortageQty: firstItem?.shortage_qty || 0,
+        productCode: firstItem?.ms_product?.product_id || '-',
+        productName: firstItem?.ms_product?.product_name || '-',
+        category: firstItem?.ms_product?.category || '-',
+        currentStock: 0, // no stock loaded in this query, maybe fetch if needed
+        minimumStock: firstItem?.ms_product?.minimum_stock || 0,
+        shortageQty: 0,
         requestQty: totalRequestQty,
-        unit: firstItem?.unit || firstItem?.products?.unit || '-',
+        unit: firstItem?.ms_product?.uom || '-',
 
         items: items.map((prItem: AnyObject) => ({
-          id: prItem.id,
-          productCode: prItem.products?.sku || '-',
-          productName: prItem.products?.name || '-',
-          category: prItem.products?.category || '-',
-          currentStock: prItem.current_stock || 0,
-          minimumStock: prItem.minimum_stock || 0,
-          shortageQty: prItem.shortage_qty || 0,
-          requestQty: prItem.request_qty || 0,
-          unit: prItem.unit || prItem.products?.unit || '-',
+          id: prItem.pr_detail_id,
+          productCode: prItem.ms_product?.product_id || '-',
+          productName: prItem.ms_product?.product_name || '-',
+          category: prItem.ms_product?.category || '-',
+          currentStock: 0,
+          minimumStock: prItem.ms_product?.minimum_stock || 0,
+          shortageQty: 0,
+          requestQty: prItem.qty_requested || 0,
+          unit: prItem.ms_product?.uom || '-',
         })),
       }
     })

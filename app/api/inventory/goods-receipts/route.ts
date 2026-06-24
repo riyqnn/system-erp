@@ -112,7 +112,34 @@ export async function POST(request: NextRequest) {
 
       if (mvError) {
         console.error("CRITICAL: Failed to insert stock movement for GR:", mvError)
-        throw new Error('Gagal menambah stok. Silakan hubungi administrator.')
+        throw new Error('Gagal menambah stok movement. Silakan hubungi administrator.')
+      }
+
+      // Update actual stock balance (ms_inventory equivalent)
+      const { data: existingStock } = await supabase
+        .from('tr_stock_balance')
+        .select('*')
+        .eq('product_id', body.product_id)
+        .eq('warehouse_id', String(body.warehouse_id))
+        .eq('batch_number', body.batch_number)
+        .single()
+
+      if (existingStock) {
+        await supabase
+          .from('tr_stock_balance')
+          .update({ quantity: Number(existingStock.quantity) + netQuantity })
+          .eq('stock_id', existingStock.stock_id)
+      } else {
+        await supabase
+          .from('tr_stock_balance')
+          .insert([{
+            product_id: body.product_id,
+            warehouse_id: String(body.warehouse_id),
+            batch_number: body.batch_number,
+            quantity: netQuantity,
+            expiry_date: body.expiry_date || null,
+            status: 'AVAILABLE'
+          }])
       }
     }
 

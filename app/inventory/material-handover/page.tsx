@@ -57,6 +57,16 @@ interface WarehouseOption {
   warehouse_name: string;
 }
 
+interface ProdOrderOption {
+  id: string;
+  po_number: string;
+}
+
+interface BatchOption {
+  batch_number: string;
+  quantity: number;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page Component                                                     */
 /* ------------------------------------------------------------------ */
@@ -64,6 +74,8 @@ export default function MaterialHandoverPage() {
   const [data, setData] = useState<GIReqData[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [prodOrders, setProdOrders] = useState<ProdOrderOption[]>([]);
+  const [batches, setBatches] = useState<BatchOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<string | null>(null);
@@ -102,12 +114,17 @@ export default function MaterialHandoverPage() {
 
   const fetchMaster = useCallback(async () => {
     try {
-      const [pRes, wRes] = await Promise.all([
+      const [pRes, wRes, poRes] = await Promise.all([
         fetch("/api/inventory/stock"),
         fetch("/api/inventory/warehouses"),
+        fetch("/api/production/orders"),
       ]);
       if (pRes.ok) { const j = await pRes.json(); setProducts(j.data || []); }
       if (wRes.ok) { const j = await wRes.json(); setWarehouses(j.data || []); }
+      if (poRes.ok) { 
+        const j = await poRes.json(); 
+        setProdOrders(Array.isArray(j) ? j : (j.data || [])); 
+      }
     } catch (err) {
       console.error("Failed to fetch master data:", err);
     }
@@ -117,6 +134,17 @@ export default function MaterialHandoverPage() {
     fetchData();
     fetchMaster();
   }, [fetchData, fetchMaster]);
+
+  useEffect(() => {
+    if (form.product_id && form.warehouse_id) {
+      fetch(`/api/inventory/batches?product_id=${form.product_id}&warehouse_id=${form.warehouse_id}`)
+        .then(r => r.json())
+        .then(j => setBatches(j.data || []))
+        .catch(e => console.error("Failed to fetch batches", e));
+    } else {
+      setBatches([]);
+    }
+  }, [form.product_id, form.warehouse_id]);
 
   /* ── Submit Handover ───────────────────────────────────────────── */
   const handleSubmit = async (e: React.FormEvent) => {
@@ -170,9 +198,9 @@ export default function MaterialHandoverPage() {
   const filtered = data
     .filter((req) => {
       return req.issue_code.toLowerCase().includes(search.toLowerCase()) ||
-             req.ms_products?.product_name?.toLowerCase().includes(search.toLowerCase()) ||
-             req.batch_number?.toLowerCase().includes(search.toLowerCase()) ||
-             req.ref_id?.toLowerCase().includes(search.toLowerCase());
+        req.ms_products?.product_name?.toLowerCase().includes(search.toLowerCase()) ||
+        req.batch_number?.toLowerCase().includes(search.toLowerCase()) ||
+        req.ref_id?.toLowerCase().includes(search.toLowerCase());
     })
     .sort((a, b) => {
       if (!sortBy) return 0;
@@ -367,7 +395,23 @@ export default function MaterialHandoverPage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1.5">Batch Number</label>
-                        <Input required placeholder="BT-XXX" value={form.batch_number} onChange={(e) => setForm({ ...form, batch_number: e.target.value })} />
+                        {batches.length > 0 ? (
+                          <select
+                            required
+                            className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white"
+                            value={form.batch_number}
+                            onChange={(e) => setForm({ ...form, batch_number: e.target.value })}
+                          >
+                            <option value="">— Select Batch —</option>
+                            {batches.map((b) => (
+                              <option key={b.batch_number} value={b.batch_number}>
+                                {b.batch_number} (Qty: {b.quantity})
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input required placeholder="BT-XXX" value={form.batch_number} onChange={(e) => setForm({ ...form, batch_number: e.target.value })} />
+                        )}
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1.5">Quantity to Issue</label>
@@ -377,7 +421,19 @@ export default function MaterialHandoverPage() {
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">Production Reference (PRD-Code)</label>
-                      <Input required placeholder="e.g. PRD-202308-001" value={form.ref_id} onChange={(e) => setForm({ ...form, ref_id: e.target.value })} />
+                      <select
+                        className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white"
+                        value={form.ref_id}
+                        onChange={(e) => setForm({ ...form, ref_id: e.target.value })}
+                        required={form.purpose === "Production"}
+                      >
+                        <option value="">— No Reference —</option>
+                        {prodOrders.map((po) => (
+                          <option key={po.id || po.po_number} value={po.id || po.po_number}>
+                            {po.po_number || po.id}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 

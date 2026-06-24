@@ -77,6 +77,33 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error
 
+    // Update actual stock balance (ms_inventory equivalent)
+    const { data: existingStock } = await supabase
+      .from('tr_stock_balance')
+      .select('*')
+      .eq('product_id', body.product_id)
+      .eq('warehouse_id', String(body.warehouse_id))
+      .eq('batch_number', body.batch_number || null)
+      .single()
+
+    if (existingStock) {
+      await supabase
+        .from('tr_stock_balance')
+        .update({ quantity: Number(existingStock.quantity) + Number(body.quantity) })
+        .eq('stock_id', existingStock.stock_id)
+    } else {
+      await supabase
+        .from('tr_stock_balance')
+        .insert([{
+          product_id: body.product_id,
+          warehouse_id: String(body.warehouse_id),
+          batch_number: body.batch_number || null,
+          quantity: Number(body.quantity),
+          expiry_date: body.expiry_date || null,
+          status: 'AVAILABLE'
+        }])
+    }
+
     // Automatically complete the related Production Request
     if (body.ref_id) {
       await supabase

@@ -2,6 +2,7 @@ import { AnyObject } from '@/lib/any';
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac'
 import { createRouteHandlerClient } from '@/lib/supabase/server'
+import { createNotification } from '@/lib/services/notification.service'
 
 export async function GET() {
   try {
@@ -81,36 +82,7 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error
 
-    // Insert stock movement to deduct stock
-    if (payload.quantity > 0) {
-      const now = new Date()
-      const timestamp = now.getTime().toString().slice(-6)
-      const randomStr = Math.random().toString(36).substring(2, 6).toUpperCase()
-      const mvCode = `MV-${timestamp}-${randomStr}`
-
-      const movementPayload = {
-        movement_id: mvCode,
-        product_id: body.product_id,
-        warehouse_id: String(body.warehouse_id),
-        type: 'OUT',
-        quantity: Number(body.quantity),
-        reference_id: body.issue_code,
-        reference_type: 'GI',
-        movement_date: now.toISOString()
-      }
-
-      const { error: mvError } = await supabase
-        .from('tr_stock_movement')
-        .insert([movementPayload])
-
-      if (mvError) {
-        console.error("CRITICAL: Failed to insert stock movement for GI:", mvError)
-        throw new Error('Gagal memotong stok. Silakan hubungi administrator.')
-      }
-    }
-
     // Notify Production that Materials have been issued
-    const { createNotification } = await import('@/lib/services/notification.service')
     await createNotification({
       title: `Materials Issued: ${body.issue_code}`,
       message: `Materials have been handed over to Production by Inventory.`,
@@ -126,8 +98,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ data }, { status: 201 })
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Internal server error';
-    const status = (error as { statusCode?: number })?.statusCode || 500;
+    console.error("POST Goods Issues Error:", error)
+    const err = error as { message?: string, details?: string, statusCode?: number }
+    const msg = err.message || err.details || 'Internal server error';
+    const status = err.statusCode || 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }
