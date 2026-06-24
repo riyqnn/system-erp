@@ -262,6 +262,9 @@ interface ValuationDbRow {
   quantity: number;
   total_value: number;
   status: string;
+  product_id?: string;
+  unit_cost?: number;
+  ms_product?: { product_name?: string } | null;
 }
 
 export interface Jurnal {
@@ -836,7 +839,7 @@ export async function getPoAndGrList(): Promise<{ poList: PurchaseOrder[]; grLis
       ),
       ms_product (product_name)
     `)
-    .in('tr_purchase_order.status', ['APPROVED', 'RELEASED']);
+    .in('tr_purchase_order.status', ['APPROVED', 'RELEASED', 'COMPLETED']);
 
   if (poErr) throw poErr;
 
@@ -1468,6 +1471,12 @@ export async function hitungHppValuation(
 
   if (error) throw error;
 
+  // Lock related settlements for this period
+  await supabase
+    .from('tr_order_settlement')
+    .update({ settlement_status: 'JOURNALED' })
+    .eq('period', periode);
+
   // UC-11/UC-12: Notifikasi ke INVENTORY (Inventory)
   notifyNonBlocking({
     title: 'Kalkulasi HPP Selesai',
@@ -1603,6 +1612,10 @@ export async function getDaftarInventoryValuation(): Promise<LaporanPersediaanUI
     periode: v.period,
     total_stok: Number(v.quantity || 0),
     total_nilai: Number(v.total_value || 0),
-    status: v.status
+    status: v.status,
+    product_id: v.product_id,
+    product_name: v.ms_product?.product_name || 'Product',
+    system_qty: Number(v.unit_cost || 0),
+    actual_qty: Number(v.quantity || 0)
   }));
 }

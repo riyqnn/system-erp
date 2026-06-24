@@ -17,6 +17,7 @@ export default function CostDocumentsClient() {
   
   // Form State
   const [formData, setFormData] = useState<{ [key: string]: { notes: string, material_cost: number, labor_cost: number, other_cost: number } }>({})
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     fetchDocs()
@@ -128,7 +129,12 @@ export default function CostDocumentsClient() {
         </div>
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Cari nomor dokumen..." className="pl-8 bg-background/50 backdrop-blur-sm" />
+          <Input 
+            placeholder="Cari nomor dokumen..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8 bg-background/50 backdrop-blur-sm" 
+          />
         </div>
       </div>
 
@@ -137,7 +143,10 @@ export default function CostDocumentsClient() {
           <div className="flex justify-center p-8">
             <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
           </div>
-        ) : docs.length === 0 ? (
+        ) : docs.filter(doc => 
+            doc.settlement_id.toLowerCase().includes(searchQuery.toLowerCase()) || 
+            (doc.prod_order_id || '').toLowerCase().includes(searchQuery.toLowerCase())
+          ).length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <FileSearch className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
@@ -146,7 +155,12 @@ export default function CostDocumentsClient() {
             </CardContent>
           </Card>
         ) : (
-          docs.map((doc) => (
+          docs
+            .filter(doc => 
+              doc.settlement_id.toLowerCase().includes(searchQuery.toLowerCase()) || 
+              (doc.prod_order_id || '').toLowerCase().includes(searchQuery.toLowerCase())
+            )
+            .map((doc) => (
             <Card key={doc.settlement_id} className={`overflow-hidden border-l-4 ${doc.settlement_status === 'RECEIVED' ? 'border-l-blue-500 opacity-70' : 'border-l-amber-500 shadow-md'}`}>
               <div className="flex flex-col md:flex-row">
                 {/* Left Side: Info */}

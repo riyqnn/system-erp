@@ -7,7 +7,6 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Funnel,
-  Download,
   Receipt,
   ArrowUp,
   ArrowDown,
@@ -665,24 +664,6 @@ export function FinancePageClient() {
               Operations Overview
             </button>
           </div>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-9 gap-2 hover:bg-slate-100/80 transition-all duration-300 font-medium rounded-2xl cursor-pointer"
-          >
-            <Download className="w-4 h-4 text-slate-400" />
-            Export
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-9 gap-2 hover:bg-slate-100/80 transition-all duration-300 font-medium rounded-2xl cursor-pointer"
-          >
-            <Funnel className="w-4 h-4 text-slate-400" />
-            Filter
-          </Button>
         </div>
       </div>
 

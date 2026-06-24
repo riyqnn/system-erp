@@ -22,8 +22,8 @@ export async function POST(request: NextRequest) {
       product_id: product_id,
       period: new Date().toISOString().slice(0, 7), // Format YYYY-MM
       method: 'FIFO',
-      quantity: system_qty || 0,
-      unit_cost: 0,
+      quantity: Number(system_qty || 0),
+      unit_cost: Number(system_qty || 0), // Store system qty in unit_cost to prevent overwrite loss
       total_value: 0,
       status: 'SENT', // from valuation_status_enum
       created_by: user.user_id
