@@ -1,6 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@/lib/supabase/server'
+import { createRouteHandlerClient, createAdminClient } from '@/lib/supabase/server'
+// Note: If you get a Turbopack TypeError in dev, please restart your next dev server to clear the HMR cache.
+import { type UserProfile, resolveUserProfile } from '@/lib/auth/rbac'
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,63 +28,54 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Fetch user profile with role from database
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select(
-        `
-        id,
-        email,
-        full_name,
-        role_id,
-        is_active,
-        is_pending,
-        created_at,
-        updated_at,
-        roles (
-          id,
-          name,
-          description
-        )
-      `
-      )
-      .eq('id', data.user.id)
-      .single()
+    // 2. Fetch user profile from ms_user table or fallback
+    let dbProfile: UserProfile | null = null
 
-    if (userError || !userData) {
+    try {
+      const adminSupabase = await createAdminClient()
+      const { data: dbData, error: dbError } = await adminSupabase
+        .from('ms_user')
+        .select('user_id, username, full_name, email, role, status, created_at')
+        .eq('email', data.user.email)
+        .maybeSingle()
+
+      if (dbData && !dbError) {
+        dbProfile = dbData as UserProfile
+      }
+    } catch (e) {
+      console.error('Error querying ms_user in login API:', e)
+    }
+
+    const userData = resolveUserProfile(data.user.email, data.user, dbProfile)
+
+    if (!userData) {
       return NextResponse.json(
         { error: 'User profile not found' },
         { status: 404 }
       )
     }
 
-    if (!userData.is_active) {
+    if (userData.status !== 'ACTIVE') {
       return NextResponse.json(
-        { error: 'User account is inactive' },
+        { error: 'User account is not active' },
         { status: 403 }
       )
     }
 
-    if (userData.is_pending) {
-      return NextResponse.json(
-        { error: 'Account pending admin approval' },
-        { status: 403 }
-      )
-    }
+    const isProd = process.env.NODE_ENV === 'production'
+    const cookieOptions = `; Path=/; HttpOnly; SameSite=lax; ${isProd ? 'Secure;' : ''}`
 
-    // Return user data (tokens are already set in cookies by Supabase)
+    // 3. Return user data (tokens are already set in cookies by Supabase)
     return NextResponse.json(
       {
         user: {
-          id: userData.id,
-          email: userData.email,
+          user_id: userData.user_id,
+          username: userData.username,
           full_name: userData.full_name,
-          role_id: userData.role_id,
-          is_active: userData.is_active,
-          is_pending: userData.is_pending,
+          email: userData.email,
+          role: userData.role,
+          status: userData.status,
           created_at: userData.created_at,
-          updated_at: userData.updated_at,
-          role: (userData as any).roles, // Full role object
         },
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token,
@@ -93,10 +85,9 @@ export async function POST(request: NextRequest) {
       {
         status: 200,
         headers: {
-          // Set HTTP-only cookies explicitly for compatibility
           'Set-Cookie': [
-            `access_token=${data.session.access_token}; Path=/; HttpOnly; SameSite=lax; Max-Age=${data.session.expires_in}`,
-            `refresh_token=${data.session.refresh_token}; Path=/; HttpOnly; SameSite=lax; Max-Age=604800`, // 7 days
+            `access_token=${data.session.access_token}${cookieOptions} Max-Age=${data.session.expires_in}`,
+            `refresh_token=${data.session.refresh_token}${cookieOptions} Max-Age=604800`,
           ].join(', '),
         },
       }

@@ -27,6 +27,9 @@ import {
   Megaphone,
   Wrench,
   CalendarCheck,
+  FileText,
+  Handshake,
+  Scales,
   CheckSquare,
 } from '@phosphor-icons/react'
 

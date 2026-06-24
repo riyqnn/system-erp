@@ -444,3 +444,68 @@ export async function POST(request: Request) {
     )
   }
 }
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json()
+
+    const { poNo, poId, status } = body
+
+    const targetPO = poId || poNo
+
+    if (!targetPO) {
+      return NextResponse.json(
+        {
+          message: 'PO number is required',
+        },
+        { status: 400 }
+      )
+    }
+
+    if (!status) {
+      return NextResponse.json(
+        {
+          message: 'Status is required',
+        },
+        { status: 400 }
+      )
+    }
+
+    const updatePayload: Record<string, any> = {
+      status,
+    }
+
+    if (status === 'RELEASED') {
+      updatePayload.po_release_date = new Date().toISOString()
+    }
+
+    const { data, error } = await supabase
+      .from('tr_purchase_order')
+      .update(updatePayload)
+      .eq('po_id', targetPO)
+      .select()
+      .single()
+
+    if (error) {
+      return NextResponse.json(
+        {
+          message: 'Failed to update purchase order status',
+          error: error.message,
+        },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({
+      message: 'Purchase order status updated successfully',
+      data,
+    })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        message: 'Unexpected error while updating purchase order status',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 }
+    )
+  }
+}

@@ -64,6 +64,105 @@ function getReferencePrice(priceData: any, quotation: any) {
   )
 }
 
+function getQuotationIdCandidates(negotiationNumber: string) {
+  const value = String(negotiationNumber || '').trim()
+
+  if (!value) return []
+
+  const withoutNegPrefix = value.replace(/^NEG-/, '')
+
+  return Array.from(new Set([value, withoutNegPrefix, `NEG-${withoutNegPrefix}`]))
+}
+
+function generatePONumber() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const random = String(Date.now()).slice(-5)
+
+  return `PO-${year}${month}-${random}`
+}
+
+async function createPurchaseOrderFromNegotiation(quotationId: string, quotation: any) {
+  const { data: existingPO, error: existingPOError } = await supabase
+    .from('tr_purchase_order')
+    .select('po_id')
+    .eq('quotation_id', quotationId)
+    .maybeSingle()
+
+  if (existingPOError) {
+    throw new Error(existingPOError.message)
+  }
+
+  if (existingPO) {
+    return {
+      poCreated: false,
+      poId: existingPO.po_id,
+      message: 'Purchase Order already exists for this approved negotiation',
+    }
+  }
+
+  const supplierId = quotation.supplier_id
+  const productId = quotation.product_id
+  const qty = Number(quotation.qty_requested || 0)
+  const unitPrice = Number(
+    quotation.final_price ||
+      quotation.accepted_price ||
+      quotation.proposed_price ||
+      0
+  )
+
+  if (!supplierId || !productId || qty <= 0 || unitPrice <= 0) {
+    throw new Error(
+      'Cannot generate PO because supplier, product, quantity, or final price is incomplete'
+    )
+  }
+
+  const subtotal = qty * unitPrice
+  const taxAmount = subtotal * 0.11
+  const totalValue = subtotal + taxAmount
+  const poNumber = generatePONumber()
+
+  const { data: poData, error: poError } = await supabase
+    .from('tr_purchase_order')
+    .insert({
+      po_id: poNumber,
+      pr_id: null,
+      supplier_id: supplierId,
+      quotation_id: quotationId,
+      approved_by: null,
+      total_value: totalValue,
+      status: 'APPROVED',
+      rejection_reason: null,
+      created_at: new Date().toISOString(),
+      po_release_date: new Date().toISOString(),
+    })
+    .select('po_id')
+    .single()
+
+  if (poError || !poData) {
+    throw new Error(poError?.message || 'Failed to create purchase order')
+  }
+
+  const { error: poDetailError } = await supabase.from('tr_po_detail').insert({
+    po_id: poData.po_id,
+    product_id: productId,
+    qty_order: qty,
+    unit_price: unitPrice,
+    subtotal,
+  })
+
+  if (poDetailError) {
+    throw new Error(poDetailError.message)
+  }
+
+  return {
+    poCreated: true,
+    poId: poData.po_id,
+    message: 'Purchase Order generated successfully from approved negotiation',
+  }
+}
+
 export async function GET() {
   try {
     const [quotationResult, supplierResult, productResult, supplierPriceResult] =
@@ -263,7 +362,7 @@ export async function POST(request: Request) {
             ? null
             : Number(finalPrice),
         qty_requested: Number(qty || 0),
-        status: status || 'NEGOTIATION',
+        status: status ? normalizeStatus(status) : 'NEGOTIATION',
         quotation_date: new Date().toISOString(),
         expiry_date: confirmationDeadline || null,
         notes: notes || null,
@@ -317,10 +416,38 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const quotationId = String(negotiationNumber).startsWith('NEG-')
-      ? String(negotiationNumber).replace(/^NEG-/, '')
-      : String(negotiationNumber)
+    const quotationIdCandidates = getQuotationIdCandidates(negotiationNumber)
 
+    const { data: existingQuotation, error: existingQuotationError } = await supabase
+      .from('tr_price_quotation')
+      .select(
+        'quotation_id, supplier_id, product_id, proposed_price, accepted_price, final_price, qty_requested, status, quotation_date, expiry_date, notes'
+      )
+      .in('quotation_id', quotationIdCandidates)
+      .limit(1)
+      .maybeSingle()
+
+    if (existingQuotationError) {
+      return NextResponse.json(
+        {
+          message: 'Failed to find price negotiation',
+          error: existingQuotationError.message,
+        },
+        { status: 500 }
+      )
+    }
+
+    if (!existingQuotation) {
+      return NextResponse.json(
+        {
+          message: 'Price negotiation not found',
+          error: `No quotation found for ${negotiationNumber}`,
+        },
+        { status: 404 }
+      )
+    }
+
+    const quotationId = String(existingQuotation.quotation_id)
     const updatePayload: Record<string, any> = {}
 
     if (supplierResponsePrice !== undefined) {
@@ -333,7 +460,7 @@ export async function PATCH(request: Request) {
     }
 
     if (status) {
-      updatePayload.status = status
+      updatePayload.status = normalizeStatus(status)
     }
 
     if (notes !== undefined) {
@@ -357,9 +484,35 @@ export async function PATCH(request: Request) {
       )
     }
 
+    let generatedPO = null
+    const normalizedStatus = normalizeStatus(data?.status)
+
+    if (normalizedStatus === 'AGREED') {
+      try {
+        generatedPO = await createPurchaseOrderFromNegotiation(quotationId, data)
+      } catch (poError) {
+        return NextResponse.json(
+          {
+            message:
+              'Price negotiation updated, but failed to generate purchase order',
+            data,
+            error:
+              poError instanceof Error
+                ? poError.message
+                : 'Unknown purchase order error',
+          },
+          { status: 500 }
+        )
+      }
+    }
+
     return NextResponse.json({
-      message: 'Price negotiation updated successfully',
+      message:
+        generatedPO?.poCreated
+          ? 'Price negotiation approved and purchase order generated successfully'
+          : 'Price negotiation updated successfully',
       data,
+      generatedPO,
     })
   } catch (error) {
     return NextResponse.json(

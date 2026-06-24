@@ -133,6 +133,7 @@ export function PurchaseOrdersClient() {
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
+  const [releasingPOId, setReleasingPOId] = useState<string | null>(null)
 
   // Simulasi role sementara.
   // Kalau mau tombol approve/reject muncul, pakai MANAGER_PURCHASING.
@@ -252,6 +253,62 @@ export function PurchaseOrdersClient() {
           }
         : currentPO
     )
+  }
+
+  const handleReleasePO = async (order: PurchaseOrder) => {
+    try {
+      setErrorMessage('')
+      setReleasingPOId(order.id)
+
+      const response = await fetch('/api/purchasing/purchase-orders', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          poNo: order.poNo,
+          status: 'RELEASED',
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result?.error || result?.message || 'Failed to release PO')
+      }
+
+      setPurchaseOrders((currentOrders) =>
+        currentOrders.map((currentOrder) =>
+          currentOrder.id === order.id
+            ? {
+                ...currentOrder,
+                status: 'RELEASED',
+                releasedAt: new Date().toISOString(),
+              }
+            : currentOrder
+        )
+      )
+
+      if (selectedPO?.id === order.id) {
+        setSelectedPO((currentPO) =>
+          currentPO
+            ? {
+                ...currentPO,
+                status: 'RELEASED',
+                releasedAt: new Date().toISOString(),
+              }
+            : currentPO
+        )
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Failed to release purchase order'
+      )
+    } finally {
+      setReleasingPOId(null)
+    }
   }
 
   return (
@@ -465,7 +522,7 @@ export function PurchaseOrdersClient() {
                         </td>
 
                         <td className="px-4 py-4 text-slate-600">
-                          {order.approver}
+                          {order.approver || '-'}
                         </td>
 
                         <td className="px-4 py-4">
@@ -493,7 +550,9 @@ export function PurchaseOrdersClient() {
                             {order.status === 'APPROVED' && (
                               <button
                                 type="button"
-                                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-blue-600"
+                                onClick={() => handleReleasePO(order)}
+                                disabled={releasingPOId === order.id}
+                                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                                 title="Send PO to Supplier"
                               >
                                 <PaperPlaneTilt size={18} weight="bold" />
@@ -688,13 +747,13 @@ export function PurchaseOrdersClient() {
                       <span className="font-medium text-slate-700">
                         Approver:
                       </span>{' '}
-                      {selectedPO.approver}
+                      {selectedPO.approver || '-'}
                     </p>
                     <p>
                       <span className="font-medium text-slate-700">
                         Notes:
                       </span>{' '}
-                      {selectedPO.approvalNotes}
+                      {selectedPO.approvalNotes || '-'}
                     </p>
                   </div>
                 </div>
@@ -761,6 +820,18 @@ export function PurchaseOrdersClient() {
               >
                 Close
               </button>
+
+              {selectedPO.status === 'APPROVED' && (
+                <button
+                  type="button"
+                  onClick={() => handleReleasePO(selectedPO)}
+                  disabled={releasingPOId === selectedPO.id}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <PaperPlaneTilt size={16} weight="bold" />
+                  Send to Supplier
+                </button>
+              )}
 
               {selectedPO.status === 'PENDING_APPROVAL' && canApprovePO && (
                 <>
