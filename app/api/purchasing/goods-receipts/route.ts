@@ -18,31 +18,50 @@ function normalizeStatus(value?: string | null) {
   if (['PARTIAL', 'PARTIALLY_RECEIVED'].includes(status)) return 'PARTIAL'
   if (['REJECTED', 'CANCELLED'].includes(status)) return 'REJECTED'
 
-  return status || 'ACCEPTED'
+  return status || 'DRAFT'
+}
+
+function getReceiptId(receipt: any) {
+  return (
+    receipt?.receipt_id ||
+    receipt?.gr_id ||
+    receipt?.goods_receipt_id ||
+    receipt?.id ||
+    '-'
+  )
+}
+
+function getReceivedQty(receipt: any) {
+  return Number(
+    receipt?.received_qty ||
+      receipt?.qty_received ||
+      receipt?.qty ||
+      receipt?.quantity ||
+      0
+  )
+}
+
+function getReceiptProductId(receipt: any) {
+  return receipt?.product_id || receipt?.item_id || receipt?.sku || null
 }
 
 export async function GET() {
   try {
     const [
-      grResult,
+      receiptResult,
       poResult,
       poDetailResult,
       supplierResult,
       productResult,
-      userResult,
     ] = await Promise.all([
-      supabase
-        .from('tr_goods_receipt')
-        .select(
-          'receipt_id, po_id, pr_id, supplier_id, product_id, warehouse_id, quantity, batch_number, expiry_date, receipt_date, received_by, status, reject_qty, reject_reason, created_at'
-        )
-        .order('receipt_date', { ascending: false }),
+      supabase.from('tr_goods_receipt').select('*'),
 
       supabase
         .from('tr_purchase_order')
         .select(
-          'po_id, pr_id, supplier_id, quotation_id, approved_by, total_value, status, rejection_reason, created_at, po_release_date'
-        ),
+          'po_id, supplier_id, quotation_id, total_value, status, created_at, po_release_date'
+        )
+        .order('created_at', { ascending: false }),
 
       supabase
         .from('tr_po_detail')
@@ -50,24 +69,19 @@ export async function GET() {
 
       supabase
         .from('ms_supplier')
-        .select('supplier_id, supplier_name, contact, address'),
+        .select('supplier_id, supplier_name, contact, address, lead_time, top, status'),
 
       supabase
         .from('ms_product')
         .select('product_id, product_name, category, uom'),
-
-      supabase
-        .from('ms_user')
-        .select('user_id, username, full_name, email, role'),
     ])
 
     const errors = [
-      grResult.error,
+      receiptResult.error,
       poResult.error,
       poDetailResult.error,
       supplierResult.error,
       productResult.error,
-      userResult.error,
     ].filter(Boolean)
 
     if (errors.length > 0) {
@@ -80,94 +94,119 @@ export async function GET() {
       )
     }
 
-    const goodsReceipts = grResult.data || []
+    const receipts = receiptResult.data || []
     const purchaseOrders = poResult.data || []
     const poDetails = poDetailResult.data || []
     const suppliers = supplierResult.data || []
     const products = productResult.data || []
-    const users = userResult.data || []
 
-    const poMap = new Map(purchaseOrders.map((po: any) => [po.po_id, po]))
     const supplierMap = new Map(
       suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
     )
+
     const productMap = new Map(
       products.map((product: any) => [product.product_id, product])
     )
-    const userMap = new Map(users.map((user: any) => [user.user_id, user]))
 
-    const poDetailMap = new Map<string, any>()
+    const detailsByPO = new Map<string, any[]>()
 
     poDetails.forEach((detail: any) => {
-      const key = `${detail.po_id}-${detail.product_id}`
-      poDetailMap.set(key, detail)
+      const poId = String(detail.po_id || '')
+      const currentDetails = detailsByPO.get(poId) || []
+
+      currentDetails.push(detail)
+      detailsByPO.set(poId, currentDetails)
     })
 
-    const data = goodsReceipts.map((item: any) => {
-      const po = poMap.get(item.po_id)
-      const supplier = supplierMap.get(item.supplier_id || po?.supplier_id)
-      const product = productMap.get(item.product_id)
-      const receiver = userMap.get(item.received_by)
-      const poDetail = poDetailMap.get(`${item.po_id}-${item.product_id}`)
+    const receiptsByPO = new Map<string, any[]>()
 
-      const orderedQty = Number(poDetail?.qty_order || 0)
-      const receivedQty = Number(item.quantity || 0)
-      const rejectQty = Number(item.reject_qty || 0)
+    receipts.forEach((receipt: any) => {
+      const poId = String(receipt.po_id || '')
+      const currentReceipts = receiptsByPO.get(poId) || []
 
-      const receiptItem = {
-        id: item.receipt_id,
-        productCode: product?.product_id || item.product_id || '-',
-        productName: product?.product_name || '-',
-        category: product?.category || '-',
-        orderedQty,
-        receivedQty,
-        unit: product?.uom || '-',
-        expiryDate: item.expiry_date || null,
-        batchNumber: item.batch_number || '-',
-        condition: rejectQty > 0 ? 'PARTIAL_REJECT' : 'GOOD',
-        rejectQty,
-        rejectReason: item.reject_reason || '-',
-      }
-
-      return {
-        id: item.receipt_id,
-        grNo: item.receipt_id,
-        receiptDate: item.receipt_date || item.created_at,
-        receivedBy:
-          receiver?.full_name || receiver?.username || item.received_by || '-',
-        status: normalizeStatus(item.status),
-        notes: item.reject_reason || '-',
-
-        poNo: po?.po_id || item.po_id || '-',
-        poDate: po?.created_at || null,
-        expectedDeliveryDate: po?.po_release_date || null,
-        poStatus: po?.status || '-',
-        totalValue: Number(po?.total_value || 0),
-
-        supplierId: supplier?.supplier_id || item.supplier_id || '-',
-        supplierName: supplier?.supplier_name || '-',
-        supplierContact: supplier?.contact || '-',
-        supplierAddress: supplier?.address || '-',
-
-        productCode: receiptItem.productCode,
-        productName: receiptItem.productName,
-        category: receiptItem.category,
-        orderedQty,
-        receivedQty,
-        unit: receiptItem.unit,
-        expiryDate: receiptItem.expiryDate,
-        batchNumber: receiptItem.batchNumber,
-        condition: receiptItem.condition,
-        rejectQty,
-        rejectReason: item.reject_reason || '-',
-
-        items: [receiptItem],
-      }
+      currentReceipts.push(receipt)
+      receiptsByPO.set(poId, currentReceipts)
     })
+
+    const goodsReceipts = purchaseOrders
+      .filter((po: any) => receiptsByPO.has(String(po.po_id || '')))
+      .map((po: any) => {
+        const supplier = supplierMap.get(po.supplier_id)
+        const receiptRows = receiptsByPO.get(String(po.po_id || '')) || []
+        const firstReceipt = receiptRows[0]
+
+        const poItems = detailsByPO.get(String(po.po_id || '')) || []
+
+        const items = poItems.map((poItem: any) => {
+          const product = productMap.get(poItem.product_id)
+
+          const matchingReceipt =
+            receiptRows.find(
+              (receipt: any) =>
+                String(getReceiptProductId(receipt) || '') ===
+                String(poItem.product_id || '')
+            ) || firstReceipt
+
+          return {
+            id: String(poItem.po_detail_id),
+            productCode: product?.product_id || poItem.product_id || '-',
+            productName: product?.product_name || '-',
+            category: product?.category || '-',
+            orderedQty: Number(poItem.qty_order || 0),
+            receivedQty: getReceivedQty(matchingReceipt),
+            unit: product?.uom || '-',
+            expiryDate: matchingReceipt?.expiry_date || null,
+            batchNumber: matchingReceipt?.batch_number || '-',
+            condition: matchingReceipt?.condition || 'GOOD',
+          }
+        })
+
+        const firstItem = items[0]
+
+        return {
+          id: String(getReceiptId(firstReceipt)),
+          grNo: String(getReceiptId(firstReceipt)),
+          receiptDate:
+            firstReceipt?.receipt_date ||
+            firstReceipt?.created_at ||
+            po.po_release_date ||
+            po.created_at ||
+            null,
+          receivedBy:
+            firstReceipt?.received_by ||
+            firstReceipt?.received_by_name ||
+            'Warehouse Staff',
+          status: normalizeStatus(firstReceipt?.status),
+          notes: firstReceipt?.notes || '-',
+
+          poNo: po.po_id,
+          poDate: po.created_at || null,
+          expectedDeliveryDate: null,
+          poStatus: po.status || '-',
+          totalValue: Number(po.total_value || 0),
+
+          supplierId: supplier?.supplier_id || po.supplier_id || '-',
+          supplierName: supplier?.supplier_name || '-',
+          supplierContact: supplier?.contact || '-',
+          supplierAddress: supplier?.address || '-',
+
+          productCode: firstItem?.productCode || '-',
+          productName: firstItem?.productName || '-',
+          category: firstItem?.category || '-',
+          orderedQty: firstItem?.orderedQty || 0,
+          receivedQty: firstItem?.receivedQty || 0,
+          unit: firstItem?.unit || '-',
+          expiryDate: firstItem?.expiryDate || null,
+          batchNumber: firstItem?.batchNumber || '-',
+          condition: firstItem?.condition || 'GOOD',
+
+          items,
+        }
+      })
 
     return NextResponse.json({
       message: 'Goods receipts fetched successfully',
-      data,
+      data: goodsReceipts,
     })
   } catch (error) {
     return NextResponse.json(
@@ -188,17 +227,16 @@ export async function POST(request: Request) {
       grNumber,
       poNumber,
       receiptDate,
-      receivedBy,
       receivedByName,
       status,
       notes,
       items,
     } = body
 
-    if (!grNumber || !poNumber || !receiptDate || !items?.length) {
+    if (!poNumber || !items?.length) {
       return NextResponse.json(
         {
-          message: 'GR number, PO number, receipt date, and items are required',
+          message: 'PO number and items are required',
         },
         { status: 400 }
       )
@@ -206,7 +244,7 @@ export async function POST(request: Request) {
 
     const { data: poData, error: poError } = await supabase
       .from('tr_purchase_order')
-      .select('po_id, pr_id, supplier_id')
+      .select('po_id')
       .eq('po_id', poNumber)
       .maybeSingle()
 
@@ -220,22 +258,9 @@ export async function POST(request: Request) {
       )
     }
 
-    let receivedById = receivedBy || null
+    const receiptRows = []
 
-    if (!receivedById && receivedByName) {
-      const { data: userData } = await supabase
-        .from('ms_user')
-        .select('user_id')
-        .ilike('full_name', receivedByName)
-        .maybeSingle()
-
-      receivedById = userData?.user_id || null
-    }
-
-    const receiptPayload = []
-
-    for (let index = 0; index < items.length; index += 1) {
-      const item = items[index]
+    for (const item of items) {
       const productCode = item.productSku || item.productCode
 
       const { data: productData, error: productError } = await supabase
@@ -255,37 +280,35 @@ export async function POST(request: Request) {
         )
       }
 
-      const receiptId =
-        items.length === 1 ? grNumber : `${grNumber}-${String(index + 1).padStart(2, '0')}`
-
-      receiptPayload.push({
-        receipt_id: receiptId,
+      receiptRows.push({
+        receipt_id:
+          grNumber ||
+          `GR-${new Date().getFullYear()}${String(
+            new Date().getMonth() + 1
+          ).padStart(2, '0')}-${String(Date.now()).slice(-5)}`,
         po_id: poData.po_id,
-        pr_id: poData.pr_id || null,
-        supplier_id: poData.supplier_id,
         product_id: productData.product_id,
-        warehouse_id: item.warehouseId || null,
-        quantity: Number(item.receivedQty || item.quantity || 0),
-        batch_number: item.batchNumber || null,
-        expiry_date: item.expiryDate || null,
-        receipt_date: receiptDate,
-        received_by: receivedById,
+        received_qty: Number(item.receivedQty || item.qty || 0),
+        receipt_date: receiptDate || new Date().toISOString(),
+        received_by: receivedByName || 'Warehouse Staff',
         status: status || 'ACCEPTED',
-        reject_qty: Number(item.rejectQty || 0),
-        reject_reason: item.rejectReason || notes || null,
+        notes: notes || null,
+        expiry_date: item.expiryDate || null,
+        batch_number: item.batchNumber || null,
+        condition: item.condition || 'GOOD',
       })
     }
 
-    const { data: grData, error: grError } = await supabase
+    const { data, error } = await supabase
       .from('tr_goods_receipt')
-      .insert(receiptPayload)
+      .insert(receiptRows)
       .select()
 
-    if (grError) {
+    if (error) {
       return NextResponse.json(
         {
           message: 'Failed to save goods receipt',
-          error: grError.message,
+          error: error.message,
         },
         { status: 500 }
       )
@@ -293,10 +316,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       message: 'Goods receipt saved successfully',
-      data: {
-        grNumber,
-        receipts: grData,
-      },
+      data,
     })
   } catch (error) {
     return NextResponse.json(

@@ -14,25 +14,35 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 function normalizeStatus(value?: string | null) {
   const status = String(value || '').toUpperCase()
 
-  if (['DRAFT'].includes(status)) return 'DRAFT'
+  if (status === 'DRAFT') return 'DRAFT'
+
   if (['PENDING', 'PENDING_APPROVAL', 'WAITING_APPROVAL'].includes(status)) {
     return 'PENDING_APPROVAL'
   }
-  if (['APPROVED'].includes(status)) return 'APPROVED'
-  if (['RELEASED', 'ISSUED', 'SENT'].includes(status)) return 'RELEASED'
-  if (['REJECTED', 'CANCELLED'].includes(status)) return 'REJECTED'
+
+  if (status === 'APPROVED') return 'APPROVED'
+
+  if (['RELEASED', 'ISSUED', 'SENT'].includes(status)) {
+    return 'RELEASED'
+  }
+
+  if (['REJECTED', 'CANCELLED'].includes(status)) {
+    return 'REJECTED'
+  }
+
+  if (status === 'COMPLETED') return 'COMPLETED'
 
   return status || 'DRAFT'
 }
 
 function denormalizeStatus(value?: string | null) {
-  const status = String(value || '').toUpperCase()
+  const status = normalizeStatus(value)
 
   if (status === 'PENDING_APPROVAL') return 'PENDING'
   if (status === 'RELEASED') return 'RELEASED'
   if (status === 'APPROVED') return 'APPROVED'
   if (status === 'REJECTED') return 'REJECTED'
-  if (status === 'CANCELLED') return 'CANCELLED'
+  if (status === 'COMPLETED') return 'COMPLETED'
 
   return status || 'DRAFT'
 }
@@ -111,15 +121,19 @@ export async function GET() {
     const users = userResult.data || []
 
     const prMap = new Map(purchaseRequisitions.map((pr: any) => [pr.pr_id, pr]))
+
     const quotationMap = new Map(
       quotations.map((quotation: any) => [quotation.quotation_id, quotation])
     )
+
     const supplierMap = new Map(
       suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
     )
+
     const productMap = new Map(
       products.map((product: any) => [product.product_id, product])
     )
+
     const userMap = new Map(users.map((user: any) => [user.user_id, user]))
 
     const detailsByPO = new Map<string, any[]>()
@@ -157,6 +171,7 @@ export async function GET() {
       })
 
       const firstItem = items[0]
+
       const subtotal = items.reduce(
         (total: number, item: any) => total + Number(item.subtotal || 0),
         0
@@ -164,11 +179,12 @@ export async function GET() {
 
       const totalValue = Number(po.total_value || subtotal || 0)
       const taxAmount = Math.max(totalValue - subtotal, 0)
+      const status = normalizeStatus(po.status)
 
       return {
-        id: po.po_id,
-        poNo: po.po_id,
-        poDate: po.created_at,
+        id: String(po.po_id),
+        poNo: String(po.po_id),
+        poDate: po.created_at || null,
         expectedDeliveryDate: null,
 
         supplierId: supplier?.supplier_id || po.supplier_id || '-',
@@ -185,12 +201,11 @@ export async function GET() {
         subtotal,
         taxAmount,
         totalValue,
-        status: normalizeStatus(po.status),
+        status,
         approvalLevel: 'MANAGER_PURCHASING',
         approver: approver?.full_name || approver?.username || '-',
         approvedAt:
-          normalizeStatus(po.status) === 'APPROVED' ||
-          normalizeStatus(po.status) === 'RELEASED'
+          status === 'APPROVED' || status === 'RELEASED' || status === 'COMPLETED'
             ? po.po_release_date || po.created_at
             : null,
         approvalNotes: '-',
@@ -327,6 +342,7 @@ export async function POST(request: Request) {
 
     const taxAmount = subtotal * 0.11
     const totalValue = subtotal + taxAmount
+    const normalizedStatus = normalizeStatus(status || 'DRAFT')
 
     const { data: poData, error: poError } = await supabase
       .from('tr_purchase_order')
@@ -337,11 +353,13 @@ export async function POST(request: Request) {
         quotation_id: quotationId,
         approved_by: null,
         total_value: totalValue,
-        status: denormalizeStatus(status || 'DRAFT'),
+        status: denormalizeStatus(normalizedStatus),
         rejection_reason: null,
         created_at: poDate || new Date().toISOString(),
         po_release_date:
-          normalizeStatus(status) === 'RELEASED'
+          normalizedStatus === 'RELEASED' ||
+          normalizedStatus === 'APPROVED' ||
+          normalizedStatus === 'COMPLETED'
             ? new Date().toISOString()
             : null,
       })

@@ -15,12 +15,107 @@ function normalizeStatus(value?: string | null) {
   return String(value || '').toUpperCase()
 }
 
-function formatMatchingNo(poId: string) {
-  return `MATCH-${poId}`
+function getReceiptId(receipt: any) {
+  return (
+    receipt?.receipt_id ||
+    receipt?.gr_id ||
+    receipt?.goods_receipt_id ||
+    receipt?.id ||
+    '-'
+  )
 }
 
-function getPoIdFromMatchingNo(matchingNo: string) {
-  return matchingNo.replace(/^MATCH-/, '')
+function getReceivedQty(receipt: any) {
+  return Number(
+    receipt?.received_qty ||
+      receipt?.qty_received ||
+      receipt?.qty ||
+      receipt?.quantity ||
+      0
+  )
+}
+
+function getReceiptProductId(receipt: any) {
+  return receipt?.product_id || receipt?.item_id || receipt?.sku || null
+}
+
+function getAPId(ap: any) {
+  return ap?.ap_id || ap?.id || ap?.account_payable_id || '-'
+}
+
+function getAPStatus(ap: any) {
+  return ap?.ap_status || ap?.status || ap?.payment_status || 'PENDING'
+}
+
+function getAPAmount(ap: any) {
+  return Number(
+    ap?.grand_total ||
+      ap?.total_value ||
+      ap?.total_amount ||
+      ap?.invoice_total ||
+      ap?.amount ||
+      0
+  )
+}
+
+function getAPDate(ap: any) {
+  return ap?.invoice_date || ap?.created_at || null
+}
+
+function getDueDate(ap: any) {
+  return ap?.due_date || ap?.created_at || null
+}
+
+function getMatchStatus(poTotal: number, receivedQty: number, orderedQty: number) {
+  if (receivedQty <= 0) return 'PENDING'
+  if (orderedQty > 0 && receivedQty !== orderedQty) return 'MISMATCH'
+  if (poTotal <= 0) return 'PENDING'
+
+  return 'MATCHED'
+}
+
+function buildResults(po: any, poItem: any, receipt: any, ap: any) {
+  const orderedQty = Number(poItem?.qty_order || 0)
+  const receivedQty = getReceivedQty(receipt)
+  const poTotal = Number(po?.total_value || 0)
+  const apAmount = getAPAmount(ap)
+
+  const qtyMatch =
+    receivedQty > 0 && orderedQty > 0 && Number(receivedQty) === Number(orderedQty)
+
+  const invoiceMatch =
+    !ap || apAmount === 0 || Math.round(apAmount) === Math.round(poTotal)
+
+  const receiptExists = Boolean(receipt)
+
+  return [
+    {
+      id: 'qty-check',
+      checkItem: 'PO Qty vs GR Qty',
+      checkResult: qtyMatch ? 'MATCH' : 'MISMATCH',
+      detail: qtyMatch
+        ? `Ordered quantity and received quantity are both ${orderedQty}.`
+        : `Ordered quantity is ${orderedQty}, while received quantity is ${receivedQty}.`,
+    },
+    {
+      id: 'receipt-check',
+      checkItem: 'Goods Receipt Availability',
+      checkResult: receiptExists ? 'MATCH' : 'MISMATCH',
+      detail: receiptExists
+        ? 'Goods receipt record is available for this purchase order.'
+        : 'Goods receipt record is not available yet.',
+    },
+    {
+      id: 'invoice-check',
+      checkItem: 'PO Total vs AP/Invoice Total',
+      checkResult: invoiceMatch ? 'MATCH' : 'MISMATCH',
+      detail: ap
+        ? invoiceMatch
+          ? `PO total and AP amount are aligned at ${poTotal}.`
+          : `PO total is ${poTotal}, while AP amount is ${apAmount}.`
+        : 'Account payable record is not available yet.',
+    },
+  ]
 }
 
 export async function GET() {
@@ -28,15 +123,15 @@ export async function GET() {
     const [
       poResult,
       poDetailResult,
-      grResult,
-      apResult,
       supplierResult,
       productResult,
+      receiptResult,
+      apResult,
     ] = await Promise.all([
       supabase
         .from('tr_purchase_order')
         .select(
-          'po_id, pr_id, supplier_id, quotation_id, approved_by, total_value, status, rejection_reason, created_at, po_release_date'
+          'po_id, supplier_id, quotation_id, total_value, status, created_at, po_release_date'
         )
         .order('created_at', { ascending: false }),
 
@@ -45,33 +140,25 @@ export async function GET() {
         .select('po_detail_id, po_id, product_id, qty_order, unit_price, subtotal'),
 
       supabase
-        .from('tr_goods_receipt')
-        .select(
-          'receipt_id, po_id, pr_id, supplier_id, product_id, quantity, batch_number, expiry_date, receipt_date, received_by, status, reject_qty, reject_reason, created_at'
-        ),
-
-      supabase
-        .from('tr_account_payable')
-        .select(
-          'ap_id, po_id, supplier_id, inv_supp_no, invoice_date, ap_amount, ap_status, due_date, approved_by, created_at'
-        ),
-
-      supabase
         .from('ms_supplier')
-        .select('supplier_id, supplier_name, contact, address'),
+        .select('supplier_id, supplier_name, contact, address, lead_time, top, status'),
 
       supabase
         .from('ms_product')
         .select('product_id, product_name, category, uom'),
+
+      supabase.from('tr_goods_receipt').select('*'),
+
+      supabase.from('tr_account_payable').select('*'),
     ])
 
     const errors = [
       poResult.error,
       poDetailResult.error,
-      grResult.error,
-      apResult.error,
       supplierResult.error,
       productResult.error,
+      receiptResult.error,
+      apResult.error,
     ].filter(Boolean)
 
     if (errors.length > 0) {
@@ -86,10 +173,10 @@ export async function GET() {
 
     const purchaseOrders = poResult.data || []
     const poDetails = poDetailResult.data || []
-    const goodsReceipts = grResult.data || []
-    const accountPayables = apResult.data || []
     const suppliers = supplierResult.data || []
     const products = productResult.data || []
+    const receipts = receiptResult.data || []
+    const accountPayables = apResult.data || []
 
     const supplierMap = new Map(
       suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
@@ -99,194 +186,121 @@ export async function GET() {
       products.map((product: any) => [product.product_id, product])
     )
 
-    const poDetailsByPO = new Map<string, any[]>()
+    const detailsByPO = new Map<string, any[]>()
 
     poDetails.forEach((detail: any) => {
       const poId = String(detail.po_id || '')
-      const current = poDetailsByPO.get(poId) || []
+      const currentDetails = detailsByPO.get(poId) || []
 
-      current.push(detail)
-      poDetailsByPO.set(poId, current)
+      currentDetails.push(detail)
+      detailsByPO.set(poId, currentDetails)
     })
 
-    const grByPO = new Map<string, any[]>()
+    const receiptsByPO = new Map<string, any[]>()
 
-    goodsReceipts.forEach((receipt: any) => {
+    receipts.forEach((receipt: any) => {
       const poId = String(receipt.po_id || '')
-      const current = grByPO.get(poId) || []
+      const currentReceipts = receiptsByPO.get(poId) || []
 
-      current.push(receipt)
-      grByPO.set(poId, current)
+      currentReceipts.push(receipt)
+      receiptsByPO.set(poId, currentReceipts)
     })
 
-    const apByPO = new Map<string, any[]>()
+    const apByPO = new Map<string, any>()
 
     accountPayables.forEach((ap: any) => {
       const poId = String(ap.po_id || '')
-      const current = apByPO.get(poId) || []
-
-      current.push(ap)
-      apByPO.set(poId, current)
-    })
-
-    const matchings = purchaseOrders.map((po: any) => {
-      const supplier = supplierMap.get(po.supplier_id)
-      const poItemsRaw = poDetailsByPO.get(po.po_id) || []
-      const grItemsRaw = grByPO.get(po.po_id) || []
-      const apItems = apByPO.get(po.po_id) || []
-
-      const firstPoItem = poItemsRaw[0]
-      const firstGrItem = grItemsRaw[0]
-      const firstProduct = productMap.get(
-        firstPoItem?.product_id || firstGrItem?.product_id
-      )
-      const firstAP = apItems[0]
-
-      const poSubtotal = poItemsRaw.reduce(
-        (total: number, item: any) => total + Number(item.subtotal || 0),
-        0
-      )
-      const poTaxAmount = Math.max(Number(po.total_value || 0) - poSubtotal, 0)
-      const poTotalValue = Number(po.total_value || poSubtotal || 0)
-
-      const invoiceGrandTotal = apItems.reduce(
-        (total: number, item: any) => total + Number(item.ap_amount || 0),
-        0
-      )
-
-      const totalPoQty = poItemsRaw.reduce(
-        (total: number, item: any) => total + Number(item.qty_order || 0),
-        0
-      )
-
-      const totalReceivedQty = grItemsRaw.reduce(
-        (total: number, item: any) => total + Number(item.quantity || 0),
-        0
-      )
-
-      const hasPO = Boolean(po.po_id)
-      const hasGR = grItemsRaw.length > 0
-      const hasAP = apItems.length > 0
-
-      const qtyMatched = hasPO && hasGR && totalPoQty === totalReceivedQty
-      const amountMatched =
-        hasPO && hasAP && Math.abs(poTotalValue - invoiceGrandTotal) < 1
-      const supplierMatched = apItems.every(
-        (ap: any) => String(ap.supplier_id) === String(po.supplier_id)
-      )
-
-      let matchStatus = 'PENDING'
-
-      if (hasPO && hasGR && hasAP) {
-        matchStatus = qtyMatched && amountMatched && supplierMatched ? 'MATCHED' : 'MISMATCH'
-      }
-
-      const sentToFinance = apItems.some((ap: any) =>
-        ['APPROVED', 'POSTED', 'PAID'].includes(normalizeStatus(ap.ap_status))
-      )
-
-      const poItems = poItemsRaw.map((poItem: any) => {
-        const product = productMap.get(poItem.product_id)
-
-        return {
-          id: String(poItem.po_detail_id),
-          productCode: product?.product_id || poItem.product_id || '-',
-          productName: product?.product_name || '-',
-          category: product?.category || '-',
-          qty: Number(poItem.qty_order || 0),
-          unit: product?.uom || '-',
-          unitPrice: Number(poItem.unit_price || 0),
-          subtotal: Number(poItem.subtotal || 0),
-        }
-      })
-
-      const grItems = grItemsRaw.map((grItem: any) => {
-        const product = productMap.get(grItem.product_id)
-
-        return {
-          id: grItem.receipt_id,
-          productCode: product?.product_id || grItem.product_id || '-',
-          productName: product?.product_name || '-',
-          category: product?.category || '-',
-          orderedQty:
-            poItemsRaw.find(
-              (poItem: any) => String(poItem.product_id) === String(grItem.product_id)
-            )?.qty_order || 0,
-          receivedQty: Number(grItem.quantity || 0),
-          unit: product?.uom || '-',
-          condition: Number(grItem.reject_qty || 0) > 0 ? 'PARTIAL_REJECT' : 'GOOD',
-        }
-      })
-
-      const results = [
-        {
-          id: `${po.po_id}-qty`,
-          checkItem: 'PO Quantity vs Goods Receipt Quantity',
-          checkResult: qtyMatched ? 'MATCHED' : 'MISMATCH',
-          detail: `PO quantity ${totalPoQty}, received quantity ${totalReceivedQty}.`,
-        },
-        {
-          id: `${po.po_id}-amount`,
-          checkItem: 'PO Amount vs Supplier Invoice/AP Amount',
-          checkResult: amountMatched ? 'MATCHED' : 'MISMATCH',
-          detail: `PO total ${poTotalValue}, invoice/AP total ${invoiceGrandTotal}.`,
-        },
-        {
-          id: `${po.po_id}-supplier`,
-          checkItem: 'Supplier Consistency',
-          checkResult: supplierMatched ? 'MATCHED' : 'MISMATCH',
-          detail: supplierMatched
-            ? 'Supplier data is consistent between PO and AP.'
-            : 'Supplier data is different between PO and AP.',
-        },
-      ]
-
-      return {
-        id: formatMatchingNo(po.po_id),
-        matchingNo: formatMatchingNo(po.po_id),
-        matchStatus,
-        sentToFinance,
-        sentToFinanceAt: firstAP?.approved_by ? firstAP?.created_at : null,
-        createdAt: po.created_at,
-
-        poNo: po.po_id,
-        poDate: po.created_at,
-        poStatus: po.status || '-',
-        poSubtotal,
-        poTaxAmount,
-        poTotalValue,
-
-        grNo: firstGrItem?.receipt_id || '-',
-        receiptDate: firstGrItem?.receipt_date || null,
-        grStatus: firstGrItem?.status || '-',
-
-        invoiceNo: firstAP?.inv_supp_no || firstAP?.ap_id || '-',
-        invoiceDate: firstAP?.invoice_date || null,
-        dueDate: firstAP?.due_date || null,
-        invoiceSubtotal: invoiceGrandTotal,
-        invoiceTaxAmount: 0,
-        invoiceGrandTotal,
-        paymentStatus: firstAP?.ap_status || '-',
-
-        supplierId: supplier?.supplier_id || po.supplier_id || '-',
-        supplierName: supplier?.supplier_name || '-',
-        supplierContact: supplier?.contact || '-',
-        supplierAddress: supplier?.address || '-',
-
-        productCode: firstProduct?.product_id || '-',
-        productName: firstProduct?.product_name || '-',
-        category: firstProduct?.category || '-',
-
-        poQty: Number(firstPoItem?.qty_order || 0),
-        grReceivedQty: Number(firstGrItem?.quantity || 0),
-        unit: firstProduct?.uom || '-',
-        unitPrice: Number(firstPoItem?.unit_price || 0),
-
-        poItems,
-        grItems,
-        results,
+      if (poId && !apByPO.has(poId)) {
+        apByPO.set(poId, ap)
       }
     })
+
+    const matchings = purchaseOrders
+      .filter((po: any) => {
+        const poId = String(po.po_id || '')
+        return receiptsByPO.has(poId) || apByPO.has(poId)
+      })
+      .map((po: any) => {
+        const poId = String(po.po_id || '')
+        const supplier = supplierMap.get(po.supplier_id)
+        const poItems = detailsByPO.get(poId) || []
+        const receiptRows = receiptsByPO.get(poId) || []
+        const firstPoItem = poItems[0]
+        const firstReceipt = receiptRows[0]
+        const ap = apByPO.get(poId)
+        const product = productMap.get(firstPoItem?.product_id)
+
+        const matchingReceipt =
+          receiptRows.find(
+            (receipt: any) =>
+              String(getReceiptProductId(receipt) || '') ===
+              String(firstPoItem?.product_id || '')
+          ) || firstReceipt
+
+        const orderedQty = Number(firstPoItem?.qty_order || 0)
+        const receivedQty = getReceivedQty(matchingReceipt)
+        const poSubtotal = poItems.reduce(
+          (total: number, item: any) => total + Number(item.subtotal || 0),
+          0
+        )
+        const poTotalValue = Number(po.total_value || poSubtotal || 0)
+        const poTaxAmount = Math.max(poTotalValue - poSubtotal, 0)
+
+        const matchStatus = getMatchStatus(
+          poTotalValue,
+          receivedQty,
+          orderedQty
+        )
+
+        return {
+          id: poId,
+          matchingNo: `TWM-${poId}`,
+          matchStatus,
+          sentToFinance: ['APPROVED', 'POSTED', 'PAID'].includes(
+            normalizeStatus(getAPStatus(ap))
+          ),
+          sentToFinanceAt: ap?.created_at || null,
+          createdAt: firstReceipt?.created_at || po.po_release_date || po.created_at,
+
+          poNo: po.po_id,
+          poDate: po.created_at || null,
+          poStatus: po.status || '-',
+          poSubtotal,
+          poTaxAmount,
+          poTotalValue,
+
+          grNo: String(getReceiptId(firstReceipt)),
+          receiptDate:
+            firstReceipt?.receipt_date ||
+            firstReceipt?.created_at ||
+            null,
+          grStatus: firstReceipt?.status || '-',
+
+          invoiceNo: String(getAPId(ap)),
+          invoiceDate: getAPDate(ap),
+          dueDate: getDueDate(ap),
+          invoiceSubtotal: getAPAmount(ap),
+          invoiceTaxAmount: 0,
+          invoiceGrandTotal: getAPAmount(ap),
+          paymentStatus: getAPStatus(ap),
+
+          supplierId: supplier?.supplier_id || po.supplier_id || '-',
+          supplierName: supplier?.supplier_name || '-',
+          supplierContact: supplier?.contact || '-',
+          supplierAddress: supplier?.address || '-',
+
+          productCode: product?.product_id || firstPoItem?.product_id || '-',
+          productName: product?.product_name || '-',
+          category: product?.category || '-',
+
+          poQty: orderedQty,
+          grReceivedQty: receivedQty,
+          unit: product?.uom || '-',
+          unitPrice: Number(firstPoItem?.unit_price || 0),
+
+          results: buildResults(po, firstPoItem, matchingReceipt, ap),
+        }
+      })
 
     return NextResponse.json({
       message: 'Three-way matchings fetched successfully',
@@ -318,33 +332,35 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const poId = getPoIdFromMatchingNo(matchingNo)
+    const poId = String(matchingNo).startsWith('TWM-')
+      ? String(matchingNo).replace(/^TWM-/, '')
+      : String(matchingNo)
 
-    const { data: existingAP, error: existingAPError } = await supabase
+    const { data: apData, error: apFetchError } = await supabase
       .from('tr_account_payable')
-      .select('ap_id, po_id, ap_status')
+      .select('*')
       .eq('po_id', poId)
-      .limit(1)
       .maybeSingle()
 
-    if (existingAPError) {
+    if (apFetchError) {
       return NextResponse.json(
         {
-          message: 'Failed to check account payable data',
-          error: existingAPError.message,
+          message: 'Failed to fetch account payable data',
+          error: apFetchError.message,
         },
         { status: 500 }
       )
     }
 
-    if (!existingAP) {
-      return NextResponse.json(
-        {
-          message:
-            'No account payable document found for this PO. Please create AP/invoice data first.',
+    if (!apData) {
+      return NextResponse.json({
+        message:
+          'Three-way matching marked as reviewed, but no account payable record was found for this PO.',
+        data: {
+          poId,
+          sentToFinance: Boolean(sentToFinance),
         },
-        { status: 404 }
-      )
+      })
     }
 
     const { data, error } = await supabase
@@ -352,14 +368,14 @@ export async function PATCH(request: Request) {
       .update({
         ap_status: sentToFinance ? 'APPROVED' : 'DRAFT',
       })
-      .eq('ap_id', existingAP.ap_id)
+      .eq('po_id', poId)
       .select()
       .single()
 
     if (error) {
       return NextResponse.json(
         {
-          message: 'Failed to update three-way matching finance status',
+          message: 'Failed to update three-way matching',
           error: error.message,
         },
         { status: 500 }

@@ -14,74 +14,77 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 function normalizeStatus(value?: string | null) {
   const status = String(value || '').toUpperCase()
 
-  if (['PROPOSED', 'PENDING', 'WAITING_RESPONSE'].includes(status)) {
-    return 'SENT'
+  if (['WAITING_RESPONSE', 'WAITING', 'PENDING'].includes(status)) {
+    return 'WAITING_RESPONSE'
   }
 
-  if (['COUNTERED', 'NEGOTIATION'].includes(status)) {
-    return 'COUNTERED'
+  if (['RESPONDED', 'SUBMITTED'].includes(status)) {
+    return 'RESPONDED'
   }
 
-  if (['ACCEPTED', 'APPROVED', 'AGREED'].includes(status)) {
+  if (['NEGOTIATION', 'COUNTERED', 'SENT'].includes(status)) {
+    return 'NEGOTIATION'
+  }
+
+  if (['AGREED', 'ACCEPTED', 'APPROVED'].includes(status)) {
     return 'AGREED'
   }
 
-  if (['REJECTED', 'CANCELLED'].includes(status)) {
+  if (['REJECTED', 'DECLINED'].includes(status)) {
     return 'REJECTED'
   }
 
-  return status || 'SENT'
+  return status || 'NEGOTIATION'
 }
 
-function denormalizeStatus(value?: string | null) {
-  const status = String(value || '').toUpperCase()
+function generateNegotiationNo(quotationId: string) {
+  if (!quotationId) return '-'
 
-  if (status === 'SENT') return 'PROPOSED'
-  if (status === 'COUNTERED') return 'PROPOSED'
-  if (status === 'AGREED') return 'ACCEPTED'
-  if (status === 'REJECTED') return 'REJECTED'
+  return String(quotationId).startsWith('NEG-')
+    ? quotationId
+    : `NEG-${quotationId}`
+}
 
-  return status || 'PROPOSED'
+function generateRFQNo(quotationId: string) {
+  if (!quotationId) return '-'
+
+  return String(quotationId).startsWith('RFQ-')
+    ? quotationId
+    : `RFQ-${quotationId}`
+}
+
+function getReferencePrice(priceData: any, quotation: any) {
+  return Number(
+    priceData?.estimated_price ||
+      priceData?.price ||
+      priceData?.unit_price ||
+      priceData?.supplier_price ||
+      quotation?.proposed_price ||
+      0
+  )
 }
 
 export async function GET() {
   try {
-    const [
-      quotationResult,
-      supplierResult,
-      productResult,
-      supplierPriceResult,
-    ] = await Promise.all([
-      supabase
-        .from('tr_price_quotation')
-        .select(`
-          quotation_id,
-          supplier_id,
-          product_id,
-          negotiated_by,
-          proposed_price,
-          accepted_price,
-          final_price,
-          qty_requested,
-          status,
-          quotation_date,
-          expiry_date,
-          notes
-        `)
-        .order('quotation_date', { ascending: false }),
+    const [quotationResult, supplierResult, productResult, supplierPriceResult] =
+      await Promise.all([
+        supabase
+          .from('tr_price_quotation')
+          .select(
+            'quotation_id, supplier_id, product_id, proposed_price, accepted_price, final_price, qty_requested, status, quotation_date, expiry_date, notes'
+          )
+          .order('quotation_date', { ascending: false }),
 
-      supabase
-        .from('ms_supplier')
-        .select('supplier_id, supplier_name, contact, address'),
+        supabase
+          .from('ms_supplier')
+          .select('supplier_id, supplier_name, contact, address, lead_time, top, status'),
 
-      supabase
-        .from('ms_product')
-        .select('product_id, product_name, category, uom'),
+        supabase
+          .from('ms_product')
+          .select('product_id, product_name, category, uom'),
 
-      supabase
-        .from('ms_supplier_price')
-        .select('supplier_price_id, supplier_id, product_id, unit_price_estimate, uom'),
-    ])
+        supabase.from('ms_supplier_price').select('*'),
+      ])
 
     const errors = [
       quotationResult.error,
@@ -113,24 +116,29 @@ export async function GET() {
       products.map((product: any) => [product.product_id, product])
     )
 
-    const referencePriceMap = new Map<string, number>()
+    const supplierPriceMap = new Map<string, any>()
 
     supplierPrices.forEach((price: any) => {
-      const key = `${price.supplier_id}-${price.product_id}`
-      referencePriceMap.set(key, Number(price.unit_price_estimate || 0))
+      supplierPriceMap.set(`${price.supplier_id}-${price.product_id}`, price)
     })
 
     const negotiations = quotations.map((item: any) => {
       const supplier = supplierMap.get(item.supplier_id)
       const product = productMap.get(item.product_id)
-      const referenceKey = `${item.supplier_id}-${item.product_id}`
-      const referencePrice = referencePriceMap.get(referenceKey) || 0
+      const supplierPrice = supplierPriceMap.get(
+        `${item.supplier_id}-${item.product_id}`
+      )
+
+      const referencePrice = getReferencePrice(supplierPrice, item)
+      const proposedPrice = Number(item.proposed_price || 0)
+      const supplierResponsePrice = Number(item.accepted_price || 0)
+      const finalPrice = Number(item.final_price || 0)
 
       return {
-        id: item.quotation_id,
-        negotiationNo: item.quotation_id,
+        id: String(item.quotation_id),
+        negotiationNo: generateNegotiationNo(String(item.quotation_id)),
 
-        rfqNo: item.quotation_id,
+        rfqNo: generateRFQNo(String(item.quotation_id)),
         rfqStatus: normalizeStatus(item.status),
         quotationDeadline: item.expiry_date || null,
         specificationNotes: item.notes || '-',
@@ -145,9 +153,9 @@ export async function GET() {
         category: product?.category || '-',
 
         referencePrice,
-        proposedPrice: Number(item.proposed_price || 0),
-        supplierResponsePrice: Number(item.accepted_price || 0),
-        finalPrice: Number(item.final_price || item.accepted_price || 0),
+        proposedPrice,
+        supplierResponsePrice,
+        finalPrice,
         qty: Number(item.qty_requested || 0),
         unit: product?.uom || '-',
         confirmationDeadline: item.expiry_date || null,
@@ -190,11 +198,10 @@ export async function POST(request: Request) {
       notes,
     } = body
 
-    if (!negotiationNumber || !supplierCode || !productSku) {
+    if (!supplierCode || !productSku) {
       return NextResponse.json(
         {
-          message:
-            'Negotiation number, supplier code, and product SKU are required',
+          message: 'Supplier code and product SKU are required',
         },
         { status: 400 }
       )
@@ -219,7 +226,7 @@ export async function POST(request: Request) {
 
     const { data: productData, error: productError } = await supabase
       .from('ms_product')
-      .select('product_id, uom')
+      .select('product_id')
       .eq('product_id', productSku)
       .maybeSingle()
 
@@ -227,48 +234,36 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           message: 'Product SKU not found',
-          error: productError?.message || `Product ${productSku} does not exist`,
+          error:
+            productError?.message || `Product ${productSku} does not exist`,
         },
         { status: 404 }
       )
     }
 
-    const { data: existingNegotiation } = await supabase
-      .from('tr_price_quotation')
-      .select('quotation_id')
-      .eq('quotation_id', negotiationNumber)
-      .maybeSingle()
+    const quotationId =
+      negotiationNumber ||
+      `NEG-${new Date().getFullYear()}${String(
+        new Date().getMonth() + 1
+      ).padStart(2, '0')}-${String(Date.now()).slice(-5)}`
 
-    if (existingNegotiation) {
-      return NextResponse.json(
-        {
-          message: 'Negotiation number already exists',
-        },
-        { status: 409 }
-      )
-    }
-
-    const acceptedPrice =
-      supplierResponsePrice === undefined || supplierResponsePrice === ''
-        ? null
-        : Number(supplierResponsePrice)
-
-    const insertedFinalPrice =
-      finalPrice === undefined || finalPrice === ''
-        ? acceptedPrice
-        : Number(finalPrice)
-
-    const { data: negotiationData, error: negotiationError } = await supabase
+    const { data: quotationData, error: quotationError } = await supabase
       .from('tr_price_quotation')
       .insert({
-        quotation_id: negotiationNumber,
-        supplier_id: supplierCode,
-        product_id: productSku,
+        quotation_id: quotationId,
+        supplier_id: supplierData.supplier_id,
+        product_id: productData.product_id,
         proposed_price: Number(proposedPrice || referencePrice || 0),
-        accepted_price: acceptedPrice,
-        final_price: insertedFinalPrice,
+        accepted_price:
+          supplierResponsePrice === undefined || supplierResponsePrice === ''
+            ? null
+            : Number(supplierResponsePrice),
+        final_price:
+          finalPrice === undefined || finalPrice === ''
+            ? null
+            : Number(finalPrice),
         qty_requested: Number(qty || 0),
-        status: denormalizeStatus(status),
+        status: status || 'NEGOTIATION',
         quotation_date: new Date().toISOString(),
         expiry_date: confirmationDeadline || null,
         notes: notes || null,
@@ -276,11 +271,11 @@ export async function POST(request: Request) {
       .select()
       .single()
 
-    if (negotiationError) {
+    if (quotationError) {
       return NextResponse.json(
         {
           message: 'Failed to save price negotiation',
-          error: negotiationError.message,
+          error: quotationError.message,
         },
         { status: 500 }
       )
@@ -288,7 +283,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       message: 'Price negotiation saved successfully',
-      data: negotiationData,
+      data: quotationData,
     })
   } catch (error) {
     return NextResponse.json(
@@ -322,6 +317,10 @@ export async function PATCH(request: Request) {
       )
     }
 
+    const quotationId = String(negotiationNumber).startsWith('NEG-')
+      ? String(negotiationNumber).replace(/^NEG-/, '')
+      : String(negotiationNumber)
+
     const updatePayload: Record<string, any> = {}
 
     if (supplierResponsePrice !== undefined) {
@@ -334,7 +333,7 @@ export async function PATCH(request: Request) {
     }
 
     if (status) {
-      updatePayload.status = denormalizeStatus(status)
+      updatePayload.status = status
     }
 
     if (notes !== undefined) {
@@ -344,7 +343,7 @@ export async function PATCH(request: Request) {
     const { data, error } = await supabase
       .from('tr_price_quotation')
       .update(updatePayload)
-      .eq('quotation_id', negotiationNumber)
+      .eq('quotation_id', quotationId)
       .select()
       .single()
 
