@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -88,11 +89,42 @@ export async function GET() {
       )
     }
 
-    const purchaseOrders = poResult.data || []
-    const poDetails = poDetailResult.data || []
-    const suppliers = supplierResult.data || []
-    const products = productResult.data || []
-    const goodsReceipts = goodsReceiptResult.data || []
+    const poIds =
+      trackingData
+        ?.filter((item: AnyObject) => item.entity_type === 'PURCHASE_ORDER' || item.entity_type === 'DELIVERY')
+        .map((item: AnyObject) => item.entity_id)
+        .filter(Boolean) || []
+
+    const { data: poData, error: poError } = await supabase
+      .from('purchasing_purchase_orders')
+      .select(`
+        id,
+        po_number,
+        po_date,
+        expected_delivery_date,
+        total_value,
+        status,
+        ms_suppliers (
+          supplier_id,
+          supplier_code,
+          supplier_name,
+          contact,
+          address
+        ),
+        purchasing_purchase_order_items (
+          id,
+          qty,
+          unit,
+          products (
+            id,
+            sku,
+            name,
+            category,
+            unit
+          )
+        )
+      `)
+      .in('id', poIds.length > 0 ? poIds : ['00000000-0000-0000-0000-000000000000'])
 
     const supplierMap = new Map(
       suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
@@ -104,33 +136,11 @@ export async function GET() {
 
     const detailsByPO = new Map<string, any[]>()
 
-    poDetails.forEach((detail: any) => {
-      const poId = String(detail.po_id || '')
-      const currentDetails = detailsByPO.get(poId) || []
+    const purchaseOrderMap = new Map((poData || []).map((po: AnyObject) => [po.id, po]))
 
-      currentDetails.push(detail)
-      detailsByPO.set(poId, currentDetails)
-    })
-
-    const receiptByPO = new Map<string, any>()
-
-    goodsReceipts.forEach((receipt: any) => {
-      const poId = String(receipt.po_id || '')
-      if (!receiptByPO.has(poId)) {
-        receiptByPO.set(poId, receipt)
-      }
-    })
-
-    const trackingReports = purchaseOrders.map((po: any) => {
-      const supplier = supplierMap.get(po.supplier_id)
-      const items = detailsByPO.get(po.po_id) || []
-      const firstItem = items[0]
-      const product = productMap.get(firstItem?.product_id)
-      const receipt = receiptByPO.get(String(po.po_id || ''))
-
-      const estimatedArrivalDate =
-        receipt?.receipt_date ||
-        addDays(po.po_release_date || po.created_at, Number(supplier?.lead_time || 7))
+    const trackingReports = (trackingData || []).map((item: AnyObject) => {
+      const po = purchaseOrderMap.get(item.entity_id)
+      const firstItem = po?.purchasing_purchase_order_items?.[0]
 
       return {
         id: String(po.po_id),
@@ -182,6 +192,61 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
+
+    const {
+      trackingNumber,
+      entityType,
+      poNumber,
+      status,
+      estimatedArrivalDate,
+      supplierNotes,
+      createdByName,
+    } = body
+
+    if (!trackingNumber || !entityType || !status) {
+      return NextResponse.json(
+        {
+          message: 'Tracking number, entity type, and status are required',
+        },
+        { status: 400 }
+      )
+    }
+
+    let entityId = null
+
+    if (poNumber) {
+      const { data: poData } = await supabase
+        .from('purchasing_purchase_orders')
+        .select('id')
+        .eq('po_number', poNumber)
+        .maybeSingle()
+
+      entityId = poData?.id || null
+    }
+
+    const { data, error } = await supabase
+      .from('purchasing_tracking_reports')
+      .insert({
+        tracking_number: trackingNumber,
+        entity_type: entityType,
+        entity_id: entityId,
+        status,
+        estimated_arrival_date: estimatedArrivalDate || null,
+        supplier_notes: supplierNotes || null,
+        created_by_name: createdByName || 'Purchasing Staff',
+      })
+      .select()
+      .single()
+
+    if (error) {
+      return NextResponse.json(
+        {
+          message: 'Failed to save tracking report',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({
       message:

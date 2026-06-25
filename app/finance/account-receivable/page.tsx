@@ -2,25 +2,25 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { 
-  Receipt, 
-  Send, 
-  Wallet, 
-  Clock, 
-  CheckCircle, 
-  AlertCircle, 
-  Filter, 
+import {
+  Receipt,
+  Send,
+  Wallet,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  Filter,
   Calendar,
   UserCheck,
   AlertTriangle,
   MoreVertical,
   Download,
-  Plus,
   Search,
   ChevronRight,
   FileText,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  X
 } from 'lucide-react'
 import { CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -83,12 +83,13 @@ export default function AccountReceivablePage() {
   const [akunList, setAkunList] = useState<Akun[]>([])
   const [loading, setLoading] = useState(false)
   const [notif, setNotif] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [isAgingModalOpen, setIsAgingModalOpen] = useState(false)
 
   // Payment Form States
   const [selectedPiutang, setSelectedPiutang] = useState<Piutang | null>(null)
   const [selectedAkunKas, setSelectedAkunKas] = useState<number>(0)
   const [jumlahBayar, setJumlahBayar] = useState<number>(0)
-  
+
   // Search & Filter
   const [searchCust, setSearchCust] = useState('')
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'BELUM_LUNAS' | 'LUNAS' | 'OVERDUE'>('ALL')
@@ -105,7 +106,7 @@ export default function AccountReceivablePage() {
       const coaJson = await coaRes.json()
       if (coaJson.data) {
         // Filter only cash and bank accounts (1001, 1002, 1003)
-        const kasAkuns = coaJson.data.filter((a: Akun) => 
+        const kasAkuns = coaJson.data.filter((a: Akun) =>
           a.kode_akun === '1001' || a.kode_akun === '1002' || a.kode_akun === '1003'
         )
         setAkunList(kasAkuns)
@@ -167,9 +168,29 @@ export default function AccountReceivablePage() {
     }
   }
 
-  // Kirim Reminder Pelunasan (Quick Action Toast)
-  const handleSendReminder = (piutang: Piutang) => {
-    showNotif('success', `Pengingat Jatuh Tempo (Reminder) berhasil dikirim via Email & WhatsApp ke Customer: ${piutang.customer_name} untuk Faktur ${piutang.inv_number}.`)
+  // Kirim Reminder Pelunasan (Quick Action Toast & API Log)
+  const handleSendReminder = async (piutang: Piutang) => {
+    try {
+      setLoading(true)
+      const res = await fetch('/api/finance/receivable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send_reminder',
+          piutang_id: piutang.id_piutang
+        })
+      })
+      if (res.ok) {
+        showNotif('success', `Pengingat Jatuh Tempo (Reminder) berhasil dikirim via Email & WhatsApp ke Customer: ${piutang.customer_name} untuk Faktur ${piutang.inv_number}. Log pengiriman dicatat.`)
+        loadData()
+      } else {
+        showNotif('error', 'Gagal mencatat log pengiriman reminder.')
+      }
+    } catch (e) {
+      showNotif('error', 'Koneksi error saat mengirim reminder.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Calculate AR Summary
@@ -225,16 +246,50 @@ export default function AccountReceivablePage() {
     return matchesSearch && matchesStatus
   })
 
+// Export to CSV Function
+  const handleExportCSV = () => {
+    if (filteredPiutang.length === 0) {
+      showNotif('error', 'Tidak ada data untuk diexport.')
+      return
+    }
+
+    const headers = ['Invoice ID', 'Customer Name', 'Original Amount', 'Outstanding Amount', 'Due Date', 'Status']
+    const rows = filteredPiutang.map(p => [
+      p.inv_number,
+      p.customer_name,
+      p.jumlah,
+      p.sisa_pembayaran,
+      p.due_date,
+      p.status
+    ])
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', `Accounts_Receivable_Report_${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    showNotif('success', 'Laporan Accounts Receivable berhasil diexport ke CSV.')
+  }
+
   // Find priority invoice (highest sisa_pembayaran outstanding / overdue)
   const priorityInvoices = piutangList
     .filter(p => p.status !== 'LUNAS')
     .sort((a, b) => b.sisa_pembayaran - a.sisa_pembayaran)
-  
+
   const priorityInv = priorityInvoices[0] || null
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
-      
+
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
         <div className="space-y-2">
@@ -258,18 +313,11 @@ export default function AccountReceivablePage() {
           <Button
             variant="ghost"
             size="sm"
+            onClick={handleExportCSV}
             className="h-9 gap-2 hover:bg-slate-100 text-xs font-semibold text-slate-600 rounded-2xl cursor-pointer border border-slate-200"
           >
             <Download className="w-4 h-4 text-slate-400" />
             Export Report
-          </Button>
-
-          <Button
-            onClick={() => showNotif('success', 'Silakan gunakan modul Sales & Marketing (SnM) untuk membuat Invoice Penjualan baru.')}
-            className="h-9 gap-2 text-xs font-semibold text-white rounded-2xl cursor-pointer bg-red-600 hover:bg-red-700 shadow-[0_2px_10px_rgba(220,38,38,0.2)]"
-          >
-            <Plus className="w-4 h-4" />
-            New Invoice
           </Button>
         </div>
       </div>
@@ -346,7 +394,7 @@ export default function AccountReceivablePage() {
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
+
         {/* Left Side: Table of Accounts Receivable (2/3 width) */}
         <div className="xl:col-span-2">
           <GlassCard className="h-full">
@@ -354,13 +402,13 @@ export default function AccountReceivablePage() {
               <div className="space-y-0.5">
                 <h3 className="text-base font-semibold text-slate-800">Payment Monitoring & Verification</h3>
               </div>
-              
+
               {/* Search & Filter Toolbar */}
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
                   <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
-                  <Input 
-                    placeholder="Search Customer / Inv..." 
+                  <Input
+                    placeholder="Search Customer / Inv..."
                     value={searchCust}
                     onChange={(e) => setSearchCust(e.target.value)}
                     className="pl-8 pr-4 h-8 text-xs font-medium w-[180px] bg-slate-50/50 border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-lg"
@@ -379,9 +427,9 @@ export default function AccountReceivablePage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
               <Table>
-                <TableHeader className="bg-slate-50/50">
+                <TableHeader className="bg-slate-50/50 sticky top-0 z-10">
                   <TableRow className="border-b border-slate-100">
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3 w-28">Invoice ID</TableHead>
                     <TableHead className="font-semibold text-slate-400 text-xs px-6 py-3">Customer</TableHead>
@@ -502,28 +550,28 @@ export default function AccountReceivablePage() {
 
                   <div className="space-y-1">
                     <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Jumlah Pembayaran Diterima (IDR)</label>
-                    <Input 
-                      type="number" 
+                    <Input
+                      type="number"
                       value={jumlahBayar || ''}
                       onChange={(e) => setJumlahBayar(Number(e.target.value))}
                       max={selectedPiutang.sisa_pembayaran}
-                      className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl font-bold h-10" 
+                      className="border border-slate-200 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl font-bold h-10"
                       required
                     />
                   </div>
 
                   <div className="flex gap-2 pt-2">
-                    <Button 
-                      type="button" 
-                      onClick={() => setSelectedPiutang(null)} 
+                    <Button
+                      type="button"
+                      onClick={() => setSelectedPiutang(null)}
                       variant="ghost"
                       className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50"
                     >
                       Batal
                     </Button>
-                    <Button 
-                      type="submit" 
-                      disabled={loading} 
+                    <Button
+                      type="submit"
+                      disabled={loading}
                       className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer shadow-[0_2px_10px_rgba(220,38,38,0.2)]"
                     >
                       {loading ? 'Memproses...' : 'Catat Pelunasan'}
@@ -537,18 +585,18 @@ export default function AccountReceivablePage() {
             // VERIFICATION & DEBT AGING SIDEBAR (IMAGE 1)
             // ==========================================
             <div className="space-y-6">
-              
+
               {/* Priority Verification Banner (Image 1 Red banner) */}
               <div className="bg-[#800000] text-white rounded-3xl p-6 relative overflow-hidden shadow-sm flex flex-col justify-between min-h-[180px]">
                 {/* Large checkmark logo watermark */}
                 <div className="absolute right-0 bottom-0 opacity-10 translate-x-2 translate-y-4">
                   <CheckCircle className="w-40 h-40" />
                 </div>
-                
+
                 <div className="space-y-2 z-10">
                   <h4 className="text-base font-bold">Priority Verification</h4>
                   <p className="text-xs text-red-100 leading-relaxed font-light">
-                    {priorityInv 
+                    {priorityInv
                       ? "1 large invoice requires immediate manual verification."
                       : "No invoices require manual verification."}
                   </p>
@@ -633,7 +681,7 @@ export default function AccountReceivablePage() {
 
                   <div className="pt-3 border-t border-slate-100 text-center">
                     <button
-                      onClick={() => showNotif('success', `Rincian Umur Piutang: Belum Jatuh Tempo (Rp ${aging.current.toLocaleString()}), 1-30 Hari (Rp ${aging.overdue_1_30.toLocaleString()}), >30 Hari (Rp ${aging.overdue_90plus.toLocaleString()}).`)}
+                      onClick={() => setIsAgingModalOpen(true)}
                       className="text-xs font-semibold text-red-600 hover:underline cursor-pointer"
                     >
                       View Detailed Aging Report
@@ -647,6 +695,128 @@ export default function AccountReceivablePage() {
         </div>
 
       </div>
+
+      {/* 3. DETAILED AGING REPORT MODAL */}
+      {isAgingModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-4xl bg-white rounded-3xl shadow-xl overflow-hidden animate-[fadeIn_0.3s_ease-out]">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-red-600" /> Detailed Accounts Receivable Aging Report
+              </h3>
+              <button
+                onClick={() => setIsAgingModalOpen(false)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+              {/* Summary KPIs inside Modal */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Current</p>
+                  <p className="text-sm font-bold text-emerald-600 mt-1">Rp {aging.current.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">1-30 Days</p>
+                  <p className="text-sm font-bold text-slate-700 mt-1">Rp {aging.overdue_1_30.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">31-60 Days</p>
+                  <p className="text-sm font-bold text-amber-600 mt-1">Rp {aging.overdue_31_60.toLocaleString()}</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">&gt;60 Days</p>
+                  <p className="text-sm font-bold text-red-600 mt-1">Rp {aging.overdue_90plus.toLocaleString()}</p>
+                </div>
+                <div className="bg-red-50/50 p-3 rounded-2xl border border-red-100 col-span-2 md:col-span-1">
+                  <p className="text-[10px] font-semibold text-red-600 uppercase tracking-wider">Total Outstanding</p>
+                  <p className="text-sm font-bold text-[#800000] mt-1">Rp {outstandingAR.toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Individual Invoice Details Table */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Outstanding Invoices Breakdown</h4>
+                <div className="border border-slate-100 rounded-2xl overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-slate-50/50">
+                      <TableRow className="border-b border-slate-100">
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5">Invoice No.</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5">Customer Name</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5 text-center">Due Date</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5 text-center">Days Overdue</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5 text-center">Category</TableHead>
+                        <TableHead className="font-semibold text-slate-400 text-[10px] px-4 py-2.5 text-right">Outstanding Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody className="text-xs text-slate-700">
+                      {piutangList.filter(p => p.status !== 'LUNAS').length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-6 text-slate-400 italic">No outstanding invoices</TableCell>
+                        </TableRow>
+                      ) : (
+                        piutangList
+                          .filter(p => p.status !== 'LUNAS')
+                          .map(p => {
+                            const dueDate = new Date(p.due_date)
+                            const diffTime = today.getTime() - dueDate.getTime()
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                            
+                            let category = "Current"
+                            let badgeClass = "text-emerald-600 bg-emerald-50 border-emerald-100"
+                            if (diffDays > 0 && diffDays <= 30) {
+                              category = "1-30 Days"
+                              badgeClass = "text-slate-600 bg-slate-100 border-slate-200"
+                            } else if (diffDays > 30 && diffDays <= 60) {
+                              category = "31-60 Days"
+                              badgeClass = "text-amber-600 bg-amber-50 border-amber-200"
+                            } else if (diffDays > 60) {
+                              category = ">60 Days"
+                              badgeClass = "text-red-600 bg-red-50 border-red-200"
+                            }
+                            
+                            return (
+                              <TableRow key={p.id_piutang} className="border-b border-slate-100 hover:bg-slate-50/20">
+                                <TableCell className="font-mono font-bold text-slate-800 px-4 py-3">{p.inv_number}</TableCell>
+                                <TableCell className="font-bold text-slate-800 px-4 py-3">{p.customer_name}</TableCell>
+                                <TableCell className="text-center text-slate-500 px-4 py-3">
+                                  {new Date(p.due_date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </TableCell>
+                                <TableCell className="text-center font-bold px-4 py-3">
+                                  {diffDays > 0 ? `${diffDays} days` : '0 days (Not due)'}
+                                </TableCell>
+                                <TableCell className="text-center px-4 py-3">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold border ${badgeClass}`}>
+                                    {category}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-right font-bold text-slate-800 px-4 py-3">
+                                  Rp {p.sisa_pembayaran.toLocaleString()}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-slate-100">
+                <Button
+                  onClick={() => setIsAgingModalOpen(false)}
+                  className="text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer px-6"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

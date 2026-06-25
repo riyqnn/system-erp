@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get('category')
 
     let query = supabase
-      .from('ms_products')
+      .from('ms_product')
       .select('*')
       .order('product_name', { ascending: true })
       .limit(1000) // Added limit to prevent memory crash
@@ -42,23 +42,23 @@ export async function POST(request: NextRequest) {
     const supabase = await createRouteHandlerClient()
 
     // Explicitly destructure to prevent Mass Assignment Vulnerability
-    const { product_code, product_name, category, units, minimum_stock, expiry_flag } = body
+    const { product_id, product_name, category, uom, minimum_stock, expiry_flag } = body
 
-    if (!product_code || !product_name || !category || !units) {
+    if (!product_id || !product_name || !category || !uom) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
     const payload = {
-      product_code,
+      product_id,
       product_name,
       category,
-      units,
+      uom,
       minimum_stock: minimum_stock ? Number(minimum_stock) : 0,
-      expiry_flag: Boolean(expiry_flag)
+      expiry_flag: expiry_flag ? 1 : 0
     }
 
     const { data, error } = await supabase
-      .from('ms_products')
+      .from('ms_product')
       .insert([payload])
       .select()
       .single()
@@ -88,7 +88,7 @@ export async function DELETE(request: NextRequest) {
     const supabase = await createRouteHandlerClient()
 
     const { error } = await supabase
-      .from('ms_products')
+      .from('ms_product')
       .delete()
       .eq('product_id', id)
 

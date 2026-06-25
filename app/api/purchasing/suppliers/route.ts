@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -57,44 +58,27 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch suppliers',
-          error: errors[0]?.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )
     }
 
-    const supplierPrices = supplierPriceResult.data || []
-    const suppliers = supplierResult.data || []
-    const products = productResult.data || []
-
-    const supplierMap = new Map(
-      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
-    )
-
-    const productMap = new Map(
-      products.map((product: any) => [product.product_id, product])
-    )
-
-    const data = supplierPrices.map((item: any) => {
-      const supplier = supplierMap.get(item.supplier_id)
-      const product = productMap.get(item.product_id)
-
-      return {
-        id: `${item.supplier_id}-${item.product_id}`,
-        supplierId: supplier?.supplier_id || item.supplier_id || '-',
-        supplierName: supplier?.supplier_name || '-',
-        contact: supplier?.contact || '-',
-        address: supplier?.address || '-',
-        productCode: product?.product_id || item.product_id || '-',
-        product: product?.product_name || '-',
-        category: product?.category || '-',
-        unit: product?.uom || '-',
-        estimatedPrice: getPriceValue(item),
-        leadTime: getLeadTimeValue(item, supplier),
-        termOfPayment: getPaymentTermValue(item, supplier),
-        status: item.status || supplier?.status || 'ACTIVE',
-      }
-    })
+    const suppliers = (data || []).map((item: AnyObject) => ({
+      id: item.id,
+      supplierId: item.ms_suppliers?.supplier_code || '-',
+      supplierName: item.ms_suppliers?.supplier_name || '-',
+      contact: item.ms_suppliers?.contact || '-',
+      address: item.ms_suppliers?.address || '-',
+      productCode: item.products?.sku || '-',
+      product: item.products?.name || '-',
+      category: item.products?.category || '-',
+      unit: item.products?.unit || '-',
+      estimatedPrice: item.estimated_price || 0,
+      leadTime: item.lead_time_days || 0,
+      termOfPayment: item.payment_term || '-',
+      status: item.status || 'ACTIVE',
+    }))
 
     return NextResponse.json({
       message: 'Suppliers fetched successfully',

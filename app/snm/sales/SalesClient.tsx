@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Plus, X, Eye, Trash, Warning, ClipboardText, CheckCircle, XCircle,
-  Truck, Receipt, Package,
+  Plus, X, Trash, Warning, ClipboardText, CheckCircle,
+  Truck, Receipt, Package, Factory,
 } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,73 +11,51 @@ import { Input } from '@/components/ui/input'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
-
-// Batas nilai transaksi tunggal yang memicu approval manager (UC-SLS-06)
-const SINGLE_TXN_LIMIT = 500_000_000
-
-const rupiah = (n: number) => 'Rp ' + Math.round(n || 0).toLocaleString('id-ID')
-const fmtDate = (s: string | null) =>
-  s ? new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+import {
+  SINGLE_TXN_LIMIT, FG_WAREHOUSE, rupiah, fmtDate, termDays,
+  genDocId, invoiceNumberFromId, notify, loadOutstandingByCustomer,
+  SO_STATUS_BADGE, SO_STATUS_LABEL, DO_BADGE, PAYMENT_BADGE,
+} from '@/lib/snm'
 
 type CustomerLite = {
-  id: string
-  cust_code: string
+  cust_id: string
   cust_name: string
   address: string | null
+  wilayah: string | null
   payment_term: string
   credit_limit: number
   outstanding_receivable: number
   available_credit: number
 }
 type ProductLite = {
-  id: string
-  sku: string
-  name: string
-  unit: string
-  selling_price: number
+  product_id: string
+  product_name: string
+  uom: string
+  unit_price: number   // net price after discount
+  list_price: number   // gross price from ms_price_list
+  discount_pct: number
   stock_qty: number
 }
 type SalesOrder = {
-  id: string
-  so_number: string
-  customer_id: string
+  so_id: string
+  cust_id: string
   so_date: string
   so_type: 'REGULAR' | 'PO'
   approval_status: 'DRAFT' | 'WAITING_APPROVAL' | 'APPROVED' | 'REJECTED_CREDIT' | 'CANCELLED'
   grand_total: number
   rejection_reason: string | null
-  customers: { cust_name: string; cust_code: string; address: string | null; payment_term: string } | null
+  created_at: string
+  ms_customer: { cust_name: string; address: string | null; payment_term: string } | null
 }
-type DeliveryOrder = { id: string; so_id: string; do_number: string; status: string; delivery_address: string | null; delivered_at: string | null }
-type Invoice = { id: string; so_id: string; inv_number: string; payment_status: string; inv_date: string; due_date: string | null; grand_total: number }
-type SoItem = { id: string; product_id: string; qty_order: number; unit_price: number; subtotal: number; products: { name: string; sku: string; unit: string } | null }
-
-const STATUS_BADGE: Record<string, string> = {
-  DRAFT: 'bg-slate-100 text-slate-600',
-  WAITING_APPROVAL: 'bg-amber-100 text-amber-700',
-  APPROVED: 'bg-green-100 text-green-700',
-  REJECTED_CREDIT: 'bg-red-100 text-red-700',
-  CANCELLED: 'bg-slate-100 text-slate-400',
-}
-const STATUS_LABEL: Record<string, string> = {
-  DRAFT: 'Draft',
-  WAITING_APPROVAL: 'Menunggu Approval',
-  APPROVED: 'Disetujui',
-  REJECTED_CREDIT: 'Ditolak',
-  CANCELLED: 'Dibatalkan',
-}
-const DO_BADGE: Record<string, string> = {
-  CREATED: 'bg-blue-100 text-blue-700',
-  SENT: 'bg-indigo-100 text-indigo-700',
-  DELIVERED: 'bg-green-100 text-green-700',
-  RETURNED: 'bg-red-100 text-red-700',
-}
+type DeliveryOrder = { do_id: string; so_id: string; status: string; delivery_address: string | null; delivered_at: string | null }
+type Invoice = { inv_id: string; so_id: string; invoice_number: string | null; payment_status: string; inv_date: string; due_date: string | null; grand_total: number }
+type SoItem = { so_detail_id: number; product_id: string; qty_order: number; unit_price: number; subtotal: number; ms_product: { product_name: string; uom: string } | null }
 
 type Line = { product_id: string; qty: string }
 
 const VALID_STATUS = ['WAITING_APPROVAL', 'APPROVED', 'REJECTED_CREDIT', 'CANCELLED']
 
-export function SalesClient({ initialStatus }: { initialStatus?: string }) {
+export function SalesClient({ initialStatus, userId }: { initialStatus?: string; userId: number }) {
   const supabase = useMemo(() => createClient(), [])
   const [orders, setOrders] = useState<SalesOrder[]>([])
   const [dos, setDos] = useState<DeliveryOrder[]>([])
@@ -95,6 +73,7 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
   const [showForm, setShowForm] = useState(false)
   const [custId, setCustId] = useState('')
   const [lines, setLines] = useState<Line[]>([{ product_id: '', qty: '' }])
+  const [preOrder, setPreOrder] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -106,24 +85,58 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
   const loadAll = async () => {
     setLoading(true); setError(null)
     const [soRes, doRes, invRes] = await Promise.all([
-      supabase.from('sales_orders').select('*, customers(cust_name, cust_code, address, payment_term)').order('created_at', { ascending: false }),
-      supabase.from('delivery_orders').select('id, so_id, do_number, status, delivery_address, delivered_at'),
-      supabase.from('sales_invoices').select('id, so_id, inv_number, payment_status, inv_date, due_date, grand_total'),
+      supabase.from('tr_so_header')
+        .select('so_id, cust_id, so_date, so_type, approval_status, grand_total, rejection_reason, created_at, ms_customer(cust_name, address, payment_term)')
+        .order('created_at', { ascending: false }),
+      supabase.from('tr_delivery_order').select('do_id, so_id, status, delivery_address, delivered_at'),
+      supabase.from('tr_sales_invoice').select('inv_id, so_id, invoice_number, payment_status, inv_date, due_date, grand_total'),
     ])
     if (soRes.error) setError(soRes.error.message)
-    setOrders((soRes.data as SalesOrder[]) ?? [])
+    setOrders((soRes.data as unknown as SalesOrder[]) ?? [])
     setDos((doRes.data as DeliveryOrder[]) ?? [])
     setInvoices((invRes.data as Invoice[]) ?? [])
     setLoading(false)
   }
 
   const loadRefs = async () => {
-    const [cRes, pRes] = await Promise.all([
-      supabase.from('v_customer_credit').select('id, cust_code, cust_name, address, payment_term, credit_limit, outstanding_receivable, available_credit').eq('is_active', true).order('cust_name'),
-      supabase.from('products').select('id, sku, name, unit, selling_price, stock_qty').eq('is_active', true).eq('type', 'FINISHED_GOOD').order('name'),
+    const [cRes, pRes, priceRes, stockRes, outstanding] = await Promise.all([
+      supabase.from('ms_customer')
+        .select('cust_id, cust_name, address, wilayah, payment_term, credit_limit')
+        .eq('status_aktif', 1).order('cust_name'),
+      supabase.from('ms_product')
+        .select('product_id, product_name, uom').eq('category', 'FG').eq('status', 1).order('product_name'),
+      supabase.from('ms_price_list').select('product_id, unit_price, discount_pct').eq('status', 1),
+      supabase.from('tr_stock_balance').select('product_id, quantity').eq('status', 'AVAILABLE'),
+      loadOutstandingByCustomer(supabase),
     ])
-    setCustomers((cRes.data as CustomerLite[]) ?? [])
-    setProducts((pRes.data as ProductLite[]) ?? [])
+
+    const priceMap: Record<string, { unit_price: number; discount_pct: number }> = {}
+    ;(priceRes.data as { product_id: string; unit_price: number; discount_pct: number }[] ?? []).forEach((p) => {
+      priceMap[p.product_id] = { unit_price: Number(p.unit_price) || 0, discount_pct: Number(p.discount_pct) || 0 }
+    })
+    const stockMap: Record<string, number> = {}
+    ;(stockRes.data as { product_id: string; quantity: number }[] ?? []).forEach((s) => {
+      stockMap[s.product_id] = (stockMap[s.product_id] ?? 0) + (Number(s.quantity) || 0)
+    })
+
+    const prods: ProductLite[] = (pRes.data as { product_id: string; product_name: string; uom: string }[] ?? [])
+      .map((p) => {
+        const pr = priceMap[p.product_id]
+        const list = pr?.unit_price ?? 0
+        const disc = pr?.discount_pct ?? 0
+        const net = Math.round(list * (1 - disc / 100))
+        return { ...p, list_price: list, discount_pct: disc, unit_price: net, stock_qty: stockMap[p.product_id] ?? 0 }
+      })
+      // only sellable products that have an active price
+      .filter((p) => p.list_price > 0)
+    setProducts(prods)
+
+    const custs: CustomerLite[] = (cRes.data as Omit<CustomerLite, 'outstanding_receivable' | 'available_credit'>[] ?? [])
+      .map((c) => {
+        const out = outstanding[c.cust_id] ?? 0
+        return { ...c, outstanding_receivable: out, available_credit: (c.credit_limit || 0) - out }
+      })
+    setCustomers(custs)
   }
 
   useEffect(() => {
@@ -131,38 +144,33 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Kirim notifikasi ke dashboard SNM (UC-SLS-09). Diam saja kalau tabel belum ada.
-  async function notify(type: string, title: string, message: string) {
-    try {
-      await supabase.from('notifications').insert({
-        recipient_role: 'SNM', type, title, message, link: '/snm/sales',
-      })
-    } catch { /* ignore */ }
-  }
-
   const doBySo = useMemo(() => Object.fromEntries(dos.map((d) => [d.so_id, d])), [dos])
   const invBySo = useMemo(() => Object.fromEntries(invoices.map((i) => [i.so_id, i])), [invoices])
 
   const filtered = tab === 'ALL' ? orders : orders.filter((o) => o.approval_status === tab)
   const waitingCount = orders.filter((o) => o.approval_status === 'WAITING_APPROVAL').length
 
-  const selectedCust = customers.find((c) => c.id === custId)
+  const selectedCust = customers.find((c) => c.cust_id === custId)
   const computedTotal = lines.reduce((sum, l) => {
-    const p = products.find((pr) => pr.id === l.product_id)
-    return sum + (p ? p.selling_price * Number(l.qty || 0) : 0)
+    const p = products.find((pr) => pr.product_id === l.product_id)
+    return sum + (p ? p.unit_price * Number(l.qty || 0) : 0)
   }, 0)
+  // UC-SLS-05A trigger: any line exceeds available stock
+  const hasInsufficientStock = lines.some((l) => {
+    const p = products.find((pr) => pr.product_id === l.product_id)
+    return p ? Number(l.qty || 0) > p.stock_qty : false
+  })
 
   function addLine() { setLines([...lines, { product_id: '', qty: '' }]) }
   function removeLine(i: number) { setLines(lines.filter((_, idx) => idx !== i)) }
   function updateLine(i: number, patch: Partial<Line>) {
     setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
   }
-
   function resetForm() {
-    setCustId(''); setLines([{ product_id: '', qty: '' }]); setFormError(null)
+    setCustId(''); setLines([{ product_id: '', qty: '' }]); setPreOrder(false); setFormError(null)
   }
 
-  // UC-SLS-05 + UC-SLS-06
+  // UC-SLS-05 + UC-SLS-06 (+ UC-SLS-05A pre-order)
   async function handleCreateSO() {
     setFormError(null)
     if (!custId) { setFormError('Pilih customer terlebih dahulu.'); return }
@@ -170,150 +178,171 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
     if (valid.length === 0) { setFormError('Tambahkan minimal satu item dengan qty > 0.'); return }
     const cust = selectedCust!
 
-    // Validasi credit limit otomatis (UC-SLS-06)
+    // Stock check (real-time, modul Inventory)
+    if (hasInsufficientStock && !preOrder) {
+      setFormError('Stok tidak mencukupi untuk salah satu item. Centang "Buat sebagai Pre-Order" untuk melanjutkan.')
+      return
+    }
+
     const grandTotal = computedTotal
+    const soType: SalesOrder['so_type'] = preOrder ? 'PO' : 'REGULAR'
+
+    // UC-SLS-06: credit validation
     const cond1 = grandTotal + cust.outstanding_receivable <= cust.credit_limit
     const cond2 = grandTotal < SINGLE_TXN_LIMIT
-    const status: SalesOrder['approval_status'] = cond1 && cond2 ? 'APPROVED' : 'WAITING_APPROVAL'
+    // Pre-Order always needs manager approval (UC-SLS-05A)
+    const status: SalesOrder['approval_status'] = !preOrder && cond1 && cond2 ? 'APPROVED' : 'WAITING_APPROVAL'
 
     setSaving(true)
-    const { data: auth } = await supabase.auth.getUser()
-    const { data: soData, error: soErr } = await supabase
-      .from('sales_orders')
-      .insert({
-        customer_id: custId,
-        so_type: 'REGULAR',
-        approval_status: status,
-        grand_total: grandTotal,
-        created_by: auth.user?.id ?? null,
-        approved_at: status === 'APPROVED' ? new Date().toISOString() : null,
-        approved_by: status === 'APPROVED' ? (auth.user?.id ?? null) : null,
-      })
-      .select('id')
-      .single()
-    if (soErr || !soData) { setSaving(false); setFormError(soErr?.message ?? 'Gagal membuat SO'); return }
+    const so_id = await genDocId(supabase, 'tr_so_header', 'so_id', 'SO')
+    const nowIso = new Date().toISOString()
+    const { error: soErr } = await supabase.from('tr_so_header').insert({
+      so_id,
+      cust_id: custId,
+      so_date: nowIso,
+      so_type: soType,
+      approval_status: status,
+      grand_total: grandTotal,
+      created_by: userId,
+      approved_at: status === 'APPROVED' ? nowIso : null,
+      approved_by: status === 'APPROVED' ? userId : null,
+    })
+    if (soErr) { setSaving(false); setFormError(soErr.message); return }
 
     const itemsPayload = valid.map((l) => {
-      const p = products.find((pr) => pr.id === l.product_id)!
-      return { so_id: soData.id, product_id: l.product_id, qty_order: Number(l.qty), unit_price: p.selling_price }
+      const p = products.find((pr) => pr.product_id === l.product_id)!
+      const qty = Number(l.qty)
+      return { so_id, product_id: l.product_id, qty_order: qty, unit_price: p.unit_price, subtotal: p.unit_price * qty }
     })
-    const { error: itErr } = await supabase.from('sales_order_items').insert(itemsPayload)
+    const { error: itErr } = await supabase.from('tr_so_detail').insert(itemsPayload)
     setSaving(false)
     if (itErr) { setFormError(itErr.message); return }
 
-    await notify(
-      status === 'WAITING_APPROVAL' ? 'SO_APPROVAL' : 'INFO',
-      status === 'WAITING_APPROVAL' ? 'Sales Order menunggu approval' : 'Sales Order baru dibuat',
-      `${cust.cust_name} — ${rupiah(grandTotal)}${status === 'WAITING_APPROVAL' ? ' (perlu persetujuan manager)' : ' (auto-approved)'}`,
-    )
+    if (status === 'WAITING_APPROVAL') {
+      await notify(supabase, {
+        recipientRole: 'SNM', type: 'APPROVAL', priority: 'HIGH',
+        title: soType === 'PO' ? 'Pre-Order menunggu approval' : 'Sales Order menunggu approval',
+        message: `${so_id} — ${cust.cust_name} — ${rupiah(grandTotal)}${soType === 'PO' ? ' (Pre-Order, stok belum tersedia)' : ' (lewat batas kredit / nilai besar)'}`,
+        sourceRefId: so_id, sourceRefType: 'SO', actionUrl: '/snm/approvals', createdBy: userId,
+      })
+    }
     setShowForm(false)
     resetForm()
-    await loadAll()
+    await Promise.all([loadAll(), loadRefs()])
   }
 
   async function openDetail(o: SalesOrder) {
     setDetail(o)
     setDetailItems([])
     const { data } = await supabase
-      .from('sales_order_items')
-      .select('id, product_id, qty_order, unit_price, subtotal, products(name, sku, unit)')
-      .eq('so_id', o.id)
+      .from('tr_so_detail')
+      .select('so_detail_id, product_id, qty_order, unit_price, subtotal, ms_product(product_name, uom)')
+      .eq('so_id', o.so_id)
     setDetailItems((data as unknown as SoItem[]) ?? [])
   }
 
   async function refreshDetail(soId: string) {
     await loadAll()
-    const { data } = await supabase.from('sales_orders').select('*, customers(cust_name, cust_code, address, payment_term)').eq('id', soId).single()
-    if (data) setDetail(data as SalesOrder)
+    const { data } = await supabase.from('tr_so_header')
+      .select('so_id, cust_id, so_date, so_type, approval_status, grand_total, rejection_reason, created_at, ms_customer(cust_name, address, payment_term)')
+      .eq('so_id', soId).single()
+    if (data) setDetail(data as unknown as SalesOrder)
   }
 
-  // UC-SLS-08: Approve
-  async function approveSO(o: SalesOrder) {
-    setBusy(true)
-    const { data: auth } = await supabase.auth.getUser()
-    const { error } = await supabase.from('sales_orders')
-      .update({ approval_status: 'APPROVED', approved_by: auth.user?.id ?? null, approved_at: new Date().toISOString(), rejection_reason: null })
-      .eq('id', o.id)
-    setBusy(false)
-    if (error) { alert(error.message); return }
-    await notify('SO_APPROVED', 'Sales Order disetujui', `${o.so_number} telah disetujui Sales Manager.`)
-    await refreshDetail(o.id)
-  }
-  // UC-SLS-08 alt: Reject
-  async function rejectSO(o: SalesOrder) {
-    const reason = prompt('Alasan penolakan (wajib):')
-    if (!reason || !reason.trim()) return
-    setBusy(true)
-    const { error } = await supabase.from('sales_orders')
-      .update({ approval_status: 'REJECTED_CREDIT', rejection_reason: reason.trim() })
-      .eq('id', o.id)
-    setBusy(false)
-    if (error) { alert(error.message); return }
-    await notify('SO_REJECTED', 'Sales Order ditolak', `${o.so_number}: ${reason.trim()}`)
-    await refreshDetail(o.id)
-  }
   // UC-SLS-07: Cancel
   async function cancelSO(o: SalesOrder) {
-    if (doBySo[o.id]) { alert('SO tidak dapat dibatalkan karena Delivery Order sudah diterbitkan.'); return }
+    if (doBySo[o.so_id]) { alert('SO tidak dapat dibatalkan karena Delivery Order sudah diterbitkan.'); return }
     const reason = prompt('Alasan pembatalan (wajib):')
     if (!reason || !reason.trim()) return
     setBusy(true)
-    const { error } = await supabase.from('sales_orders')
+    const { error } = await supabase.from('tr_so_header')
       .update({ approval_status: 'CANCELLED', rejection_reason: reason.trim(), cancelled_at: new Date().toISOString() })
-      .eq('id', o.id)
+      .eq('so_id', o.so_id)
     setBusy(false)
     if (error) { alert(error.message); return }
-    await refreshDetail(o.id)
+    await refreshDetail(o.so_id)
   }
-  // UC-SLS-10: Terbitkan Delivery Order
+
+  // UC-SLS-10: Issue Delivery Order → notify Staf Gudang (modul Inventory)
   async function issueDO(o: SalesOrder) {
     setBusy(true)
-    const { data: auth } = await supabase.auth.getUser()
-    const { error } = await supabase.from('delivery_orders').insert({
-      so_id: o.id,
-      delivery_address: o.customers?.address ?? null,
+    const do_id = await genDocId(supabase, 'tr_delivery_order', 'do_id', 'DO')
+    const { error } = await supabase.from('tr_delivery_order').insert({
+      do_id,
+      so_id: o.so_id,
+      warehouse_id: FG_WAREHOUSE,
+      do_date: new Date().toISOString(),
+      delivery_address: o.ms_customer?.address ?? null,
       status: 'CREATED',
-      created_by: auth.user?.id ?? null,
+      created_by: userId,
     })
     setBusy(false)
     if (error) { alert(error.message); return }
-    await notify('DELIVERY', 'Delivery Order diterbitkan', `${o.so_number} siap diproses pengirimannya oleh gudang.`)
-    await refreshDetail(o.id)
+    await notify(supabase, {
+      recipientRole: 'Staf Gudang', type: 'INFORMATION', priority: 'HIGH', sourceModule: 'SNM',
+      title: 'Instruksi pengiriman baru (Delivery Order)',
+      message: `${do_id} dari ${o.so_id} (${o.ms_customer?.cust_name ?? ''}) siap diproses pengirimannya.`,
+      sourceRefId: do_id, sourceRefType: 'DO', actionUrl: '/inventory/shipping', createdBy: userId,
+    })
+    await notify(supabase, {
+      recipientRole: 'SNM', type: 'INFORMATION',
+      title: 'Delivery Order diterbitkan', message: `${do_id} untuk ${o.so_id} diteruskan ke gudang.`,
+      sourceRefId: do_id, sourceRefType: 'DO', actionUrl: '/snm/deliveries', createdBy: userId,
+    })
+    await refreshDetail(o.so_id)
   }
-  // Update status DO (normalnya oleh Staf Gudang / modul Inventory)
-  async function updateDOStatus(d: DeliveryOrder, status: string) {
-    setBusy(true)
-    const patch: Record<string, unknown> = { status }
-    if (status === 'DELIVERED') patch.delivered_at = new Date().toISOString()
-    const { error } = await supabase.from('delivery_orders').update(patch).eq('id', d.id)
-    setBusy(false)
-    if (error) { alert(error.message); return }
-    if (status === 'DELIVERED') await notify('DELIVERY', 'Barang telah diterima customer', `${d.do_number} berstatus Delivered — invoice siap diterbitkan.`)
-    await refreshDetail(d.so_id)
-  }
-  // UC-SLS-12 (+UC-SLS-13 transmisi ke Finance otomatis)
+
+  // UC-SLS-12 + UC-SLS-13: Issue invoice and transmit receivable to Finance (piutang)
   async function createInvoice(o: SalesOrder, d: DeliveryOrder) {
     if (d.status !== 'DELIVERED') { alert('Invoice hanya dapat dibuat setelah DO berstatus Delivered.'); return }
     setBusy(true)
-    const term = o.customers?.payment_term ?? 'NET_30'
-    const days = term === 'COD' ? 0 : parseInt(term.replace('NET_', ''), 10) || 0
-    const due = new Date(); due.setDate(due.getDate() + days)
-    const { data: auth } = await supabase.auth.getUser()
-    const { error } = await supabase.from('sales_invoices').insert({
-      so_id: o.id,
-      do_id: d.id,
-      customer_id: o.customer_id,
+    const term = o.ms_customer?.payment_term ?? 'NET_30'
+    const today = new Date()
+    const due = new Date(today); due.setDate(due.getDate() + termDays(term))
+    const inv_id = await genDocId(supabase, 'tr_sales_invoice', 'inv_id', 'INV')
+    const dueStr = due.toISOString().slice(0, 10)
+    const { error } = await supabase.from('tr_sales_invoice').insert({
+      inv_id,
+      invoice_number: invoiceNumberFromId(inv_id),
+      so_id: o.so_id,
+      do_id: d.do_id,
+      cust_id: o.cust_id,
+      inv_date: today.toISOString().slice(0, 10),
+      due_date: dueStr,
       grand_total: o.grand_total,
       payment_status: 'UNPAID',
       payment_term: term,
-      due_date: due.toISOString().slice(0, 10),
-      sent_finance_at: new Date().toISOString(), // transmisi ke Finance (UC-SLS-13)
-      created_by: auth.user?.id ?? null,
+      finance_status: 'SUBMITTED',
+      sent_finance_at: new Date().toISOString(), // UC-SLS-13 transmit timestamp
+      created_by: userId,
+    })
+    if (error) { setBusy(false); alert(error.message); return }
+
+    // UC-SLS-13: transmit receivable to Finance module (piutang ledger)
+    const { error: pErr } = await supabase.from('piutang').insert({
+      inv_id,
+      cust_id: o.cust_id,
+      amount: o.grand_total,
+      due_date: dueStr,
+      status: 'OUTSTANDING',
+      created_date: today.toISOString().slice(0, 10),
     })
     setBusy(false)
-    if (error) { alert(error.message); return }
-    await notify('INVOICE', 'Sales Invoice diterbitkan', `${o.so_number}: ${rupiah(o.grand_total)} ditransmisikan ke Finance.`)
-    await refreshDetail(o.id)
+    if (pErr) {
+      // invoice is created; surface the transmission issue but don't roll back
+      alert('Invoice dibuat, namun transmisi piutang ke Finance gagal: ' + pErr.message)
+    }
+    await notify(supabase, {
+      recipientRole: 'Account Receivable', type: 'INFORMATION', priority: 'HIGH', sourceModule: 'SNM',
+      title: 'Piutang baru dari penjualan', message: `${inv_id} — ${o.ms_customer?.cust_name ?? ''} — ${rupiah(o.grand_total)} (jatuh tempo ${dueStr}).`,
+      sourceRefId: inv_id, sourceRefType: 'INVOICE', actionUrl: '/finance/account-receivable', createdBy: userId,
+    })
+    await notify(supabase, {
+      recipientRole: 'SNM', type: 'INFORMATION',
+      title: 'Sales Invoice diterbitkan', message: `${inv_id}: ${rupiah(o.grand_total)} ditransmisikan otomatis ke Finance.`,
+      sourceRefId: inv_id, sourceRefType: 'INVOICE', actionUrl: '/snm/invoices', createdBy: userId,
+    })
+    await refreshDetail(o.so_id)
   }
 
   const TABS = [
@@ -324,8 +353,8 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
     { key: 'CANCELLED', label: 'Dibatalkan' },
   ]
 
-  const detailDO = detail ? doBySo[detail.id] : undefined
-  const detailInv = detail ? invBySo[detail.id] : undefined
+  const detailDO = detail ? doBySo[detail.so_id] : undefined
+  const detailInv = detail ? invBySo[detail.so_id] : undefined
 
   return (
     <ModuleLayout
@@ -379,44 +408,50 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
                     <th className="px-6 py-3.5 font-medium">No. SO</th>
                     <th className="px-6 py-3.5 font-medium">Customer</th>
                     <th className="px-6 py-3.5 font-medium">Tanggal</th>
+                    <th className="px-6 py-3.5 font-medium">Tipe</th>
                     <th className="px-6 py-3.5 font-medium text-right">Grand Total</th>
                     <th className="px-6 py-3.5 font-medium">Status SO</th>
                     <th className="px-6 py-3.5 font-medium">Pengiriman</th>
                     <th className="px-6 py-3.5 font-medium">Invoice</th>
-                    <th className="px-6 py-3.5 font-medium text-right">Aksi</th>
+                    <th className="px-6 py-3.5 font-medium">Delivery / Invoice</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
-                    <tr><td colSpan={8} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
+                    <tr><td colSpan={9} className="px-6 py-16 text-center text-slate-400 text-sm">Memuat data…</td></tr>
                   ) : filtered.length === 0 ? (
-                    <tr><td colSpan={8} className="px-6 py-16 text-center text-slate-400">
+                    <tr><td colSpan={9} className="px-6 py-16 text-center text-slate-400">
                       <ClipboardText className="w-10 h-10 mx-auto mb-3 opacity-30" />
                       <p className="text-sm font-medium">Belum ada Sales Order</p>
                       <p className="text-xs mt-1">Klik “Buat Sales Order” untuk menginput pesanan customer</p>
                     </td></tr>
                   ) : filtered.map((o) => {
-                    const d = doBySo[o.id]; const inv = invBySo[o.id]
+                    const d = doBySo[o.so_id]; const inv = invBySo[o.so_id]
                     return (
-                      <tr key={o.id} className="hover:bg-slate-50/60 transition-colors group cursor-pointer" onClick={() => openDetail(o)}>
+                      <tr key={o.so_id} className="hover:bg-slate-50/60 transition-colors group cursor-pointer" onClick={() => openDetail(o)}>
                         <td className="px-6 py-4">
-                          <span className="font-mono font-semibold text-slate-900 text-xs bg-slate-100 px-2 py-0.5 rounded-md">{o.so_number}</span>
+                          <span className="font-mono font-semibold text-slate-900 text-xs bg-slate-100 px-2 py-0.5 rounded-md">{o.so_id}</span>
                         </td>
-                        <td className="px-6 py-4 font-medium text-slate-900">{o.customers?.cust_name ?? '—'}</td>
+                        <td className="px-6 py-4 font-medium text-slate-900">{o.ms_customer?.cust_name ?? '—'}</td>
                         <td className="px-6 py-4 text-slate-500 text-xs">{fmtDate(o.so_date)}</td>
+                        <td className="px-6 py-4">
+                          {o.so_type === 'PO'
+                            ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">Pre-Order</span>
+                            : <span className="text-slate-400 text-xs">Regular</span>}
+                        </td>
                         <td className="px-6 py-4 text-right tabular-nums font-medium text-slate-900">{rupiah(o.grand_total)}</td>
                         <td className="px-6 py-4">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[o.approval_status]}`}>{STATUS_LABEL[o.approval_status]}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${SO_STATUS_BADGE[o.approval_status]}`}>{SO_STATUS_LABEL[o.approval_status]}</span>
                         </td>
                         <td className="px-6 py-4">
                           {d ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${DO_BADGE[d.status]}`}>{d.status}</span> : <span className="text-slate-300 text-xs">—</span>}
                         </td>
                         <td className="px-6 py-4">
-                          {inv ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{inv.payment_status}</span> : <span className="text-slate-300 text-xs">—</span>}
+                          {inv ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${PAYMENT_BADGE[inv.payment_status] ?? 'bg-slate-100 text-slate-600'}`}>{inv.payment_status}</span> : <span className="text-slate-300 text-xs">—</span>}
                         </td>
-                        <td className="px-6 py-4 text-right">
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700" onClick={(e) => { e.stopPropagation(); openDetail(o) }}>
-                            <Eye className="w-4 h-4" />
+                        <td className="px-6 py-4">
+                          <Button onClick={(e) => { e.stopPropagation(); openDetail(o) }} className="bg-[#dc2626] hover:bg-[#b91c1c] text-white h-10 px-2 gap-2">
+                            <Plus className="w-4 h-4" weight="bold" /> Buat
                           </Button>
                         </td>
                       </tr>
@@ -429,7 +464,7 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
         </Card>
       </div>
 
-      {/* CREATE SO MODAL — UC-SLS-05 / 06 */}
+      {/* CREATE SO MODAL — UC-SLS-05 / 05A / 06 */}
       {showForm && (
         <>
           <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-50" onClick={() => setShowForm(false)} />
@@ -444,7 +479,7 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">Customer</label>
                   <select value={custId} onChange={(e) => setCustId(e.target.value)} className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
                     <option value="">— Pilih Customer —</option>
-                    {customers.map((c) => <option key={c.id} value={c.id}>{c.cust_name} ({c.cust_code})</option>)}
+                    {customers.map((c) => <option key={c.cust_id} value={c.cust_id}>{c.cust_name} ({c.cust_id})</option>)}
                   </select>
                 </div>
 
@@ -472,7 +507,7 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
                   </div>
                   <div className="space-y-2">
                     {lines.map((l, i) => {
-                      const p = products.find((pr) => pr.id === l.product_id)
+                      const p = products.find((pr) => pr.product_id === l.product_id)
                       const qty = Number(l.qty || 0)
                       const insufficient = p ? qty > p.stock_qty : false
                       return (
@@ -480,18 +515,20 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
                           <div className="flex-1">
                             <select value={l.product_id} onChange={(e) => updateLine(i, { product_id: e.target.value })} className="w-full h-9 px-2 border border-slate-200 rounded-md text-sm bg-white">
                               <option value="">— Pilih Produk (FG) —</option>
-                              {products.map((pr) => <option key={pr.id} value={pr.id}>{pr.name} · stok {pr.stock_qty}</option>)}
+                              {products.map((pr) => <option key={pr.product_id} value={pr.product_id}>{pr.product_name} · stok {pr.stock_qty}</option>)}
                             </select>
                             {p && (
                               <p className={`text-[11px] mt-1 ${insufficient ? 'text-[#dc2626]' : 'text-slate-400'}`}>
-                                {rupiah(p.selling_price)}/{p.unit} · stok {p.stock_qty}
+                                {rupiah(p.unit_price)}/{p.uom}
+                                {p.discount_pct > 0 && <span className="text-slate-400"> (list {rupiah(p.list_price)} −{p.discount_pct}%)</span>}
+                                {' · '}stok {p.stock_qty}
                                 {insufficient && ' · stok tidak mencukupi'}
                               </p>
                             )}
                           </div>
                           <Input type="number" value={l.qty} onChange={(e) => updateLine(i, { qty: e.target.value })} placeholder="Qty" className="w-24 h-9 border-slate-200" />
                           <div className="w-28 h-9 flex items-center justify-end text-sm tabular-nums text-slate-600">
-                            {p ? rupiah(p.selling_price * qty) : '—'}
+                            {p ? rupiah(p.unit_price * qty) : '—'}
                           </div>
                           <button onClick={() => removeLine(i)} className="h-9 w-9 flex items-center justify-center text-slate-300 hover:text-[#dc2626]" disabled={lines.length === 1}>
                             <Trash className="w-4 h-4" />
@@ -502,6 +539,17 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
                   </div>
                 </div>
 
+                {/* UC-SLS-05A pre-order option */}
+                {hasInsufficientStock && (
+                  <div className="rounded-lg border border-purple-200 bg-purple-50 px-4 py-3 text-xs text-purple-800 space-y-2">
+                    <p className="flex items-center gap-1.5 font-medium"><Factory className="w-4 h-4" weight="fill" /> Stok tidak mencukupi untuk salah satu item.</p>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={preOrder} onChange={(e) => setPreOrder(e.target.checked)} />
+                      Buat sebagai <b>Pre-Order</b> — pesanan diteruskan ke Sales Manager &amp; permintaan produksi dibuat saat disetujui.
+                    </label>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between border-t border-slate-100 pt-4">
                   <span className="text-sm font-medium text-slate-600">Grand Total</span>
                   <span className="text-xl font-bold text-slate-900 tabular-nums">{rupiah(computedTotal)}</span>
@@ -509,7 +557,9 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
 
                 {selectedCust && computedTotal > 0 && (
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-                    {computedTotal + selectedCust.outstanding_receivable <= selectedCust.credit_limit && computedTotal < SINGLE_TXN_LIMIT ? (
+                    {preOrder ? (
+                      <span className="text-purple-700 flex items-center gap-1.5"><Factory className="w-4 h-4" weight="fill" /> Pre-Order → SO masuk antrian <b>WAITING_APPROVAL</b> (perlu persetujuan Sales Manager).</span>
+                    ) : computedTotal + selectedCust.outstanding_receivable <= selectedCust.credit_limit && computedTotal < SINGLE_TXN_LIMIT ? (
                       <span className="text-green-700 flex items-center gap-1.5"><CheckCircle className="w-4 h-4" weight="fill" /> Lolos validasi kredit → SO akan langsung <b>APPROVED</b>.</span>
                     ) : (
                       <span className="text-amber-700 flex items-center gap-1.5"><Warning className="w-4 h-4" weight="fill" /> Melebihi batas kredit / nilai ≥ {rupiah(SINGLE_TXN_LIMIT)} → SO masuk antrian <b>WAITING_APPROVAL</b>.</span>
@@ -541,14 +591,14 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
           <div className="fixed inset-y-0 right-0 w-[480px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200">
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <p className="text-xs text-slate-400 font-mono">{detail.so_number}</p>
-                <h2 className="text-lg font-semibold text-slate-900 mt-0.5">{detail.customers?.cust_name}</h2>
+                <p className="text-xs text-slate-400 font-mono">{detail.so_id}{detail.so_type === 'PO' ? ' · Pre-Order' : ''}</p>
+                <h2 className="text-lg font-semibold text-slate-900 mt-0.5">{detail.ms_customer?.cust_name}</h2>
               </div>
               <button onClick={() => setDetail(null)} className="p-2 rounded-full hover:bg-slate-100 text-slate-400"><X className="w-5 h-5" /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
               <div className="flex items-center gap-2">
-                <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_BADGE[detail.approval_status]}`}>{STATUS_LABEL[detail.approval_status]}</span>
+                <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${SO_STATUS_BADGE[detail.approval_status]}`}>{SO_STATUS_LABEL[detail.approval_status]}</span>
                 <span className="text-xs text-slate-400">{fmtDate(detail.so_date)}</span>
               </div>
 
@@ -563,10 +613,10 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
                 <div className="bg-slate-50 px-4 py-2 text-xs font-medium text-slate-500 flex items-center gap-1.5"><Package className="w-3.5 h-3.5" /> Item Pesanan</div>
                 <div className="divide-y divide-slate-50">
                   {detailItems.map((it) => (
-                    <div key={it.id} className="px-4 py-3 flex items-center justify-between text-sm">
+                    <div key={it.so_detail_id} className="px-4 py-3 flex items-center justify-between text-sm">
                       <div>
-                        <p className="font-medium text-slate-800">{it.products?.name}</p>
-                        <p className="text-xs text-slate-400">{it.qty_order} {it.products?.unit} × {rupiah(it.unit_price)}</p>
+                        <p className="font-medium text-slate-800">{it.ms_product?.product_name}</p>
+                        <p className="text-xs text-slate-400">{it.qty_order} {it.ms_product?.uom} × {rupiah(it.unit_price)}</p>
                       </div>
                       <span className="tabular-nums text-slate-700">{rupiah(it.subtotal)}</span>
                     </div>
@@ -582,29 +632,19 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
               {detailDO && (
                 <div className="border border-slate-100 rounded-xl p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> {detailDO.do_number}</span>
+                    <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> {detailDO.do_id}</span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${DO_BADGE[detailDO.status]}`}>{detailDO.status}</span>
                   </div>
-                  {detailDO.status !== 'DELIVERED' && detailDO.status !== 'RETURNED' && (
-                    <div className="flex gap-2">
-                      {detailDO.status === 'CREATED' && (
-                        <Button variant="outline" size="sm" className="h-8 border-slate-200 text-xs" disabled={busy} onClick={() => updateDOStatus(detailDO, 'SENT')}>Tandai Dikirim (Sent)</Button>
-                      )}
-                      {detailDO.status === 'SENT' && (
-                        <Button variant="outline" size="sm" className="h-8 border-slate-200 text-xs" disabled={busy} onClick={() => updateDOStatus(detailDO, 'DELIVERED')}>Tandai Diterima (Delivered)</Button>
-                      )}
-                    </div>
-                  )}
-                  <p className="text-[11px] text-slate-400">Pembaruan status pengiriman normalnya dilakukan Staf Gudang (modul Inventory).</p>
+                  <p className="text-[11px] text-slate-400">Pembaruan status pengiriman dilakukan Staf Gudang (modul Inventory).</p>
                 </div>
               )}
 
               {/* Invoice */}
               {detailInv && (
                 <div className="border border-slate-100 rounded-xl p-4 flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><Receipt className="w-3.5 h-3.5" /> {detailInv.inv_number}</span>
+                  <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><Receipt className="w-3.5 h-3.5" /> {detailInv.invoice_number ?? detailInv.inv_id}</span>
                   <div className="text-right">
-                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{detailInv.payment_status}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${PAYMENT_BADGE[detailInv.payment_status] ?? 'bg-slate-100 text-slate-600'}`}>{detailInv.payment_status}</span>
                     <p className="text-[11px] text-slate-400 mt-1">Jatuh tempo {fmtDate(detailInv.due_date)}</p>
                   </div>
                 </div>
@@ -614,14 +654,7 @@ export function SalesClient({ initialStatus }: { initialStatus?: string }) {
             {/* action footer */}
             <div className="p-6 border-t border-slate-100 space-y-2">
               {detail.approval_status === 'WAITING_APPROVAL' && (
-                <div className="flex gap-2">
-                  <Button className="flex-1 h-10 bg-green-600 hover:bg-green-700 text-white" disabled={busy} onClick={() => approveSO(detail)}>
-                    <CheckCircle className="w-4 h-4 mr-1.5" weight="fill" /> Setujui
-                  </Button>
-                  <Button variant="outline" className="flex-1 h-10 border-red-200 text-red-600 hover:bg-red-50" disabled={busy} onClick={() => rejectSO(detail)}>
-                    <XCircle className="w-4 h-4 mr-1.5" /> Tolak
-                  </Button>
-                </div>
+                <p className="text-xs text-slate-400 text-center">Persetujuan dilakukan di halaman <b>Approval Manager</b>.</p>
               )}
               {detail.approval_status === 'APPROVED' && !detailDO && (
                 <Button className="w-full h-10 bg-[#dc2626] hover:bg-[#b91c1c] text-white" disabled={busy} onClick={() => issueDO(detail)}>

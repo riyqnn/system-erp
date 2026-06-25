@@ -11,45 +11,36 @@ import { Input } from '@/components/ui/input'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 import { createClient } from '@/lib/supabase/client'
+import {
+  rupiah, genCustId, loadOutstandingByCustomer,
+  CATEGORY_LABEL, CATEGORY_COLORS, CUSTOMER_CATEGORIES, PAYMENT_TERMS,
+} from '@/lib/snm'
 
+type Category = 'MODERN_TRADE' | 'GENERAL_TRADE' | 'AGEN_DISTRIBUTOR'
+type PaymentTerm = 'COD' | 'NET_7' | 'NET_14' | 'NET_30' | 'NET_45'
+
+// ms_customer row + computed credit info
 type Customer = {
-  id: string
-  cust_code: string
+  cust_id: string
   cust_name: string
-  category: 'MODERN_TRADE' | 'GENERAL_TRADE' | 'AGEN_DISTRIBUTOR'
+  category: Category
   address: string | null
   wilayah: string | null
   credit_limit: number
-  payment_term: 'COD' | 'NET_7' | 'NET_14' | 'NET_30' | 'NET_45'
-  is_active: boolean
+  payment_term: PaymentTerm
+  status_aktif: number
   outstanding_receivable: number
   available_credit: number
 }
 
-const CATEGORY_LABEL: Record<string, string> = {
-  MODERN_TRADE: 'Modern Trade',
-  GENERAL_TRADE: 'General Trade',
-  AGEN_DISTRIBUTOR: 'Agen Distributor',
-}
-const CATEGORY_COLORS: Record<string, string> = {
-  MODERN_TRADE: 'bg-blue-50 text-blue-700',
-  GENERAL_TRADE: 'bg-amber-50 text-amber-700',
-  AGEN_DISTRIBUTOR: 'bg-purple-50 text-purple-700',
-}
-const PAYMENT_TERMS = ['COD', 'NET_7', 'NET_14', 'NET_30', 'NET_45'] as const
-const CATEGORIES = ['MODERN_TRADE', 'GENERAL_TRADE', 'AGEN_DISTRIBUTOR'] as const
-
-const rupiah = (n: number) =>
-  'Rp ' + Math.round(n || 0).toLocaleString('id-ID')
-
 type FormState = {
   cust_name: string
-  category: Customer['category']
+  category: Category
   address: string
   wilayah: string
   credit_limit: string
-  payment_term: Customer['payment_term']
-  is_active: boolean
+  payment_term: PaymentTerm
+  status_aktif: boolean
 }
 
 const emptyForm: FormState = {
@@ -59,16 +50,16 @@ const emptyForm: FormState = {
   wilayah: '',
   credit_limit: '',
   payment_term: 'NET_30',
-  is_active: true,
+  status_aktif: true,
 }
 
-export function CustomersClient({ initialCategory }: { initialCategory?: string }) {
+export function CustomersClient({ initialCategory, userId }: { initialCategory?: string; userId: number }) {
   const supabase = useMemo(() => createClient(), [])
   const [rows, setRows] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [catFilter, setCatFilter] = useState<string>(
-    initialCategory && CATEGORIES.includes(initialCategory as never) ? initialCategory : 'All'
+    initialCategory && CUSTOMER_CATEGORIES.includes(initialCategory as never) ? initialCategory : 'All'
   )
   const [error, setError] = useState<string | null>(null)
 
@@ -82,12 +73,19 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
   const load = async () => {
     setLoading(true)
     setError(null)
-    const { data, error } = await supabase
-      .from('v_customer_credit')
-      .select('*')
-      .order('created_at', { ascending: false })
-    if (error) setError(error.message)
-    else setRows((data as Customer[]) ?? [])
+    const [custRes, outstanding] = await Promise.all([
+      supabase
+        .from('ms_customer')
+        .select('cust_id, cust_name, category, address, wilayah, credit_limit, payment_term, status_aktif, created_at')
+        .order('created_at', { ascending: false }),
+      loadOutstandingByCustomer(supabase),
+    ])
+    if (custRes.error) { setError(custRes.error.message); setLoading(false); return }
+    const list = (custRes.data as Omit<Customer, 'outstanding_receivable' | 'available_credit'>[] ?? []).map((c) => {
+      const out = outstanding[c.cust_id] ?? 0
+      return { ...c, outstanding_receivable: out, available_credit: (c.credit_limit || 0) - out }
+    })
+    setRows(list)
     setLoading(false)
   }
 
@@ -100,13 +98,13 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
     const q = search.toLowerCase()
     const matchSearch =
       c.cust_name.toLowerCase().includes(q) ||
-      c.cust_code.toLowerCase().includes(q) ||
+      c.cust_id.toLowerCase().includes(q) ||
       (c.wilayah ?? '').toLowerCase().includes(q)
     const matchCat = catFilter === 'All' || c.category === catFilter
     return matchSearch && matchCat
   })
 
-  const activeCount = rows.filter((c) => c.is_active).length
+  const activeCount = rows.filter((c) => c.status_aktif === 1).length
   const overLimit = rows.filter((c) => c.available_credit < 0).length
 
   function openCreate() {
@@ -124,12 +122,13 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
       wilayah: c.wilayah ?? '',
       credit_limit: String(c.credit_limit ?? 0),
       payment_term: c.payment_term,
-      is_active: c.is_active,
+      status_aktif: c.status_aktif === 1,
     })
     setFormError(null)
     setShowForm(true)
   }
 
+  // UC-SLS-01: create / update master customer
   async function handleSave() {
     setFormError(null)
     if (!form.cust_name.trim()) { setFormError('Nama customer wajib diisi.'); return }
@@ -144,17 +143,15 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
       wilayah: form.wilayah.trim() || null,
       credit_limit: credit,
       payment_term: form.payment_term,
-      is_active: form.is_active,
+      status_aktif: form.status_aktif ? 1 : 0,
     }
 
     let err
     if (editing) {
-      ;({ error: err } = await supabase.from('customers').update(payload).eq('id', editing.id))
+      ;({ error: err } = await supabase.from('ms_customer').update(payload).eq('cust_id', editing.cust_id))
     } else {
-      const { data: auth } = await supabase.auth.getUser()
-      ;({ error: err } = await supabase
-        .from('customers')
-        .insert({ ...payload, created_by: auth.user?.id ?? null }))
+      const cust_id = await genCustId(supabase)
+      ;({ error: err } = await supabase.from('ms_customer').insert({ cust_id, ...payload, created_by: userId }))
     }
     setSaving(false)
     if (err) { setFormError(err.message); return }
@@ -162,26 +159,24 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
     await load()
   }
 
-  // UC-01 alt 3b: tolak nonaktif kalau ada SO aktif
+  // UC-SLS-01 alt 3b: refuse deactivation when active SOs exist
   async function toggleActive(c: Customer) {
-    if (c.is_active) {
+    if (c.status_aktif === 1) {
       const { count } = await supabase
-        .from('sales_orders')
-        .select('id', { count: 'exact', head: true })
-        .eq('customer_id', c.id)
+        .from('tr_so_header')
+        .select('so_id', { count: 'exact', head: true })
+        .eq('cust_id', c.cust_id)
         .in('approval_status', ['DRAFT', 'WAITING_APPROVAL', 'APPROVED'])
       if ((count ?? 0) > 0) {
         alert('Customer tidak dapat dinonaktifkan karena masih memiliki Sales Order aktif.')
         return
       }
     }
-    const { error } = await supabase
-      .from('customers')
-      .update({ is_active: !c.is_active })
-      .eq('id', c.id)
+    const newStatus = c.status_aktif === 1 ? 0 : 1
+    const { error } = await supabase.from('ms_customer').update({ status_aktif: newStatus }).eq('cust_id', c.cust_id)
     if (error) { alert(error.message); return }
     await load()
-    if (detail?.id === c.id) setDetail({ ...detail, is_active: !c.is_active })
+    if (detail?.cust_id === c.cust_id) setDetail({ ...detail, status_aktif: newStatus })
   }
 
   return (
@@ -223,7 +218,7 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
             />
           </div>
           <div className="flex gap-2 flex-wrap">
-            {['All', ...CATEGORIES].map((cat) => (
+            {['All', ...CUSTOMER_CATEGORIES].map((cat) => (
               <button
                 key={cat}
                 onClick={() => setCatFilter(cat)}
@@ -273,9 +268,9 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
                       <p className="text-xs mt-1">Klik “Tambah Customer” untuk mendaftarkan pelanggan B2B baru</p>
                     </td></tr>
                   ) : filtered.map((c) => (
-                    <tr key={c.id} className="hover:bg-slate-50/60 transition-colors group">
+                    <tr key={c.cust_id} className="hover:bg-slate-50/60 transition-colors group">
                       <td className="px-6 py-4">
-                        <span className="font-mono font-semibold text-slate-900 text-xs bg-slate-100 px-2 py-0.5 rounded-md">{c.cust_code}</span>
+                        <span className="font-mono font-semibold text-slate-900 text-xs bg-slate-100 px-2 py-0.5 rounded-md">{c.cust_id}</span>
                       </td>
                       <td className="px-6 py-4 font-medium text-slate-900">{c.cust_name}</td>
                       <td className="px-6 py-4">
@@ -290,8 +285,8 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
                       </td>
                       <td className="px-6 py-4 text-slate-500 text-xs">{c.payment_term.replace('_', ' ')}</td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${c.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {c.is_active ? 'Aktif' : 'Nonaktif'}
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${c.status_aktif === 1 ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {c.status_aktif === 1 ? 'Aktif' : 'Nonaktif'}
                         </span>
                       </td>
                       <td className="px-6 py-4">
@@ -302,8 +297,8 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
                           <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-slate-700" onClick={() => openEdit(c)} title="Edit">
                             <PencilSimple className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-[#dc2626] hover:bg-red-50" onClick={() => toggleActive(c)} title={c.is_active ? 'Nonaktifkan' : 'Aktifkan'}>
-                            {c.is_active ? <Prohibit className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-[#dc2626] hover:bg-red-50" onClick={() => toggleActive(c)} title={c.status_aktif === 1 ? 'Nonaktifkan' : 'Aktifkan'}>
+                            {c.status_aktif === 1 ? <Prohibit className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
                           </Button>
                         </div>
                       </td>
@@ -323,7 +318,7 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
           <div className="fixed inset-y-0 right-0 w-[420px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200">
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <p className="text-xs text-slate-400 font-mono">{detail.cust_code}</p>
+                <p className="text-xs text-slate-400 font-mono">{detail.cust_id}</p>
                 <h2 className="text-lg font-semibold text-slate-900 mt-0.5">{detail.cust_name}</h2>
               </div>
               <button onClick={() => setDetail(null)} className="p-2 rounded-full hover:bg-slate-100 text-slate-400">
@@ -336,7 +331,7 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
                   { label: 'Kategori', value: CATEGORY_LABEL[detail.category] },
                   { label: 'Wilayah', value: detail.wilayah || '—' },
                   { label: 'Payment Term', value: detail.payment_term.replace('_', ' ') },
-                  { label: 'Status', value: detail.is_active ? 'Aktif' : 'Nonaktif' },
+                  { label: 'Status', value: detail.status_aktif === 1 ? 'Aktif' : 'Nonaktif' },
                 ].map((f) => (
                   <div key={f.label} className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                     <p className="text-xs text-slate-400 font-medium">{f.label}</p>
@@ -373,7 +368,7 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
                   />
                 </div>
                 <p className="text-xs text-slate-400">
-                  Penetapan credit limit adalah domain modul Finance. Halaman ini hanya referensi pembuatan Sales Order.
+                  Saldo piutang dihitung dari Sales Invoice yang belum lunas. Penetapan credit limit adalah domain modul Finance.
                 </p>
               </div>
             </div>
@@ -404,12 +399,12 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
                 </Field>
                 <div className="grid grid-cols-2 gap-4">
                   <Field label="Kategori">
-                    <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as Customer['category'] })} className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
-                      {CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}
+                    <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as Category })} className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
+                      {CUSTOMER_CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}
                     </select>
                   </Field>
                   <Field label="Payment Term">
-                    <select value={form.payment_term} onChange={(e) => setForm({ ...form, payment_term: e.target.value as Customer['payment_term'] })} className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
+                    <select value={form.payment_term} onChange={(e) => setForm({ ...form, payment_term: e.target.value as PaymentTerm })} className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white">
                       {PAYMENT_TERMS.map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
                     </select>
                   </Field>
@@ -425,7 +420,7 @@ export function CustomersClient({ initialCategory }: { initialCategory?: string 
                 </Field>
                 {editing && (
                   <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+                    <input type="checkbox" checked={form.status_aktif} onChange={(e) => setForm({ ...form, status_aktif: e.target.checked })} />
                     Customer aktif
                   </label>
                 )}

@@ -22,9 +22,9 @@ import { Input } from "@/components/ui/input";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface ProdReqData {
-  production_request_id: number;
+  production_request_id: string | number;
   prd_code: string;
-  product_id: number;
+  product_id: string | number;
   qty_requested: number;
   request_date: string;
   requested_by: string;
@@ -38,7 +38,7 @@ interface ProdReqData {
 }
 
 interface ProductOption {
-  product_id: number;
+  product_id: string | number;
   product_code: string;
   product_name: string;
   category: string;
@@ -136,7 +136,7 @@ export default function ProductionRequestPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prd_code: prdCode,
-          product_id: Number(form.product_id),
+          product_id: form.product_id,
           qty_requested: Number(form.qty_requested),
           request_date: now.toISOString(),
           requested_by: "user_inv01",
@@ -151,7 +151,22 @@ export default function ProductionRequestPage() {
         fetchData();
       } else {
         const json = await res.json();
-        Swal.fire("Error", `Failed: ${json.error}`, "error");
+        if (json.shortage) {
+          Swal.fire({
+            title: "Insufficient Materials!",
+            text: "You cannot start production because some raw materials are out of stock. You will be redirected to create a Purchase Requisition.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Go to PR",
+            confirmButtonColor: "#dc2626"
+          }).then((result) => {
+            if (result.isConfirmed) {
+              window.location.href = '/inventory/purchase-requisition';
+            }
+          });
+        } else {
+          Swal.fire("Error", `Failed: ${json.error}`, "error");
+        }
       }
     } catch {
       Swal.fire("Error", "Network error", "error");
@@ -193,40 +208,59 @@ export default function ProductionRequestPage() {
   const inProgressCount = data.filter((d) => d.status === "In Progress").length;
   const totalQty = data.reduce((a, d) => a + d.qty_requested, 0);
 
-  const selectedProduct = products.find((p) => p.product_id === Number(form.product_id));
+  const selectedProduct = products.find((p) => String(p.product_id) === String(form.product_id));
 
   /* ── Render ───────────────────────────────────────────────────── */
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto px-6 pb-12">
-      {/* Header */}
-      <div className="flex items-end justify-between pt-2">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Production Request</h1>
-          <p className="text-sm text-slate-500 mt-1">Initiate request to replenish Finished Goods (UC-INV-002)</p>
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-8 rounded-full" style={{ width: '4px', backgroundColor: '#dc2626' }} />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.25em]" style={{ color: '#dc2626' }}>
+                Inventory Module
+              </p>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-800">
+                Production Request
+              </h1>
+            </div>
+          </div>
+          <p className="text-sm ml-4 text-slate-500">
+            Initiate request to replenish Finished Goods (UC-INV-002)
+          </p>
         </div>
         <Button
           onClick={() => { setShowCreateModal(true); setSubmitSuccess(null); }}
-          className="bg-red-600 hover:bg-red-700 text-white shadow-sm h-10 px-5 gap-2"
+          className="bg-red-600 hover:bg-red-700 text-white shadow-sm h-10 px-5 gap-2 rounded-xl transition-all"
         >
           <Plus className="w-4 h-4" /> New Request
         </Button>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {[
-          { label: "Pending Verification", value: pendingCount, color: "text-amber-600", bg: "bg-amber-50", icon: Clock },
-          { label: "In Production", value: inProgressCount, color: "text-blue-600", bg: "bg-blue-50", icon: Factory },
-          { label: "Total Qty Requested", value: totalQty.toLocaleString(), color: "text-slate-700", bg: "bg-slate-50", icon: FileText },
+          { label: "Pending Verification", value: pendingCount, color: "text-amber-600", bg: "bg-amber-50", icon: Clock, trend: "+2", trendBg: "bg-amber-50", trendCol: "text-amber-700" },
+          { label: "In Production", value: inProgressCount, color: "text-blue-600", bg: "bg-blue-50", icon: Factory, trend: "Active", trendBg: "bg-blue-50", trendCol: "text-blue-700" },
+          { label: "Total Qty Requested", value: totalQty.toLocaleString(), color: "text-slate-700", bg: "bg-slate-50", icon: FileText, trend: "Total", trendBg: "bg-slate-100", trendCol: "text-slate-600" },
         ].map((kpi, i) => (
-          <Card key={i} className="border-slate-200 shadow-sm">
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className={`w-11 h-11 rounded-xl ${kpi.bg} flex items-center justify-center`}>
-                <kpi.icon className={`w-5 h-5 ${kpi.color}`} />
+          <Card key={i} className="relative">
+            <CardContent className="p-6 flex items-center justify-between relative z-10">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-xl ${kpi.bg} ${kpi.color} flex items-center justify-center`}>
+                    <kpi.icon className="w-4.5 h-4.5" />
+                  </div>
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{kpi.label}</span>
+                </div>
+                <p className="text-3xl font-bold tracking-tight text-slate-800 mt-2">
+                  {kpi.value}
+                </p>
               </div>
-              <div>
-                <p className="text-xs text-slate-500 font-medium">{kpi.label}</p>
-                <p className={`text-xl font-bold ${kpi.color} tabular-nums`}>{kpi.value}</p>
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${kpi.trendBg} ${kpi.trendCol}`}>
+                {kpi.trend}
               </div>
             </CardContent>
           </Card>

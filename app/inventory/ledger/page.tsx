@@ -81,33 +81,63 @@ export default function InventoryLedgerPage() {
   const totalIn = data.filter(d => d.type === "IN").length;
   const totalOut = data.filter(d => d.type === "OUT").length;
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, typeFilter]);
+
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const paginatedData = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   /* ── Render ───────────────────────────────────────────────────── */
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto px-6 pb-12">
-      <div className="flex items-end justify-between pt-2">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Inventory Ledger</h1>
-          <p className="text-sm text-slate-500 mt-1">Audit trail of all historical stock movements (IN/OUT)</p>
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-8 rounded-full" style={{ width: '4px', backgroundColor: '#dc2626' }} />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.25em]" style={{ color: '#dc2626' }}>
+                Inventory Module
+              </p>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-800">
+                Inventory Ledger
+              </h1>
+            </div>
+          </div>
+          <p className="text-sm ml-4 text-slate-500">
+            Audit trail of all historical stock movements (IN/OUT)
+          </p>
         </div>
-        <Button variant="outline" className="h-10 px-5 gap-2 bg-white">
+        <Button variant="outline" className="h-10 px-5 gap-2 bg-white rounded-xl hover:shadow-sm transition-shadow">
           <Download className="w-4 h-4" /> Download CSV
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {[
-          { label: "Total Transactions", value: data.length, color: "text-slate-700", bg: "bg-slate-100", icon: BookOpen },
-          { label: "Total IN Movements", value: totalIn, color: "text-emerald-600", bg: "bg-emerald-50", icon: ArrowDownLeft },
-          { label: "Total OUT Movements", value: totalOut, color: "text-red-600", bg: "bg-red-50", icon: ArrowUpRight },
+          { label: "Total Transactions", value: data.length, color: "text-slate-700", bg: "bg-slate-50", icon: BookOpen, trend: "All", trendBg: "bg-slate-100", trendCol: "text-slate-600" },
+          { label: "Total IN Movements", value: totalIn, color: "text-emerald-600", bg: "bg-emerald-50", icon: ArrowDownLeft, trend: "IN", trendBg: "bg-emerald-50", trendCol: "text-emerald-700" },
+          { label: "Total OUT Movements", value: totalOut, color: "text-red-600", bg: "bg-red-50", icon: ArrowUpRight, trend: "OUT", trendBg: "bg-red-50", trendCol: "text-red-700" },
         ].map((kpi, i) => (
-          <Card key={i} className="border-slate-200 shadow-sm">
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${kpi.bg}`}>
-                <kpi.icon className={`w-5 h-5 ${kpi.color}`} />
+          <Card key={i} className="relative">
+            <CardContent className="p-6 flex items-center justify-between relative z-10">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-xl ${kpi.bg} ${kpi.color} flex items-center justify-center`}>
+                    <kpi.icon className="w-4.5 h-4.5" />
+                  </div>
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{kpi.label}</span>
+                </div>
+                <p className="text-3xl font-bold tracking-tight text-slate-800 mt-2">
+                  {kpi.value.toLocaleString()}
+                </p>
               </div>
-              <div>
-                <p className="text-xs text-slate-500 font-medium">{kpi.label}</p>
-                <p className={`text-xl font-bold tabular-nums ${kpi.color}`}>{kpi.value.toLocaleString()}</p>
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${kpi.trendBg} ${kpi.trendCol}`}>
+                {kpi.trend}
               </div>
             </CardContent>
           </Card>
@@ -161,12 +191,12 @@ export default function InventoryLedgerPage() {
                   <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
                     <RefreshCw className="w-6 h-6 mx-auto mb-3 animate-spin opacity-50" /><p>Loading ledger...</p>
                   </td></tr>
-                ) : filtered.length === 0 ? (
+                ) : paginatedData.length === 0 ? (
                   <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
                     <Calendar className="w-10 h-10 mx-auto mb-3 opacity-30" /><p className="text-sm font-medium">No transactions found</p>
                   </td></tr>
                 ) : (
-                  filtered.map((d) => (
+                  paginatedData.map((d) => (
                     <tr key={d.movement_id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4 text-slate-600 text-xs">
                         {new Date(d.movement_date).toLocaleString("id-ID", {
@@ -208,6 +238,37 @@ export default function InventoryLedgerPage() {
             </table>
           </div>
         </CardContent>
+        {/* Pagination Controls */}
+        {!loading && filtered.length > itemsPerPage && (
+          <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <span className="text-sm text-slate-500">
+              Showing <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to{" "}
+              <span className="font-medium">{Math.min(currentPage * itemsPerPage, filtered.length)}</span> of{" "}
+              <span className="font-medium">{filtered.length}</span> results
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-slate-600 font-medium px-2">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

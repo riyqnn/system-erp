@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -165,37 +166,59 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch goods receipts',
-          error: errors[0]?.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )
     }
 
-    const receipts = receiptResult.data || []
-    const purchaseOrders = poResult.data || []
-    const poDetails = poDetailResult.data || []
-    const suppliers = supplierResult.data || []
-    const products = productResult.data || []
+    const goodsReceipts = (data || []).map((item: AnyObject) => {
+      const receiptItems = item.purchasing_goods_receipt_items || []
+      const firstItem = receiptItems[0]
+      const po = item.purchasing_purchase_orders
 
-    const supplierMap = new Map(suppliers.map((supplier: any) => [supplier.supplier_id, supplier]))
-    const productMap = new Map(products.map((product: any) => [product.product_id, product]))
+      return {
+        id: item.id,
+        grNo: item.gr_number,
+        receiptDate: item.receipt_date,
+        receivedBy: item.received_by_name || '-',
+        status: item.status,
+        notes: item.notes || '-',
 
-    const detailsByPO = new Map<string, any[]>()
+        poNo: po?.po_number || '-',
+        poDate: po?.po_date || null,
+        expectedDeliveryDate: po?.expected_delivery_date || null,
+        poStatus: po?.status || '-',
+        totalValue: po?.total_value || 0,
 
-    poDetails.forEach((detail: any) => {
-      const poId = String(detail.po_id || '')
-      const currentDetails = detailsByPO.get(poId) || []
-      currentDetails.push(detail)
-      detailsByPO.set(poId, currentDetails)
-    })
+        supplierId: po?.ms_suppliers?.supplier_code || '-',
+        supplierName: po?.ms_suppliers?.supplier_name || '-',
+        supplierContact: po?.ms_suppliers?.contact || '-',
+        supplierAddress: po?.ms_suppliers?.address || '-',
 
-    const receiptsByPO = new Map<string, any[]>()
+        productCode: firstItem?.products?.sku || '-',
+        productName: firstItem?.products?.name || '-',
+        category: firstItem?.products?.category || '-',
+        orderedQty: firstItem?.ordered_qty || 0,
+        receivedQty: firstItem?.received_qty || 0,
+        unit: firstItem?.unit || firstItem?.products?.unit || '-',
+        expiryDate: firstItem?.expiry_date || null,
+        batchNumber: firstItem?.batch_number || '-',
+        condition: firstItem?.condition || '-',
 
-    receipts.forEach((receipt: any) => {
-      const poId = String(receipt.po_id || '')
-      const currentReceipts = receiptsByPO.get(poId) || []
-      currentReceipts.push(receipt)
-      receiptsByPO.set(poId, currentReceipts)
+        items: receiptItems.map((receiptItem: AnyObject) => ({
+          id: receiptItem.id,
+          productCode: receiptItem.products?.sku || '-',
+          productName: receiptItem.products?.name || '-',
+          category: receiptItem.products?.category || '-',
+          orderedQty: receiptItem.ordered_qty || 0,
+          receivedQty: receiptItem.received_qty || 0,
+          unit: receiptItem.unit || receiptItem.products?.unit || '-',
+          expiryDate: receiptItem.expiry_date || null,
+          batchNumber: receiptItem.batch_number || '-',
+          condition: receiptItem.condition || '-',
+        })),
+      }
     })
 
     const goodsReceipts = purchaseOrders

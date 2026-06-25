@@ -19,13 +19,13 @@ import { Input } from "@/components/ui/input";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface StockMonitoringData {
-  product_id: number;
+  product_id: string | number;
   product_code: string;
   product_name: string;
   category: string;
   units: string;
   minimum_stock: number;
-  warehouse_id: number;
+  warehouse_id: string | number;
   warehouse_code: string;
   warehouse_name: string;
   available_qty: number;
@@ -111,33 +111,63 @@ export default function StockMonitoringPage() {
   const totalReserved = data.reduce((a, d) => a + d.reserved_qty, 0);
   const totalQuarantine = data.reduce((a, d) => a + d.quarantine_qty, 0);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, categoryFilter, warehouseFilter, sortBy, sortAsc]);
+
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const paginatedData = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   /* ── Render ───────────────────────────────────────────────────── */
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto px-6 pb-12">
-      <div className="flex items-end justify-between pt-2">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Stock Monitoring</h1>
-          <p className="text-sm text-slate-500 mt-1">Detailed inventory balance across all warehouses</p>
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-8 rounded-full" style={{ width: '4px', backgroundColor: '#dc2626' }} />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.25em]" style={{ color: '#dc2626' }}>
+                Inventory Module
+              </p>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-800">
+                Stock Monitoring
+              </h1>
+            </div>
+          </div>
+          <p className="text-sm ml-4 text-slate-500">
+            Detailed inventory balance across all warehouses
+          </p>
         </div>
-        <Button variant="outline" className="h-10 px-5 gap-2 bg-white">
+        <Button variant="outline" className="h-10 px-5 gap-2 bg-white rounded-xl hover:shadow-sm transition-shadow">
           <Download className="w-4 h-4" /> Export Report
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {[
-          { label: "Total Available", value: totalAvailable, color: "text-emerald-600", bg: "bg-emerald-50", icon: Package },
-          { label: "Total Reserved", value: totalReserved, color: "text-blue-600", bg: "bg-blue-50", icon: Package },
-          { label: "Total Quarantine", value: totalQuarantine, color: "text-amber-600", bg: "bg-amber-50", icon: AlertTriangle },
+          { label: "Total Available", value: totalAvailable, color: "text-emerald-600", bg: "bg-emerald-50", icon: Package, trend: "+12%", trendBg: "bg-emerald-50", trendCol: "text-emerald-700" },
+          { label: "Total Reserved", value: totalReserved, color: "text-blue-600", bg: "bg-blue-50", icon: Package, trend: "-5%", trendBg: "bg-red-50", trendCol: "text-red-700" },
+          { label: "Total Quarantine", value: totalQuarantine, color: "text-amber-600", bg: "bg-amber-50", icon: AlertTriangle, trend: "0%", trendBg: "bg-slate-100", trendCol: "text-slate-600" },
         ].map((kpi, i) => (
-          <Card key={i} className="border-slate-200 shadow-sm">
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className={`w-11 h-11 rounded-xl ${kpi.bg} flex items-center justify-center`}>
-                <kpi.icon className={`w-5 h-5 ${kpi.color}`} />
+          <Card key={i} className="relative">
+            <CardContent className="p-6 flex items-center justify-between relative z-10">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-xl ${kpi.bg} ${kpi.color} flex items-center justify-center`}>
+                    <kpi.icon className="w-4.5 h-4.5" />
+                  </div>
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{kpi.label}</span>
+                </div>
+                <p className="text-3xl font-bold tracking-tight text-slate-800 mt-2">
+                  {kpi.value.toLocaleString()}
+                </p>
               </div>
-              <div>
-                <p className="text-xs text-slate-500 font-medium">{kpi.label}</p>
-                <p className={`text-xl font-bold ${kpi.color} tabular-nums`}>{kpi.value.toLocaleString()}</p>
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${kpi.trendBg} ${kpi.trendCol}`}>
+                {kpi.trend}
               </div>
             </CardContent>
           </Card>
@@ -180,84 +210,113 @@ export default function StockMonitoringPage() {
         </Button>
       </div>
 
-      <Card className="border-slate-200 shadow-sm overflow-hidden">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
-                <tr>
-                  <th className="px-6 py-4 font-medium">
-                    <button onClick={() => toggleSort("product_name")} className="flex items-center gap-1.5 hover:text-slate-900">
-                      Product <ArrowUpDown className="w-3.5 h-3.5" />
-                    </button>
-                  </th>
-                  <th className="px-6 py-4 font-medium">Warehouse</th>
-                  <th className="px-6 py-4 font-medium text-right">
-                    <button onClick={() => toggleSort("available_qty")} className="flex items-center gap-1.5 ml-auto hover:text-slate-900">
-                      Available <ArrowUpDown className="w-3.5 h-3.5" />
-                    </button>
-                  </th>
-                  <th className="px-6 py-4 font-medium text-right">Reserved</th>
-                  <th className="px-6 py-4 font-medium text-right">Quarantine</th>
-                  <th className="px-6 py-4 font-medium text-right">
-                    <button onClick={() => toggleSort("total_qty")} className="flex items-center gap-1.5 ml-auto hover:text-slate-900">
-                      Total <ArrowUpDown className="w-3.5 h-3.5" />
-                    </button>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {loading ? (
-                  <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
-                    <RefreshCw className="w-6 h-6 mx-auto mb-3 animate-spin opacity-50" /><p>Loading stock data...</p>
-                  </td></tr>
-                ) : filtered.length === 0 ? (
-                  <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
-                    <Building2 className="w-10 h-10 mx-auto mb-3 opacity-30" /><p className="text-sm font-medium">No stock data found</p>
-                  </td></tr>
-                ) : (
-                  filtered.map((d) => {
-                    const total = d.available_qty + d.reserved_qty + d.quarantine_qty;
-                    return (
-                      <tr key={`${d.product_id}-${d.warehouse_id}`} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${CATEGORY_COLORS[d.category]}`}>
-                              {d.category}
-                            </span>
-                            <div>
-                              <p className="font-medium text-slate-900">{d.product_name}</p>
-                              <p className="text-xs text-slate-400">{d.product_code}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-slate-700 text-xs">
-                          {d.warehouse_name}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <span className={`font-semibold tabular-nums ${d.available_qty <= d.minimum_stock ? 'text-red-600' : 'text-emerald-700'}`}>
-                            {d.available_qty.toLocaleString()}
+      <Card className="border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <CardContent className="p-0 flex-1 overflow-x-auto">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
+              <tr>
+                <th className="px-6 py-4 font-medium">
+                  <button onClick={() => toggleSort("product_name")} className="flex items-center gap-1.5 hover:text-slate-900">
+                    Product <ArrowUpDown className="w-3.5 h-3.5" />
+                  </button>
+                </th>
+                <th className="px-6 py-4 font-medium">Warehouse</th>
+                <th className="px-6 py-4 font-medium text-right">
+                  <button onClick={() => toggleSort("available_qty")} className="flex items-center gap-1.5 ml-auto hover:text-slate-900">
+                    Available <ArrowUpDown className="w-3.5 h-3.5" />
+                  </button>
+                </th>
+                <th className="px-6 py-4 font-medium text-right">Reserved</th>
+                <th className="px-6 py-4 font-medium text-right">Quarantine</th>
+                <th className="px-6 py-4 font-medium text-right">
+                  <button onClick={() => toggleSort("total_qty")} className="flex items-center gap-1.5 ml-auto hover:text-slate-900">
+                    Total <ArrowUpDown className="w-3.5 h-3.5" />
+                  </button>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {loading ? (
+                <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
+                  <RefreshCw className="w-6 h-6 mx-auto mb-3 animate-spin opacity-50" /><p>Loading stock data...</p>
+                </td></tr>
+              ) : paginatedData.length === 0 ? (
+                <tr><td colSpan={6} className="px-6 py-16 text-center text-slate-400">
+                  <Building2 className="w-10 h-10 mx-auto mb-3 opacity-30" /><p className="text-sm font-medium">No stock data found</p>
+                </td></tr>
+              ) : (
+                paginatedData.map((d) => {
+                  const total = d.available_qty + d.reserved_qty + d.quarantine_qty;
+                  return (
+                    <tr key={`${d.product_id}-${d.warehouse_id}`} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${CATEGORY_COLORS[d.category]}`}>
+                            {d.category}
                           </span>
-                          <span className="text-slate-400 text-[10px] ml-1">{d.units}</span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <span className="font-medium text-slate-700 tabular-nums">{d.reserved_qty > 0 ? d.reserved_qty.toLocaleString() : '-'}</span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <span className="font-medium text-amber-700 tabular-nums">{d.quarantine_qty > 0 ? d.quarantine_qty.toLocaleString() : '-'}</span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <span className="font-bold text-slate-900 tabular-nums">{total.toLocaleString()}</span>
-                          <span className="text-slate-400 text-[10px] ml-1">{d.units}</span>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                          <div>
+                            <p className="font-medium text-slate-900">{d.product_name}</p>
+                            <p className="text-xs text-slate-400">{d.product_code}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-slate-700 text-xs">
+                        {d.warehouse_name}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className={`font-semibold tabular-nums ${d.available_qty <= d.minimum_stock ? 'text-red-600' : 'text-emerald-700'}`}>
+                          {d.available_qty.toLocaleString()}
+                        </span>
+                        <span className="text-slate-400 text-[10px] ml-1">{d.units}</span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="font-medium text-slate-700 tabular-nums">{d.reserved_qty > 0 ? d.reserved_qty.toLocaleString() : '-'}</span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="font-medium text-amber-700 tabular-nums">{d.quarantine_qty > 0 ? d.quarantine_qty.toLocaleString() : '-'}</span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="font-bold text-slate-900 tabular-nums">{total.toLocaleString()}</span>
+                        <span className="text-slate-400 text-[10px] ml-1">{d.units}</span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </CardContent>
+        {/* Pagination Controls */}
+        {!loading && filtered.length > itemsPerPage && (
+          <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <span className="text-sm text-slate-500">
+              Showing <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> to{" "}
+              <span className="font-medium">{Math.min(currentPage * itemsPerPage, filtered.length)}</span> of{" "}
+              <span className="font-medium">{filtered.length}</span> results
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-slate-600 font-medium px-2">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

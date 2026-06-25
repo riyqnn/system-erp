@@ -57,20 +57,6 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('id-ID').format(value || 0)
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return '-'
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) return '-'
-
-  return new Intl.DateTimeFormat('id-ID', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(date)
-}
-
 function formatStatus(status: NegotiationStatus) {
   const statusMap: Record<string, string> = {
     SENT: 'Sent',

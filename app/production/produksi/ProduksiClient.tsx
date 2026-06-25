@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { X, Warning, MagnifyingGlass, Factory, Play, Pause, CheckCircle, PencilSimple } from '@phosphor-icons/react'
@@ -17,18 +17,17 @@ type Order = {
   status: string
   start_date: string | null
   end_date: string | null
-  notes: string | null
   products: { id: string; sku: string; name: string } | null
 }
 
 type RoutingRow = {
   id: string
-  bom_id: string | null
+  product_id: string | null
   work_center_id: string | null
-  sequence: number
   operation_name: string
-  duration_hours: number | null
-  notes: string | null
+  setup_time: number | null
+  process_time: number | null
+  work_center_name: string | null
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -60,12 +59,19 @@ export function ProduksiClient() {
 
   // Input confirmation form
   const [showConfirm, setShowConfirm] = useState(false)
-  const [confirmForm, setConfirmForm] = useState({ qty_good: '', qty_scrap: '', notes: '' })
+  const [confirmForm, setConfirmForm] = useState({ qty_good: '', qty_scrap: '' })
   const [confirmError, setConfirmError] = useState<string | null>(null)
+  const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null)
 
   // On Hold form
   const [showHold, setShowHold] = useState(false)
   const [holdReason, setHoldReason] = useState('')
+
+  // Step tracking per order (client-side)
+  const [stepProgress, setStepProgress] = useState<Record<string, number>>({})
+  const getStep = (orderId: string) => stepProgress[orderId] ?? 1
+  const goToStep = (orderId: string, step: number) =>
+    setStepProgress(prev => ({ ...prev, [orderId]: step }))
 
   const load = async () => {
     setLoading(true)
@@ -112,7 +118,7 @@ export function ProduksiClient() {
     await fetch(`/api/production/orders/${selected.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'on_hold', notes: holdReason ? `[ON_HOLD] ${holdReason}` : '[ON_HOLD]' }),
+      body: JSON.stringify({ status: 'on_hold' }),
     })
     setShowHold(false)
     setHoldReason('')
@@ -139,19 +145,32 @@ export function ProduksiClient() {
     setSaving(true)
     const scrap = Number(confirmForm.qty_scrap) || 0
     const total = good + scrap
-    await fetch(`/api/production/orders/${selected.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        status: 'completed',
-        actual_qty: total,
-        notes: `[CONFIRMED] Good: ${good} | Scrap: ${scrap}${confirmForm.notes ? ' | ' + confirmForm.notes : ''}`,
-      }),
-    })
-    setShowConfirm(false)
-    setConfirmForm({ qty_good: '', qty_scrap: '', notes: '' })
-    await load()
-    setSaving(false)
+    try {
+      const res = await fetch(`/api/production/orders/${selected.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'completed',
+          actual_qty: total,
+          end_date: new Date().toISOString().slice(0, 10),
+        }),
+      })
+      if (!res.ok) {
+        const e = await res.json()
+        setConfirmError(e.error || 'Gagal menyimpan. Coba lagi.')
+        setSaving(false)
+        return
+      }
+      setShowConfirm(false)
+      setConfirmForm({ qty_good: '', qty_scrap: '' })
+      setConfirmSuccess(`Order ${selected.po_number} selesai. Lanjutkan ke QC & Penerimaan.`)
+      setStatusFilter('all')
+      await load()
+    } catch {
+      setConfirmError('Terjadi kesalahan koneksi.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const inProgressCount = orders.filter(o => o.status === 'in_progress').length
@@ -170,7 +189,7 @@ export function ProduksiClient() {
       <div className="space-y-6 max-w-[1400px] mx-auto">
         <div className="flex items-end justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#dc2626] mb-1">Production · UC-06</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#dc2626] mb-1">Production</p>
             <ModuleHeader title="Produksi" />
             <p className="text-slate-500 -mt-4 text-sm">
               <span className="text-amber-600 font-medium">{inProgressCount} in progress</span>
@@ -213,6 +232,14 @@ export function ProduksiClient() {
         </div>
 
         {error && <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><Warning className="w-4 h-4" weight="fill" /> {error}</div>}
+        {confirmSuccess && (
+          <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4" weight="fill" /> {confirmSuccess}
+            </div>
+            <button onClick={() => setConfirmSuccess(null)} className="text-green-500 hover:text-green-700 ml-4">✕</button>
+          </div>
+        )}
 
         {/* Order Cards */}
         {loading ? (
@@ -225,8 +252,11 @@ export function ProduksiClient() {
         ) : (
           <div className="space-y-4">
             {filtered.map(order => {
-              const pct = Math.min(100, order.planned_qty > 0 ? Math.round(((order.actual_qty ?? 0) / order.planned_qty) * 100) : 0)
-              const orderRouting = routing.sort((a, b) => a.sequence - b.sequence)
+              const orderRouting = routing.filter(r => r.product_id === order.product_id)
+              const currentStep = order.status === 'completed' ? orderRouting.length + 1 : getStep(order.id)
+              const totalSteps = orderRouting.length
+              const stepPct = totalSteps > 0 ? Math.round((currentStep / totalSteps) * 100) : 0
+              const pct = order.status === 'completed' ? 100 : order.status === 'on_hold' ? stepPct : stepPct
               return (
                 <Card key={order.id} className="border-slate-200 bg-white hover:shadow-sm transition-all">
                   <CardContent className="p-5">
@@ -250,40 +280,56 @@ export function ProduksiClient() {
                         {/* Progress */}
                         <div className="mt-3 flex items-center gap-3">
                           <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full transition-all ${
+                            <div className={`h-full rounded-full transition-all duration-500 ${
                               order.status === 'completed' ? 'bg-green-500' :
                               order.status === 'on_hold' ? 'bg-orange-400' : 'bg-amber-500'
                             }`} style={{ width: `${pct}%` }} />
                           </div>
                           <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
-                            {(order.actual_qty ?? 0).toLocaleString()} / {order.planned_qty.toLocaleString()} unit ({pct}%)
+                            {totalSteps > 0
+                              ? `Step ${Math.min(currentStep, totalSteps)}/${totalSteps} (${pct}%)`
+                              : `0 / ${order.planned_qty.toLocaleString()} unit`}
                           </span>
                         </div>
 
-                        {/* Routing Steps Preview */}
+                        {/* Routing Steps — klik untuk advance */}
                         {orderRouting.length > 0 && (
                           <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
-                            {orderRouting.slice(0, 5).map((step, idx) => (
-                              <div key={step.id} className="flex items-center gap-1.5 flex-shrink-0">
-                                {idx > 0 && <span className="text-slate-300 text-xs">→</span>}
-                                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs ${
-                                  order.status === 'completed' ? 'bg-green-50 border-green-200 text-green-700' :
-                                  order.status === 'in_progress' && idx === 0 ? 'bg-amber-50 border-amber-200 text-amber-700' :
-                                  'bg-slate-50 border-slate-200 text-slate-500'
-                                }`}>
-                                  <span className="font-mono w-4 text-center">{step.sequence}</span>
-                                  <span className="font-medium">{step.operation_name}</span>
-                                  {step.duration_hours && <span className="text-slate-400">· {step.duration_hours}h</span>}
+                            {orderRouting.slice(0, 6).map((step, idx) => {
+                              const stepNum = idx + 1
+                              const isDone = order.status === 'completed' || stepNum < currentStep
+                              const isActive = stepNum === currentStep && order.status === 'in_progress'
+                              const isClickable = order.status === 'in_progress' && stepNum !== currentStep
+                              return (
+                                <div key={step.id} className="flex items-center gap-1.5 flex-shrink-0">
+                                  {idx > 0 && <span className="text-slate-300 text-xs">→</span>}
+                                  <button
+                                    onClick={() => isClickable && goToStep(order.id, stepNum)}
+                                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition-all ${
+                                      isDone ? 'bg-green-50 border-green-200 text-green-700' :
+                                      isActive ? 'bg-amber-50 border-amber-300 text-amber-700 ring-1 ring-amber-300' :
+                                      isClickable ? 'bg-slate-50 border-slate-200 text-slate-500 hover:border-amber-300 hover:text-amber-600 cursor-pointer' :
+                                      'bg-slate-50 border-slate-200 text-slate-400 cursor-default'
+                                    }`}
+                                  >
+                                    {isDone
+                                      ? <span className="text-green-500 font-bold">✓</span>
+                                      : <span className="font-mono w-4 text-center">{stepNum}</span>}
+                                    <span className="font-medium">{step.operation_name}</span>
+                                    {(step.setup_time || step.process_time) && (
+                                      <span className="opacity-60">· {((step.setup_time ?? 0) + (step.process_time ?? 0))}m</span>
+                                    )}
+                                  </button>
                                 </div>
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         )}
                       </div>
 
                       {/* Actions */}
                       <div className="flex flex-col gap-2 flex-shrink-0">
-                        {order.status === 'planned' || order.status === 'mrp_ready' ? (
+                        {order.status === 'mrp_ready' ? (
                           <Button size="sm" className="h-9 px-4 bg-amber-500 hover:bg-amber-600 text-white gap-1.5 text-xs"
                             onClick={() => startProduction(order)} disabled={saving}>
                             <Play size={13} weight="fill" /> Mulai
@@ -312,13 +358,6 @@ export function ProduksiClient() {
                       </div>
                     </div>
 
-                    {/* On Hold note */}
-                    {order.status === 'on_hold' && order.notes && (
-                      <div className="mt-3 flex items-center gap-2 bg-orange-50 rounded-lg px-3 py-2 border border-orange-200">
-                        <Warning size={14} className="text-orange-500 flex-shrink-0" />
-                        <p className="text-xs text-orange-700">{order.notes.replace('[ON_HOLD]', '').trim()}</p>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               )
@@ -364,12 +403,6 @@ export function ProduksiClient() {
                     ({Number(confirmForm.qty_good).toLocaleString()} good dari {(Number(confirmForm.qty_good) + Number(confirmForm.qty_scrap)).toLocaleString()} total)
                   </div>
                 )}
-                <Field label="Catatan Produksi">
-                  <textarea value={confirmForm.notes}
-                    onChange={e => setConfirmForm({ ...confirmForm, notes: e.target.value })}
-                    rows={2} placeholder="Kendala, catatan operator, dll..."
-                    className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
-                </Field>
                 {confirmError && <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"><Warning className="w-4 h-4" weight="fill" /> {confirmError}</div>}
               </div>
               <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex gap-3">

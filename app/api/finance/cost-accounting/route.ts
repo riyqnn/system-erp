@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuthForRoute } from '@/lib/auth/financeAuthHelper';
-import { getBiayaProduksi, catatBiayaProduksi, hitungHppValuation, kirimLaporanPersediaan, mockDb } from '@/lib/database/financeService';
+import { getBiayaProduksi, catatBiayaProduksi, hitungHppValuation, kirimLaporanPersediaan, getDaftarHpp, getDaftarInventoryValuation } from '@/lib/database/financeService';
 
 /**
  * Endpoint GET /api/finance/cost-accounting
@@ -25,11 +25,13 @@ export async function GET(request: NextRequest) {
     const mode = searchParams.get('mode'); // 'hpp_logs' atau 'valuation_reports'
 
     if (mode === 'hpp_logs') {
-      return NextResponse.json({ data: mockDb.hppList });
+      const data = await getDaftarHpp();
+      return NextResponse.json({ data });
     }
 
     if (mode === 'valuation_reports') {
-      return NextResponse.json({ data: mockDb.laporanPersediaanList });
+      const data = await getDaftarInventoryValuation();
+      return NextResponse.json({ data });
     }
 
     const data = await getBiayaProduksi();
@@ -72,7 +74,7 @@ export async function POST(request: NextRequest) {
         tanggal,
         keterangan: keterangan || '',
         production_request_id: production_request_id ? Number(production_request_id) : undefined
-      }, user.id);
+      }, String(user.user_id));
 
       return NextResponse.json({
         success: true,
@@ -95,14 +97,14 @@ export async function POST(request: NextRequest) {
 
       const hppBaru = await hitungHppValuation(
         periode,
-        Number(product_id),
+        String(product_id),
         Number(opening_qty || 0),
         Number(opening_value || 0),
         Number(incoming_qty || 0),
         Number(incoming_value || 0),
         Number(closing_qty || 0),
         Number(closing_value || 0),
-        user.id
+        String(user.user_id)
       );
 
       return NextResponse.json({
@@ -128,7 +130,7 @@ export async function POST(request: NextRequest) {
         periode,
         Number(total_stok),
         Number(total_nilai),
-        user.id
+        String(user.user_id)
       );
 
       return NextResponse.json({

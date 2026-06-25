@@ -21,28 +21,17 @@ import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { cn } from '@/lib/utils'
 
 interface PendingUser {
-  id: string
-  email: string
+  user_id: number
+  username: string
+  email: string | null
   full_name: string | null
-  role_id: string
-  is_pending: boolean
+  role: string
+  status: string
   created_at: string
-  role: {
-    id: string
-    name: string
-    description: string | null
-  }
-}
-
-interface Role {
-  id: string
-  name: string
-  description: string | null
 }
 
 export function UserManagementPageClient() {
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([])
-  const [roles, setRoles] = useState<Role[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -82,24 +71,16 @@ export function UserManagementPageClient() {
     }
   }
 
-  const fetchRoles = async () => {
-    try {
-      const response = await fetch('/api/roles')
-      const data = await response.json()
-      setRoles(data.roles || [])
-    } catch (err) {
-      console.error('Failed to fetch roles:', err)
-    }
-  }
+  // Roles are now stored as direct strings in ms_user, no separate roles table needed
+  const availableRoles = ['ADMIN', 'INVENTORY', 'FINANCE', 'PURCHASING', 'PRODUCTION', 'SNM', 'SALES']
 
   useEffect(() => {
     fetchPendingUsers()
-    fetchRoles()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleApprove = async (userId: string) => {
-    setActionLoading(userId)
+  const handleApprove = async (userId: number) => {
+    setActionLoading(String(userId))
     setError('')
 
     try {
@@ -114,7 +95,7 @@ export function UserManagementPageClient() {
         return
       }
 
-      setPendingUsers(prev => prev.filter(u => u.id !== userId))
+      setPendingUsers(prev => prev.filter(u => u.user_id !== userId))
       setSuccessMessage('User approved successfully')
       setTimeout(() => setSuccessMessage(''), 3000)
     } catch (err) {
@@ -125,12 +106,12 @@ export function UserManagementPageClient() {
     }
   }
 
-  const handleReject = async (userId: string) => {
+  const handleReject = async (userId: number) => {
     if (!confirm('Are you sure you want to reject this user? This action cannot be undone.')) {
       return
     }
 
-    setActionLoading(userId)
+    setActionLoading(String(userId))
     setError('')
 
     try {
@@ -145,7 +126,7 @@ export function UserManagementPageClient() {
         return
       }
 
-      setPendingUsers(prev => prev.filter(u => u.id !== userId))
+      setPendingUsers(prev => prev.filter(u => u.user_id !== userId))
       setSuccessMessage('User rejected successfully')
       setTimeout(() => setSuccessMessage(''), 3000)
     } catch (err) {
@@ -166,13 +147,13 @@ export function UserManagementPageClient() {
   const filteredUsers = pendingUsers.filter(user => {
     const matchesSearch =
       (user.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.role.name.toLowerCase().includes(searchQuery.toLowerCase())
+      (user.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.role.toLowerCase().includes(searchQuery.toLowerCase())
 
     const matchesStatus =
       statusFilter === 'all' ||
-      (statusFilter === 'pending' && user.is_pending) ||
-      (statusFilter === 'active' && !user.is_pending)
+      (statusFilter === 'pending' && user.status !== 'ACTIVE') ||
+      (statusFilter === 'active' && user.status === 'ACTIVE')
 
     return matchesSearch && matchesStatus
   })
@@ -346,7 +327,7 @@ export function UserManagementPageClient() {
                 <tbody className="bg-white divide-y divide-slate-100">
                   {filteredUsers.map((user) => (
                     <tr
-                      key={user.id}
+                      key={user.user_id}
                       className="hover:bg-red-50/50 transition-colors group"
                     >
                       <td className="px-6 py-4">
@@ -358,20 +339,20 @@ export function UserManagementPageClient() {
                             <div className="text-sm font-semibold text-slate-900">
                               {user.full_name || 'No Name'}
                             </div>
-                            <div className="text-xs text-slate-500">{user.email}</div>
+                            <div className="text-xs text-slate-500">{user.email || user.username}</div>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                          {user.role.name}
+                          {user.role}
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        {user.is_pending ? (
+                        {user.status !== 'ACTIVE' ? (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 border border-yellow-200">
                             <Clock weight="bold" className="h-3 w-3" />
-                            Pending
+                            {user.status}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
@@ -385,20 +366,20 @@ export function UserManagementPageClient() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {user.is_pending && (
+                          {user.status !== 'ACTIVE' && (
                             <>
                               <Button
-                                onClick={() => handleApprove(user.id)}
-                                disabled={actionLoading === user.id}
+                                onClick={() => handleApprove(user.user_id)}
+                                disabled={actionLoading === String(user.user_id)}
                                 size="sm"
                                 className="gap-1.5 bg-green-600 hover:bg-green-700 text-white shadow-sm"
                               >
                                 <Check weight="bold" className="h-3.5 w-3.5" />
-                                {actionLoading === user.id ? '...' : 'Approve'}
+                                {actionLoading === String(user.user_id) ? '...' : 'Approve'}
                               </Button>
                               <Button
-                                onClick={() => handleReject(user.id)}
-                                disabled={actionLoading === user.id}
+                                onClick={() => handleReject(user.user_id)}
+                                disabled={actionLoading === String(user.user_id)}
                                 size="sm"
                                 variant="outline"
                                 className="gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
@@ -424,7 +405,7 @@ export function UserManagementPageClient() {
         open={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSuccess={handleUserCreated}
-        roles={roles}
+        roles={availableRoles}
       />
     </ModuleLayout>
   )

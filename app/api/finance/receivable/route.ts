@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuthForRoute } from '@/lib/auth/financeAuthHelper';
-import { getDaftarPiutang, terimaPelunasanPiutang } from '@/lib/database/financeService';
+import { getDaftarPiutang, terimaPelunasanPiutang, kirimReminderAR } from '@/lib/database/financeService';
 
 /**
  * Endpoint GET /api/finance/receivable
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * Endpoint POST /api/finance/receivable
- * Mencatat pelunasan piutang (kas masuk) dari pelanggan.
+ * Mencatat pelunasan piutang (kas masuk) dari pelanggan atau log pengiriman reminder.
  * Aturan Bisnis 5: Setiap transaksi kas otomatis menjurnal ke general ledger.
  * Diakses oleh: ADMIN, FINANCE, ACCOUNT_RECEIVABLE, TREASURY.
  * 
@@ -42,7 +42,23 @@ export async function POST(request: NextRequest) {
     const user = await verifyAuthForRoute(request, ['ADMIN', 'FINANCE', 'ACCOUNT_RECEIVABLE', 'TREASURY']);
     const body = await request.json();
 
-    const { piutang_id, akun_kas_id, jumlah_terima } = body;
+    const { action, piutang_id } = body;
+
+    // Aksi: Kirim Reminder (Log waktu pengiriman)
+    if (action === 'send_reminder') {
+      if (!piutang_id) {
+        return NextResponse.json({ error: 'Input tidak valid. Diperlukan piutang_id.' }, { status: 400 });
+      }
+      const res = await kirimReminderAR(Number(piutang_id), String(user.user_id));
+      return NextResponse.json({
+        success: true,
+        message: 'Log pengiriman reminder berhasil disimpan.',
+        data: res
+      });
+    }
+
+    // Default Aksi: Terima Pelunasan Piutang
+    const { akun_kas_id, jumlah_terima } = body;
 
     if (!piutang_id || !akun_kas_id || !jumlah_terima || jumlah_terima <= 0) {
       return NextResponse.json(
@@ -55,7 +71,7 @@ export async function POST(request: NextRequest) {
       Number(piutang_id),
       Number(akun_kas_id),
       Number(jumlah_terima),
-      user.id
+      String(user.user_id)
     );
 
     return NextResponse.json({

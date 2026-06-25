@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -227,87 +228,44 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch RFQ sourcing data',
-          error: errors[0]?.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )
     }
 
-    const quotations = quotationResult.data || []
-    const suppliers = supplierResult.data || []
-    const products = productResult.data || []
-    const purchaseRequisitions = prResult.data || []
-    const prDetails = prDetailResult.data || []
-    const users = userResult.data || []
+    const rfqSourcing = (data || []).map((item: AnyObject) => ({
+      id: item.id,
+      rfqNo: item.rfq_number,
+      requiredQty: item.required_qty || 0,
+      unit: item.unit || item.products?.unit || '-',
 
-    const supplierMap = new Map(
-      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
-    )
+      productCode: item.products?.sku || '-',
+      productName: item.products?.name || '-',
+      category: item.products?.category || '-',
 
-    const productMap = new Map(
-      products.map((product: any) => [product.product_id, product])
-    )
+      prNo: item.purchasing_purchase_requisitions?.pr_number || '-',
+      requestDate: item.purchasing_purchase_requisitions?.request_date || null,
+      requestedBy:
+        item.purchasing_purchase_requisitions?.requested_by_name || '-',
+      department: item.purchasing_purchase_requisitions?.department || '-',
 
-    const userMap = new Map(users.map((user: any) => [user.user_id, user]))
+      supplierId: item.ms_suppliers?.supplier_code || '-',
+      supplierName:
+        item.ms_suppliers?.supplier_name ||
+        item.candidate_supplier_name ||
+        '-',
+      candidateSupplierName: item.candidate_supplier_name || '-',
+      picName: item.pic_name || '-',
+      email: item.email || item.ms_suppliers?.contact || '-',
+      phone: item.phone || '-',
+      address: item.address || item.ms_suppliers?.address || '-',
 
-    const prMap = new Map(
-      purchaseRequisitions.map((pr: any) => [pr.pr_id, pr])
-    )
-
-    const prByProduct = new Map<string, any>()
-
-    prDetails.forEach((detail: any) => {
-      const productId = detail.product_id
-      const pr = prMap.get(detail.pr_id)
-
-      if (productId && pr && !prByProduct.has(productId)) {
-        prByProduct.set(productId, {
-          ...pr,
-          detail,
-        })
-      }
-    })
-
-    const rfqSourcing = quotations.map((item: any) => {
-      const supplier = supplierMap.get(item.supplier_id)
-      const product = productMap.get(item.product_id)
-      const relatedPR = prByProduct.get(item.product_id)
-      const requester = relatedPR ? userMap.get(relatedPR.requested_by) : null
-
-      return {
-        id: String(item.quotation_id),
-        rfqNo: generateRFQNo(String(item.quotation_id)),
-        requiredQty: Number(item.qty_requested || 0),
-        unit: product?.uom || '-',
-
-        productCode: product?.product_id || item.product_id || '-',
-        productName: product?.product_name || '-',
-        category: product?.category || '-',
-
-        prNo: relatedPR?.pr_id || '-',
-        requestDate: relatedPR?.request_date || relatedPR?.created_at || null,
-        requestedBy:
-          requester?.full_name || requester?.username || 'Inventory Staff',
-        department: requester?.role || 'Inventory',
-
-        supplierId: supplier?.supplier_id || item.supplier_id || '-',
-        supplierName: supplier?.supplier_name || '-',
-        candidateSupplierName: supplier?.supplier_name || '-',
-        picName: supplier?.contact || '-',
-        email: supplier?.contact || '-',
-        phone: supplier?.contact || '-',
-        address: supplier?.address || '-',
-
-        quotationDeadline: item.expiry_date || null,
-        specificationNotes: item.notes || '-',
-        status: normalizeStatus(item.status),
-        createdAt: item.quotation_date || null,
-
-        proposedPrice: Number(item.proposed_price || 0),
-        acceptedPrice: Number(item.accepted_price || 0),
-        finalPrice: Number(item.final_price || 0),
-      }
-    })
+      quotationDeadline: item.quotation_deadline,
+      specificationNotes: item.specification_notes || '-',
+      status: item.status,
+      createdAt: item.created_at,
+    }))
 
     return NextResponse.json({
       message: 'RFQ sourcing data fetched successfully',

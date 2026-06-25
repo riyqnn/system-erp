@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -196,73 +197,43 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch price negotiations',
-          error: errors[0]?.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )
     }
 
-    const quotations = quotationResult.data || []
-    const suppliers = supplierResult.data || []
-    const products = productResult.data || []
-    const supplierPrices = supplierPriceResult.data || []
+    const negotiations = (data || []).map((item: AnyObject) => ({
+      id: item.id,
+      negotiationNo: item.negotiation_number,
 
-    const supplierMap = new Map(
-      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
-    )
+      rfqNo: item.purchasing_rfq_sourcing?.rfq_number || '-',
+      rfqStatus: item.purchasing_rfq_sourcing?.status || '-',
+      quotationDeadline:
+        item.purchasing_rfq_sourcing?.quotation_deadline || null,
+      specificationNotes:
+        item.purchasing_rfq_sourcing?.specification_notes || '-',
 
-    const productMap = new Map(
-      products.map((product: any) => [product.product_id, product])
-    )
+      supplierId: item.ms_suppliers?.supplier_code || '-',
+      supplierName: item.ms_suppliers?.supplier_name || '-',
+      supplierContact: item.ms_suppliers?.contact || '-',
+      supplierAddress: item.ms_suppliers?.address || '-',
 
-    const supplierPriceMap = new Map<string, any>()
+      productCode: item.products?.sku || '-',
+      productName: item.products?.name || '-',
+      category: item.products?.category || '-',
 
-    supplierPrices.forEach((price: any) => {
-      supplierPriceMap.set(`${price.supplier_id}-${price.product_id}`, price)
-    })
-
-    const negotiations = quotations.map((item: any) => {
-      const supplier = supplierMap.get(item.supplier_id)
-      const product = productMap.get(item.product_id)
-      const supplierPrice = supplierPriceMap.get(
-        `${item.supplier_id}-${item.product_id}`
-      )
-
-      const referencePrice = getReferencePrice(supplierPrice, item)
-      const proposedPrice = Number(item.proposed_price || 0)
-      const supplierResponsePrice = Number(item.accepted_price || 0)
-      const finalPrice = Number(item.final_price || 0)
-
-      return {
-        id: String(item.quotation_id),
-        negotiationNo: generateNegotiationNo(String(item.quotation_id)),
-
-        rfqNo: generateRFQNo(String(item.quotation_id)),
-        rfqStatus: normalizeStatus(item.status),
-        quotationDeadline: item.expiry_date || null,
-        specificationNotes: item.notes || '-',
-
-        supplierId: supplier?.supplier_id || item.supplier_id || '-',
-        supplierName: supplier?.supplier_name || '-',
-        supplierContact: supplier?.contact || '-',
-        supplierAddress: supplier?.address || '-',
-
-        productCode: product?.product_id || item.product_id || '-',
-        productName: product?.product_name || '-',
-        category: product?.category || '-',
-
-        referencePrice,
-        proposedPrice,
-        supplierResponsePrice,
-        finalPrice,
-        qty: Number(item.qty_requested || 0),
-        unit: product?.uom || '-',
-        confirmationDeadline: item.expiry_date || null,
-        status: normalizeStatus(item.status),
-        notes: item.notes || '-',
-        createdAt: item.quotation_date || null,
-      }
-    })
+      referencePrice: item.reference_price || 0,
+      proposedPrice: item.proposed_price || 0,
+      supplierResponsePrice: item.supplier_response_price || 0,
+      finalPrice: item.final_price || 0,
+      qty: item.qty || 0,
+      unit: item.unit || item.products?.unit || '-',
+      confirmationDeadline: item.confirmation_deadline,
+      status: item.status,
+      notes: item.notes || '-',
+      createdAt: item.created_at,
+    }))
 
     return NextResponse.json({
       message: 'Price negotiations fetched successfully',
@@ -416,39 +387,7 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const quotationIdCandidates = getQuotationIdCandidates(negotiationNumber)
-
-    const { data: existingQuotation, error: existingQuotationError } = await supabase
-      .from('tr_price_quotation')
-      .select(
-        'quotation_id, supplier_id, product_id, proposed_price, accepted_price, final_price, qty_requested, status, quotation_date, expiry_date, notes'
-      )
-      .in('quotation_id', quotationIdCandidates)
-      .limit(1)
-      .maybeSingle()
-
-    if (existingQuotationError) {
-      return NextResponse.json(
-        {
-          message: 'Failed to find price negotiation',
-          error: existingQuotationError.message,
-        },
-        { status: 500 }
-      )
-    }
-
-    if (!existingQuotation) {
-      return NextResponse.json(
-        {
-          message: 'Price negotiation not found',
-          error: `No quotation found for ${negotiationNumber}`,
-        },
-        { status: 404 }
-      )
-    }
-
-    const quotationId = String(existingQuotation.quotation_id)
-    const updatePayload: Record<string, any> = {}
+    const updatePayload: AnyObject = {}
 
     if (supplierResponsePrice !== undefined) {
       updatePayload.accepted_price =
@@ -478,7 +417,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json(
         {
           message: 'Failed to update price negotiation',
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         },
         { status: 500 }
       )

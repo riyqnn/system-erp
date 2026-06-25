@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import {
-  Plus, X, Eye, PencilSimple, Warning, Gear, MagnifyingGlass, Trash, CaretDown,
+  Plus, X, Eye, PencilSimple, Warning, Gear, MagnifyingGlass, Trash, CaretDown, Package,
 } from '@phosphor-icons/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,6 @@ type BomDetail = {
   material_id: string | null
   quantity: number
   unit: string
-  notes: string | null
   products: { id: string; sku: string; name: string } | null
 }
 
@@ -27,7 +26,6 @@ type Bom = {
   product_id: string | null
   version: string
   status: 'draft' | 'active' | 'obsolete'
-  notes: string | null
   created_at: string
   products: { id: string; sku: string; name: string } | null
   production_bom_details?: BomDetail[]
@@ -48,11 +46,11 @@ const STATUSES = ['draft', 'active', 'obsolete']
 const fmtDate = (s: string) =>
   new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
 
-type BomForm = { product_id: string; version: string; status: string; notes: string }
-type DetailForm = { material_id: string; quantity: string; unit: string; notes: string }
+type BomForm = { product_id: string; version: string; status: string }
+type DetailForm = { material_id: string; quantity: string; unit: string }
 
-const emptyBomForm: BomForm = { product_id: '', version: '1.0', status: 'draft', notes: '' }
-const emptyDetailForm: DetailForm = { material_id: '', quantity: '', unit: 'kg', notes: '' }
+const emptyBomForm: BomForm = { product_id: '', version: '1.0', status: 'draft' }
+const emptyDetailForm: DetailForm = { material_id: '', quantity: '', unit: 'kg' }
 
 export function BomClient() {
   const [rows, setRows] = useState<Bom[]>([])
@@ -72,6 +70,11 @@ export function BomClient() {
   const [showDetailForm, setShowDetailForm] = useState(false)
   const [detailForm, setDetailForm] = useState<DetailForm>(emptyDetailForm)
   const [detailSaving, setDetailSaving] = useState(false)
+
+  const [showProductForm, setShowProductForm] = useState(false)
+  const [productForm, setProductForm] = useState({ sku: '', name: '', unit: 'kg', category: 'RM' })
+  const [productSaving, setProductSaving] = useState(false)
+  const [productFormError, setProductFormError] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -120,7 +123,7 @@ export function BomClient() {
   }
   function openEdit(r: Bom) {
     setEditing(r)
-    setForm({ product_id: r.product_id ?? '', version: r.version, status: r.status, notes: r.notes ?? '' })
+    setForm({ product_id: r.product_id ?? '', version: r.version, status: r.status })
     setFormError(null)
     setShowForm(true)
   }
@@ -133,7 +136,6 @@ export function BomClient() {
       product_id: form.product_id || null,
       version: form.version.trim(),
       status: form.status,
-      notes: form.notes.trim() || null,
     }
     try {
       const url = editing ? `/api/production/bom/${editing.id}` : '/api/production/bom'
@@ -156,6 +158,32 @@ export function BomClient() {
     await load()
   }
 
+  async function saveProduct() {
+    setProductFormError(null)
+    if (!productForm.sku.trim() || !productForm.name.trim()) {
+      setProductFormError('SKU dan nama wajib diisi')
+      return
+    }
+    setProductSaving(true)
+    try {
+      const res = await fetch('/api/production/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sku: productForm.sku.trim().toUpperCase(),
+          name: productForm.name.trim(),
+          unit: productForm.unit,
+          category: productForm.category,
+        }),
+      })
+      if (!res.ok) { const e = await res.json(); setProductFormError(e.error || 'Error'); return }
+      setShowProductForm(false)
+      setProductForm({ sku: '', name: '', unit: 'kg', category: 'RM' })
+      await load()
+    } catch { setProductFormError('Terjadi kesalahan.')
+    } finally { setProductSaving(false) }
+  }
+
   async function handleAddDetail() {
     if (!detail) return
     if (!detailForm.quantity || Number(detailForm.quantity) <= 0) return
@@ -169,7 +197,6 @@ export function BomClient() {
           material_id: detailForm.material_id || null,
           quantity: Number(detailForm.quantity),
           unit: detailForm.unit,
-          notes: detailForm.notes.trim() || null,
         }),
       })
       if (res.ok) {
@@ -200,9 +227,18 @@ export function BomClient() {
               <span className="text-green-600 font-medium">{rows.filter(r => r.status === 'active').length} active</span>
             </p>
           </div>
-          <Button onClick={openCreate} className="bg-[#dc2626] hover:bg-[#b91c1c] text-white h-10 px-5 gap-2">
-            <Plus className="w-4 h-4" weight="bold" /> New BOM
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => { setProductForm({ sku: '', name: '', unit: 'kg', category: 'RM' }); setProductFormError(null); setShowProductForm(true) }}
+              variant="outline"
+              className="h-10 px-4 gap-2 border-slate-200 text-slate-700 hover:bg-slate-50"
+            >
+              <Package className="w-4 h-4" /> Tambah Produk
+            </Button>
+            <Button onClick={openCreate} className="bg-[#dc2626] hover:bg-[#b91c1c] text-white h-10 px-5 gap-2">
+              <Plus className="w-4 h-4" weight="bold" /> New BOM
+            </Button>
+          </div>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -513,10 +549,6 @@ export function BomClient() {
                     </select>
                   </Field>
                 </div>
-                <Field label="Notes">
-                  <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
-                    rows={2} placeholder="Keterangan..." className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white resize-none" />
-                </Field>
                 {formError && (
                   <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                     <Warning className="w-4 h-4" weight="fill" /> {formError}
@@ -527,6 +559,81 @@ export function BomClient() {
                 <Button variant="outline" className="flex-1 h-10 border-slate-200" onClick={() => setShowForm(false)} disabled={saving}>Batal</Button>
                 <Button className="flex-1 h-10 bg-[#dc2626] hover:bg-[#b91c1c] text-white" onClick={handleSave} disabled={saving}>
                   {saving ? 'Menyimpan…' : 'Simpan'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+      {/* Tambah Produk modal */}
+      {showProductForm && (
+        <>
+          <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-50" onClick={() => setShowProductForm(false)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Tambah Produk</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Produk akan tersedia di seluruh modul production</p>
+                </div>
+                <button onClick={() => setShowProductForm(false)} className="p-2 rounded-full hover:bg-slate-100 text-slate-400">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="SKU">
+                    <Input
+                      value={productForm.sku}
+                      onChange={e => setProductForm({ ...productForm, sku: e.target.value })}
+                      placeholder="e.g. FG-001"
+                      className="h-10 border-slate-200 uppercase"
+                    />
+                  </Field>
+                  <Field label="Kategori">
+                    <select
+                      value={productForm.category}
+                      onChange={e => setProductForm({ ...productForm, category: e.target.value })}
+                      className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white"
+                    >
+                      <option value="FG">FG — Finished Goods</option>
+                      <option value="RM">RM — Raw Material</option>
+                      <option value="PM">PM — Packaging</option>
+                      <option value="WIP">WIP — Work in Progress</option>
+                    </select>
+                  </Field>
+                </div>
+                <Field label="Nama Produk">
+                  <Input
+                    value={productForm.name}
+                    onChange={e => setProductForm({ ...productForm, name: e.target.value })}
+                    placeholder="e.g. Roti Tawar Putih"
+                    className="h-10 border-slate-200"
+                  />
+                </Field>
+                <Field label="Satuan (Unit)">
+                  <select
+                    value={productForm.unit}
+                    onChange={e => setProductForm({ ...productForm, unit: e.target.value })}
+                    className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white"
+                  >
+                    {['pcs', 'kg', 'g', 'L', 'mL', 'roll', 'pack', 'carton', 'bag', 'drum'].map(u => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                  </select>
+                </Field>
+                {productFormError && (
+                  <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <Warning className="w-4 h-4" weight="fill" /> {productFormError}
+                  </div>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex gap-3">
+                <Button variant="outline" className="flex-1 h-10 border-slate-200" onClick={() => setShowProductForm(false)} disabled={productSaving}>
+                  Batal
+                </Button>
+                <Button className="flex-1 h-10 bg-[#dc2626] hover:bg-[#b91c1c] text-white" onClick={saveProduct} disabled={productSaving}>
+                  {productSaving ? 'Menyimpan…' : 'Simpan Produk'}
                 </Button>
               </div>
             </div>

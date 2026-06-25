@@ -10,9 +10,9 @@ export async function GET() {
     const supabase = await createRouteHandlerClient()
 
     const { data, error } = await supabase
-      .from('ms_suppliers')
-      .select('supplier_id, supplier_code, supplier_name, contact, address')
-      .order('supplier_code', { ascending: true })
+      .from('ms_supplier')
+      .select('supplier_id, supplier_name, category, contact, address, lead_time, top, status')
+      .order('supplier_id', { ascending: true })
 
     if (error) throw error
 

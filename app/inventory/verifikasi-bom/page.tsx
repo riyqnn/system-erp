@@ -20,9 +20,9 @@ import { Input } from "@/components/ui/input";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 interface ProdReqData {
-  production_request_id: number;
+  production_request_id: string | number;
   prd_code: string;
-  product_id: number;
+  product_id: string | number;
   qty_requested: number;
   request_date: string;
   status: string;
@@ -34,8 +34,8 @@ interface ProdReqData {
 }
 
 interface BOMData {
-  bom_id: number;
-  rm_product_id: number;
+  bom_id: string | number;
+  rm_product_id: string | number;
   qty_required: number;
   ms_products: {
     product_code: string;
@@ -45,7 +45,7 @@ interface BOMData {
 }
 
 interface ProductStock {
-  product_id: number;
+  product_id: string | number;
   current_stock: number;
 }
 
@@ -54,7 +54,7 @@ interface ProductStock {
 /* ------------------------------------------------------------------ */
 export default function BOMVerificationPage() {
   const [requests, setRequests] = useState<ProdReqData[]>([]);
-  const [stockMap, setStockMap] = useState<Record<number, number>>({});
+  const [stockMap, setStockMap] = useState<Record<string | number, number>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
@@ -80,7 +80,7 @@ export default function BOMVerificationPage() {
       
       if (stockRes.ok) {
         const json = await stockRes.json();
-        const smap: Record<number, number> = {};
+        const smap: Record<string | number, number> = {};
         json.data?.forEach((s: ProductStock) => { smap[s.product_id] = s.current_stock; });
         setStockMap(smap);
       }
@@ -123,6 +123,7 @@ export default function BOMVerificationPage() {
         body: JSON.stringify({ status: "In Progress" }),
       });
       if (res.ok) {
+        Swal.fire("Success", "BOM Verified. Notification sent to Production.", "success");
         setSelectedReq(null);
         fetchData();
       } else {
@@ -233,14 +234,14 @@ export default function BOMVerificationPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {bomData.map((item) => {
+                        {bomData.map((item, idx) => {
                           const reqQty = item.qty_required * selectedReq.qty_requested;
                           const availQty = stockMap[item.rm_product_id] || 0;
                           const isShort = availQty < reqQty;
                           if (isShort) hasShortage = true;
 
                           return (
-                            <tr key={item.bom_id} className={isShort ? "bg-red-50/30" : ""}>
+                            <tr key={`${item.bom_id}-${idx}`} className={isShort ? "bg-red-50/30" : ""}>
                               <td className="px-6 py-4">
                                 <p className="font-medium text-slate-900">{item.ms_products.product_name}</p>
                                 <p className="text-xs text-slate-500">{item.ms_products.product_code}</p>
