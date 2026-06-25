@@ -12,34 +12,49 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+function getPriceValue(item: any) {
+  return Number(
+    item?.estimated_price ||
+      item?.price ||
+      item?.unit_price ||
+      item?.supplier_price ||
+      0
+  )
+}
+
+function getLeadTimeValue(item: any, supplier: any) {
+  return Number(
+    item?.lead_time_days ||
+      item?.lead_time ||
+      supplier?.lead_time ||
+      0
+  )
+}
+
+function getPaymentTermValue(item: any, supplier: any) {
+  return item?.payment_term || item?.term_of_payment || supplier?.top || '-'
+}
+
 export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from('purchasing_supplier_products')
-      .select(`
-        id,
-        estimated_price,
-        lead_time_days,
-        payment_term,
-        status,
-        ms_suppliers (
-          supplier_id,
-          supplier_code,
-          supplier_name,
-          contact,
-          address
-        ),
-        products (
-          id,
-          sku,
-          name,
-          category,
-          unit
-        )
-      `)
-      .order('created_at', { ascending: false })
+    const [supplierPriceResult, supplierResult, productResult] =
+      await Promise.all([
+        supabase.from('ms_supplier_price').select('*'),
+        supabase
+          .from('ms_supplier')
+          .select('supplier_id, supplier_name, contact, address, lead_time, top, status'),
+        supabase
+          .from('ms_product')
+          .select('product_id, product_name, category, uom'),
+      ])
 
-    if (error) {
+    const errors = [
+      supplierPriceResult.error,
+      supplierResult.error,
+      productResult.error,
+    ].filter(Boolean)
+
+    if (errors.length > 0) {
       return NextResponse.json(
         {
           message: 'Failed to fetch suppliers',
@@ -67,7 +82,7 @@ export async function GET() {
 
     return NextResponse.json({
       message: 'Suppliers fetched successfully',
-      data: suppliers,
+      data,
     })
   } catch (error) {
     return NextResponse.json(
@@ -105,21 +120,22 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: supplierData, error: supplierError } = await supabase
-      .from('ms_suppliers')
+    const { error: supplierError } = await supabase
+      .from('ms_supplier')
       .upsert(
         {
-          supplier_code: supplierCode,
+          supplier_id: supplierCode,
           supplier_name: supplierName,
           contact: contact || null,
           address: address || null,
+          lead_time: Number(leadTimeDays || 0),
+          top: paymentTerm || 'NET_30',
+          status: status || 'ACTIVE',
         },
         {
-          onConflict: 'supplier_code',
+          onConflict: 'supplier_id',
         }
       )
-      .select('supplier_id')
-      .single()
 
     if (supplierError) {
       return NextResponse.json(
@@ -132,28 +148,29 @@ export async function POST(request: Request) {
     }
 
     const { data: productData, error: productError } = await supabase
-      .from('products')
-      .select('id')
-      .eq('sku', productSku)
-      .single()
+      .from('ms_product')
+      .select('product_id')
+      .eq('product_id', productSku)
+      .maybeSingle()
 
     if (productError || !productData) {
       return NextResponse.json(
         {
           message: 'Product SKU not found',
-          error: productError?.message,
+          error:
+            productError?.message || `Product ${productSku} does not exist`,
         },
         { status: 404 }
       )
     }
 
-    const { data: supplierProductData, error: supplierProductError } =
+    const { data: supplierPriceData, error: supplierPriceError } =
       await supabase
-        .from('purchasing_supplier_products')
+        .from('ms_supplier_price')
         .upsert(
           {
-            supplier_id: supplierData.supplier_id,
-            product_id: productData.id,
+            supplier_id: supplierCode,
+            product_id: productData.product_id,
             estimated_price: Number(estimatedPrice || 0),
             lead_time_days: Number(leadTimeDays || 0),
             payment_term: paymentTerm || 'NET_30',
@@ -166,11 +183,11 @@ export async function POST(request: Request) {
         .select()
         .single()
 
-    if (supplierProductError) {
+    if (supplierPriceError) {
       return NextResponse.json(
         {
-          message: 'Failed to save supplier product profile',
-          error: supplierProductError.message,
+          message: 'Failed to save supplier price profile',
+          error: supplierPriceError.message,
         },
         { status: 500 }
       )
@@ -178,7 +195,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       message: 'Supplier saved successfully',
-      data: supplierProductData,
+      data: supplierPriceData,
     })
   } catch (error) {
     return NextResponse.json(

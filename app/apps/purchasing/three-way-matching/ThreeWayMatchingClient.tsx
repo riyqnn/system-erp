@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Scales,
   ShoppingCart,
@@ -12,7 +13,7 @@ import {
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type MatchStatus = 'MATCHED' | 'MISMATCH' | 'PENDING'
+type MatchStatus = 'MATCHED' | 'MISMATCH' | 'PENDING' | string
 
 type MatchingResult = {
   id: string
@@ -71,11 +72,15 @@ function formatCurrency(value: number) {
 function formatDate(value?: string | null) {
   if (!value) return '-'
 
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '-'
+
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function formatNumber(value: number) {
@@ -83,7 +88,7 @@ function formatNumber(value: number) {
 }
 
 function formatMatchStatus(status: MatchStatus) {
-  const statusMap: Record<MatchStatus, string> = {
+  const statusMap: Record<string, string> = {
     MATCHED: 'Matched',
     MISMATCH: 'Mismatch',
     PENDING: 'Pending',
@@ -93,7 +98,7 @@ function formatMatchStatus(status: MatchStatus) {
 }
 
 function getMatchStatusClass(status: MatchStatus) {
-  const statusClassMap: Record<MatchStatus, string> = {
+  const statusClassMap: Record<string, string> = {
     MATCHED: 'bg-green-100 text-green-700',
     MISMATCH: 'bg-red-100 text-red-700',
     PENDING: 'bg-amber-100 text-amber-700',
@@ -109,6 +114,8 @@ function getResultClass(result: 'MATCH' | 'MISMATCH') {
 }
 
 export function ThreeWayMatchingClient() {
+  const router = useRouter()
+
   const [matchings, setMatchings] = useState<ThreeWayMatching[]>([])
   const [selectedMatchingId, setSelectedMatchingId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -124,7 +131,11 @@ export function ThreeWayMatchingClient() {
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.message || 'Failed to fetch three-way matching data')
+        throw new Error(
+          result?.error ||
+            result?.message ||
+            'Failed to fetch three-way matching data'
+        )
       }
 
       const matchingData = result.data || []
@@ -178,6 +189,8 @@ export function ThreeWayMatchingClient() {
         },
         body: JSON.stringify({
           matchingNo: selectedMatching.matchingNo,
+          poNumber: selectedMatching.poNo,
+          invoiceNo: selectedMatching.invoiceNo,
           sentToFinance: true,
         }),
       })
@@ -185,11 +198,27 @@ export function ThreeWayMatchingClient() {
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.message || 'Failed to send matching to finance')
+        throw new Error(
+          result?.error ||
+            result?.message ||
+            'Failed to send matching to finance'
+        )
       }
 
-      await fetchMatchings()
-      alert('Matching result has been sent to Finance.')
+      setMatchings((prev) =>
+        prev.map((item) =>
+          item.id === selectedMatching.id
+            ? {
+                ...item,
+                sentToFinance: true,
+                sentToFinanceAt: new Date().toISOString(),
+              }
+            : item
+        )
+      )
+
+      alert('Three-Way Matching has been sent to Finance.')
+      router.push('/apps/purchasing/finance')
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -284,6 +313,10 @@ export function ThreeWayMatchingClient() {
           {isLoading ? (
             <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
               Loading three-way matching data...
+            </div>
+          ) : matchings.length === 0 ? (
+            <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
+              No matching document is available yet.
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.8fr]">
@@ -555,16 +588,11 @@ export function ThreeWayMatchingClient() {
                   onClick={handleSendToFinance}
                   disabled={
                     isSending ||
-                    selectedMatching.sentToFinance ||
                     selectedMatching.matchStatus !== 'MATCHED'
                   }
                   className="rounded-lg bg-red-700 px-5 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  {selectedMatching.sentToFinance
-                    ? 'Already Sent to Finance'
-                    : isSending
-                      ? 'Sending...'
-                      : 'Confirm and Send to Finance'}
+                  {isSending ? 'Sending...' : 'Confirm and Send to Finance'}
                 </button>
               </div>
             </div>

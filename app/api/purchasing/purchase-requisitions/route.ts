@@ -12,6 +12,28 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+function normalizeStatus(value?: string | null) {
+  const status = String(value || '').toUpperCase()
+
+  if (['PENDING', 'DRAFT', 'REQUESTED'].includes(status)) {
+    return 'PENDING_PO_CREATION'
+  }
+
+  if (['APPROVED', 'PROCESSED', 'PO_CREATED'].includes(status)) {
+    return 'PROCESSED'
+  }
+
+  if (status === 'CLOSED') {
+    return 'CLOSED'
+  }
+
+  if (status === 'CANCELLED' || status === 'REJECTED') {
+    return 'CANCELLED'
+  }
+
+  return status || 'PENDING_PO_CREATION'
+}
+
 export async function GET() {
   try {
     const { data, error } = await supabase
@@ -91,7 +113,7 @@ export async function GET() {
 
     return NextResponse.json({
       message: 'Purchase requisitions fetched successfully',
-      data: purchaseRequisitions,
+      data,
     })
   } catch (error) {
     return NextResponse.json(

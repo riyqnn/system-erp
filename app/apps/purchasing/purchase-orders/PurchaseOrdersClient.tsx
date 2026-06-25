@@ -22,7 +22,9 @@ type POStatus =
   | 'REVISION_REQUIRED'
   | 'APPROVED'
   | 'RELEASED'
+  | 'REJECTED'
   | 'CANCELLED'
+  | string
 
 type PurchaseOrderItem = {
   id: string
@@ -76,20 +78,25 @@ function formatCurrency(value: number) {
 function formatDate(value?: string | null) {
   if (!value) return '-'
 
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '-'
+
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function formatStatus(status: POStatus) {
-  const statusMap: Record<POStatus, string> = {
+  const statusMap: Record<string, string> = {
     DRAFT: 'Draft',
     PENDING_APPROVAL: 'Pending Approval',
     REVISION_REQUIRED: 'Revision Required',
     APPROVED: 'Approved',
     RELEASED: 'Released',
+    REJECTED: 'Rejected',
     CANCELLED: 'Cancelled',
   }
 
@@ -97,12 +104,13 @@ function formatStatus(status: POStatus) {
 }
 
 function getStatusClass(status: POStatus) {
-  const statusClassMap: Record<POStatus, string> = {
+  const statusClassMap: Record<string, string> = {
     DRAFT: 'bg-slate-100 text-slate-600',
     PENDING_APPROVAL: 'bg-orange-100 text-orange-700',
     REVISION_REQUIRED: 'bg-yellow-100 text-yellow-700',
     APPROVED: 'bg-green-100 text-green-700',
     RELEASED: 'bg-blue-100 text-blue-700',
+    REJECTED: 'bg-red-100 text-red-700',
     CANCELLED: 'bg-red-100 text-red-700',
   }
 
@@ -125,6 +133,7 @@ export function PurchaseOrdersClient() {
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
+  const [releasingPOId, setReleasingPOId] = useState<string | null>(null)
 
   // Simulasi role sementara.
   // Kalau mau tombol approve/reject muncul, pakai MANAGER_PURCHASING.
@@ -178,7 +187,7 @@ export function PurchaseOrdersClient() {
       const matchesSupplier =
         supplier === 'All Suppliers' || order.supplierName === supplier
 
-      const matchesDate = !dateRange || order.poDate === dateRange
+      const matchesDate = !dateRange || order.poDate?.slice(0, 10) === dateRange
 
       return matchesSearch && matchesStatus && matchesSupplier && matchesDate
     })
@@ -246,6 +255,62 @@ export function PurchaseOrdersClient() {
     )
   }
 
+  const handleReleasePO = async (order: PurchaseOrder) => {
+    try {
+      setErrorMessage('')
+      setReleasingPOId(order.id)
+
+      const response = await fetch('/api/purchasing/purchase-orders', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          poNo: order.poNo,
+          status: 'RELEASED',
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result?.error || result?.message || 'Failed to release PO')
+      }
+
+      setPurchaseOrders((currentOrders) =>
+        currentOrders.map((currentOrder) =>
+          currentOrder.id === order.id
+            ? {
+                ...currentOrder,
+                status: 'RELEASED',
+                releasedAt: new Date().toISOString(),
+              }
+            : currentOrder
+        )
+      )
+
+      if (selectedPO?.id === order.id) {
+        setSelectedPO((currentPO) =>
+          currentPO
+            ? {
+                ...currentPO,
+                status: 'RELEASED',
+                releasedAt: new Date().toISOString(),
+              }
+            : currentPO
+        )
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Failed to release purchase order'
+      )
+    } finally {
+      setReleasingPOId(null)
+    }
+  }
+
   return (
     <ModuleLayout
       activeModule="purchasing"
@@ -264,10 +329,10 @@ export function PurchaseOrdersClient() {
           />
 
           <Link
-            href="/apps/purchasing/purchase-orders/create"
+            href="/apps/purchasing/negotiation"
             className="inline-flex h-10 items-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700"
           >
-            + Create New PO
+            Go to Price Negotiation
           </Link>
         </div>
 
@@ -364,6 +429,7 @@ export function PurchaseOrdersClient() {
                 <option>Revision Required</option>
                 <option>Approved</option>
                 <option>Released</option>
+                <option>Rejected</option>
                 <option>Cancelled</option>
               </select>
 
@@ -456,7 +522,7 @@ export function PurchaseOrdersClient() {
                         </td>
 
                         <td className="px-4 py-4 text-slate-600">
-                          {order.approver}
+                          {order.approver || '-'}
                         </td>
 
                         <td className="px-4 py-4">
@@ -484,7 +550,9 @@ export function PurchaseOrdersClient() {
                             {order.status === 'APPROVED' && (
                               <button
                                 type="button"
-                                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-blue-600"
+                                onClick={() => handleReleasePO(order)}
+                                disabled={releasingPOId === order.id}
+                                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                                 title="Send PO to Supplier"
                               >
                                 <PaperPlaneTilt size={18} weight="bold" />
@@ -679,13 +747,13 @@ export function PurchaseOrdersClient() {
                       <span className="font-medium text-slate-700">
                         Approver:
                       </span>{' '}
-                      {selectedPO.approver}
+                      {selectedPO.approver || '-'}
                     </p>
                     <p>
                       <span className="font-medium text-slate-700">
                         Notes:
                       </span>{' '}
-                      {selectedPO.approvalNotes}
+                      {selectedPO.approvalNotes || '-'}
                     </p>
                   </div>
                 </div>
@@ -752,6 +820,18 @@ export function PurchaseOrdersClient() {
               >
                 Close
               </button>
+
+              {selectedPO.status === 'APPROVED' && (
+                <button
+                  type="button"
+                  onClick={() => handleReleasePO(selectedPO)}
+                  disabled={releasingPOId === selectedPO.id}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <PaperPlaneTilt size={16} weight="bold" />
+                  Send to Supplier
+                </button>
+              )}
 
               {selectedPO.status === 'PENDING_APPROVAL' && canApprovePO && (
                 <>

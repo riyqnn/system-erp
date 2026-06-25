@@ -12,50 +12,219 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+function normalizeStatus(value?: string | null) {
+  const status = String(value || '').toUpperCase()
+
+  if (['WAITING_RESPONSE', 'WAITING', 'PENDING'].includes(status)) {
+    return 'WAITING_RESPONSE'
+  }
+
+  if (['RESPONDED', 'SUBMITTED'].includes(status)) {
+    return 'RESPONDED'
+  }
+
+  if (['NEGOTIATION', 'COUNTERED'].includes(status)) {
+    return 'NEGOTIATION'
+  }
+
+  if (['AGREED', 'ACCEPTED', 'APPROVED'].includes(status)) {
+    return 'AGREED'
+  }
+
+  if (['REJECTED', 'DECLINED'].includes(status)) {
+    return 'REJECTED'
+  }
+
+  return status || 'WAITING_RESPONSE'
+}
+
+function generateRFQNo(quotationId: string) {
+  if (!quotationId) return '-'
+
+  return String(quotationId).startsWith('RFQ-')
+    ? quotationId
+    : `RFQ-${quotationId}`
+}
+
+function generateQuotationId() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const random = String(Date.now()).slice(-5)
+
+  return `RFQ-${year}${month}-${random}`
+}
+
+function createProductIdFromName(productName?: string | null) {
+  const cleanName = String(productName || 'PRODUCT')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 20)
+
+  return `AUTO-${cleanName || 'PRODUCT'}-${String(Date.now()).slice(-4)}`
+}
+
+async function resolveProduct(params: {
+  productSku?: string
+  productName?: string
+  category?: string
+  unit?: string
+}) {
+  const productSku = String(params.productSku || '').trim()
+  const productName = String(params.productName || '').trim()
+  const category = String(params.category || '-').trim()
+  const unit = String(params.unit || '-').trim()
+
+  if (productSku && productSku !== '-') {
+    const { data: productById, error: productByIdError } = await supabase
+      .from('ms_product')
+      .select('product_id, product_name, category, uom')
+      .eq('product_id', productSku)
+      .maybeSingle()
+
+    if (productByIdError) {
+      throw new Error(productByIdError.message)
+    }
+
+    if (productById) {
+      return productById
+    }
+  }
+
+  if (productName && productName !== '-') {
+    const { data: productByName, error: productByNameError } = await supabase
+      .from('ms_product')
+      .select('product_id, product_name, category, uom')
+      .ilike('product_name', productName)
+      .limit(1)
+      .maybeSingle()
+
+    if (productByNameError) {
+      throw new Error(productByNameError.message)
+    }
+
+    if (productByName) {
+      return productByName
+    }
+  }
+
+  const newProductId =
+    productSku && productSku !== '-' ? productSku : createProductIdFromName(productName)
+
+  const { data: createdProduct, error: createProductError } = await supabase
+    .from('ms_product')
+    .insert({
+      product_id: newProductId,
+      product_name: productName || newProductId,
+      category: category || '-',
+      uom: unit || '-',
+    })
+    .select('product_id, product_name, category, uom')
+    .single()
+
+  if (createProductError) {
+    throw new Error(
+      `Product not found and failed to create product master: ${createProductError.message}`
+    )
+  }
+
+  return createdProduct
+}
+
+async function resolveSupplier(params: {
+  supplierCode?: string
+  candidateSupplierName?: string
+}) {
+  const supplierCode = String(params.supplierCode || '').trim()
+  const candidateSupplierName = String(params.candidateSupplierName || '').trim()
+
+  if (supplierCode && supplierCode !== '-') {
+    const { data: supplierById, error: supplierByIdError } = await supabase
+      .from('ms_supplier')
+      .select('supplier_id, supplier_name, contact, address')
+      .eq('supplier_id', supplierCode)
+      .maybeSingle()
+
+    if (supplierByIdError) {
+      throw new Error(supplierByIdError.message)
+    }
+
+    if (supplierById) {
+      return supplierById
+    }
+  }
+
+  if (candidateSupplierName && candidateSupplierName !== '-') {
+    const { data: supplierByName, error: supplierByNameError } = await supabase
+      .from('ms_supplier')
+      .select('supplier_id, supplier_name, contact, address')
+      .ilike('supplier_name', candidateSupplierName)
+      .limit(1)
+      .maybeSingle()
+
+    if (supplierByNameError) {
+      throw new Error(supplierByNameError.message)
+    }
+
+    if (supplierByName) {
+      return supplierByName
+    }
+  }
+
+  throw new Error(
+    `Supplier ${supplierCode || candidateSupplierName || '-'} does not exist in supplier master`
+  )
+}
+
 export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from('purchasing_rfq_sourcing')
-      .select(`
-        id,
-        rfq_number,
-        required_qty,
-        unit,
-        candidate_supplier_name,
-        pic_name,
-        email,
-        phone,
-        address,
-        quotation_deadline,
-        specification_notes,
-        status,
-        created_at,
-        purchasing_purchase_requisitions (
-          id,
-          pr_number,
-          request_date,
-          requested_by_name,
-          department,
-          status
-        ),
-        products (
-          id,
-          sku,
-          name,
-          category,
-          unit
-        ),
-        ms_suppliers (
-          supplier_id,
-          supplier_code,
-          supplier_name,
-          contact,
-          address
+    const [
+      quotationResult,
+      supplierResult,
+      productResult,
+      prResult,
+      prDetailResult,
+      userResult,
+    ] = await Promise.all([
+      supabase
+        .from('tr_price_quotation')
+        .select(
+          'quotation_id, supplier_id, product_id, proposed_price, accepted_price, final_price, qty_requested, status, quotation_date, expiry_date, notes'
         )
-      `)
-      .order('created_at', { ascending: false })
+        .order('quotation_date', { ascending: false }),
 
-    if (error) {
+      supabase
+        .from('ms_supplier')
+        .select('supplier_id, supplier_name, contact, address, lead_time, top, status'),
+
+      supabase
+        .from('ms_product')
+        .select('product_id, product_name, category, uom'),
+
+      supabase
+        .from('tr_purchase_requisition')
+        .select('pr_id, requested_by, request_date, status, notes, created_at'),
+
+      supabase
+      .from('tr_pr_detail')
+      .select('*'),
+
+      supabase
+        .from('ms_user')
+        .select('user_id, username, full_name, email, role'),
+    ])
+
+    const errors = [
+      quotationResult.error,
+      supplierResult.error,
+      productResult.error,
+      prResult.error,
+      prDetailResult.error,
+      userResult.error,
+    ].filter(Boolean)
+
+    if (errors.length > 0) {
       return NextResponse.json(
         {
           message: 'Failed to fetch RFQ sourcing data',
@@ -121,94 +290,79 @@ export async function POST(request: Request) {
       rfqNumber,
       prNumber,
       productSku,
+      productName,
+      category,
+      unit,
       requiredQty,
       supplierCode,
       candidateSupplierName,
-      picName,
-      email,
-      phone,
-      address,
       quotationDeadline,
       specificationNotes,
       status,
+      proposedPrice,
     } = body
 
-    if (!rfqNumber || !productSku || !requiredQty || !candidateSupplierName) {
+    if (!requiredQty || Number(requiredQty) <= 0) {
       return NextResponse.json(
         {
-          message:
-            'RFQ number, product SKU, required quantity, and supplier name are required',
+          message: 'Required quantity is required',
         },
         { status: 400 }
       )
     }
 
-    const { data: productData, error: productError } = await supabase
-      .from('products')
-      .select('id, unit')
-      .eq('sku', productSku)
-      .single()
-
-    if (productError || !productData) {
+    if (!supplierCode && !candidateSupplierName) {
       return NextResponse.json(
         {
-          message: 'Product SKU not found',
-          error: productError?.message,
+          message: 'Supplier is required',
         },
-        { status: 404 }
+        { status: 400 }
       )
     }
 
-    let prId = null
+    const productData = await resolveProduct({
+      productSku,
+      productName,
+      category,
+      unit,
+    })
 
-    if (prNumber) {
-      const { data: prData } = await supabase
-        .from('purchasing_purchase_requisitions')
-        .select('id')
-        .eq('pr_number', prNumber)
-        .maybeSingle()
+    const supplierData = await resolveSupplier({
+      supplierCode,
+      candidateSupplierName,
+    })
 
-      prId = prData?.id || null
-    }
+    const quotationId = rfqNumber || generateQuotationId()
 
-    let supplierId = null
+    const notes = [
+      specificationNotes || '',
+      prNumber ? `PR Reference: ${prNumber}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ')
 
-    if (supplierCode) {
-      const { data: supplierData } = await supabase
-        .from('ms_suppliers')
-        .select('supplier_id')
-        .eq('supplier_code', supplierCode)
-        .maybeSingle()
-
-      supplierId = supplierData?.supplier_id || null
-    }
-
-    const { data: rfqData, error: rfqError } = await supabase
-      .from('purchasing_rfq_sourcing')
+    const { data: quotationData, error: quotationError } = await supabase
+      .from('tr_price_quotation')
       .insert({
-        rfq_number: rfqNumber,
-        pr_id: prId,
-        product_id: productData.id,
-        required_qty: Number(requiredQty || 0),
-        unit: productData.unit || '-',
-        candidate_supplier_id: supplierId,
-        candidate_supplier_name: candidateSupplierName,
-        pic_name: picName || null,
-        email: email || null,
-        phone: phone || null,
-        address: address || null,
-        quotation_deadline: quotationDeadline || null,
-        specification_notes: specificationNotes || null,
-        status: status || 'WAITING_RESPONSE',
+        quotation_id: quotationId,
+        supplier_id: supplierData.supplier_id,
+        product_id: productData.product_id,
+        proposed_price: Number(proposedPrice || 0),
+        accepted_price: null,
+        final_price: null,
+        qty_requested: Number(requiredQty || 0),
+        quotation_date: new Date().toISOString(),
+        expiry_date: quotationDeadline || null,
+        notes: notes || 'RFQ created from purchasing sourcing page',
       })
       .select()
       .single()
 
-    if (rfqError) {
+    if (quotationError) {
       return NextResponse.json(
         {
           message: 'Failed to save RFQ sourcing data',
-          error: rfqError.message,
+          error: quotationError.message,
         },
         { status: 500 }
       )
@@ -216,7 +370,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       message: 'RFQ sourcing data saved successfully',
-      data: rfqData,
+      data: quotationData,
     })
   } catch (error) {
     return NextResponse.json(

@@ -11,57 +11,83 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-function getMonthName(value: string) {
+function normalizeStatus(value?: string | null) {
+  return String(value || 'UNKNOWN').toUpperCase()
+}
+
+function getMonthLabel(value?: string | null) {
+  if (!value) return 'Unknown'
+
   const date = new Date(value)
 
-  return new Intl.DateTimeFormat('en-US', {
+  if (Number.isNaN(date.getTime())) return 'Unknown'
+
+  return new Intl.DateTimeFormat('id-ID', {
     month: 'short',
+    year: 'numeric',
   }).format(date)
+}
+
+function buildStatusOverview(rows: any[], statusKey: string) {
+  const statusMap = new Map<string, number>()
+
+  rows.forEach((row) => {
+    const status = normalizeStatus(row?.[statusKey])
+    statusMap.set(status, (statusMap.get(status) || 0) + 1)
+  })
+
+  return Array.from(statusMap.entries()).map(([status, count]) => ({
+    status,
+    count,
+  }))
 }
 
 export async function GET() {
   try {
     const [
-      suppliersResult,
+      supplierResult,
       prResult,
-      rfqResult,
-      negotiationResult,
+      quotationResult,
       poResult,
-      grResult,
-      matchingResult,
-      trackingResult,
+      goodsReceiptResult,
+      apResult,
     ] = await Promise.all([
-      supabase.from('purchasing_supplier_products').select('id, status'),
       supabase
-        .from('purchasing_purchase_requisitions')
-        .select('id, status, request_date'),
-      supabase.from('purchasing_rfq_sourcing').select('id, status, created_at'),
+        .from('ms_supplier')
+        .select('supplier_id, supplier_name, status, created_at'),
+
       supabase
-        .from('purchasing_price_negotiations')
-        .select('id, status, created_at'),
+        .from('tr_purchase_requisition')
+        .select('pr_id, status, request_date, created_at'),
+
       supabase
-        .from('purchasing_purchase_orders')
-        .select('id, status, po_date, total_value'),
+      .from('tr_price_quotation')
+      .select(
+        'quotation_id, supplier_id, product_id, status, quotation_date'
+      ),
+
       supabase
-        .from('purchasing_goods_receipts')
-        .select('id, status, receipt_date'),
+        .from('tr_purchase_order')
+        .select(
+          'po_id, supplier_id, quotation_id, total_value, status, created_at, po_release_date'
+        ),
+
       supabase
-        .from('purchasing_three_way_matchings')
-        .select('id, match_status, sent_to_finance, created_at'),
+        .from('tr_goods_receipt')
+        .select('receipt_id, po_id, status, receipt_date, created_at'),
+
       supabase
-        .from('purchasing_tracking_reports')
-        .select('id, status, entity_type, estimated_arrival_date, created_at'),
+      .from('tr_account_payable')
+      .select('ap_id, po_id, ap_status, created_at'),
     ])
 
     const errors = [
-      suppliersResult.error,
+      supplierResult.error,
       prResult.error,
-      rfqResult.error,
-      negotiationResult.error,
+      quotationResult.error,
       poResult.error,
-      grResult.error,
-      matchingResult.error,
-      trackingResult.error,
+      goodsReceiptResult.error,
+      apResult.error,
     ].filter(Boolean)
 
     if (errors.length > 0) {
@@ -74,85 +100,100 @@ export async function GET() {
       )
     }
 
-    const suppliers = suppliersResult.data || []
+    const suppliers = supplierResult.data || []
     const purchaseRequisitions = prResult.data || []
-    const rfq = rfqResult.data || []
-    const negotiations = negotiationResult.data || []
+    const quotations = quotationResult.data || []
     const purchaseOrders = poResult.data || []
-    const goodsReceipts = grResult.data || []
-    const matchings = matchingResult.data || []
-    const trackingReports = trackingResult.data || []
+    const goodsReceipts = goodsReceiptResult.data || []
+    const accountPayables = apResult.data || []
 
-    const monthlyPoMap = new Map<string, { month: string; count: number; value: number }>()
+    const negotiations = quotations.filter((quotation: any) =>
+      ['NEGOTIATION', 'COUNTERED', 'AGREED', 'ACCEPTED', 'APPROVED'].includes(
+        normalizeStatus(quotation.status)
+      )
+    )
 
-    purchaseOrders.forEach((po) => {
-      const month = getMonthName(po.po_date)
-      const current = monthlyPoMap.get(month) || {
-        month,
-        count: 0,
-        value: 0,
-      }
+    const receiptPOSet = new Set(
+      goodsReceipts.map((receipt: any) => String(receipt.po_id || ''))
+    )
 
-      current.count += 1
-      current.value += Number(po.total_value || 0)
-      monthlyPoMap.set(month, current)
+    const apPOSet = new Set(
+      accountPayables.map((ap: any) => String(ap.po_id || ''))
+    )
+
+    const threeWayMatchings = purchaseOrders.filter((po: any) => {
+      const poId = String(po.po_id || '')
+      return receiptPOSet.has(poId) || apPOSet.has(poId)
     })
 
-    const monthlyPurchaseOrders = Array.from(monthlyPoMap.values())
+    const trackingReports = purchaseOrders.filter((po: any) =>
+      ['APPROVED', 'RELEASED', 'SENT', 'ISSUED'].includes(
+        normalizeStatus(po.status)
+      )
+    )
 
-    const poStatusOverview = [
-      {
-        label: 'Draft',
-        value: purchaseOrders.filter((item) => item.status === 'DRAFT').length,
-      },
-      {
-        label: 'Pending Approval',
-        value: purchaseOrders.filter((item) => item.status === 'PENDING_APPROVAL')
-          .length,
-      },
-      {
-        label: 'Approved',
-        value: purchaseOrders.filter((item) => item.status === 'APPROVED').length,
-      },
-      {
-        label: 'Released',
-        value: purchaseOrders.filter((item) => item.status === 'RELEASED').length,
-      },
-    ]
+    const monthlyPOMap = new Map<string, { month: string; totalPO: number; totalValue: number }>()
 
-    const supplierStatusOverview = [
-      {
-        label: 'Active',
-        value: suppliers.filter((item) => item.status === 'ACTIVE').length,
-      },
-      {
-        label: 'Inactive',
-        value: suppliers.filter((item) => item.status === 'INACTIVE').length,
-      },
-    ]
+    purchaseOrders.forEach((po: any) => {
+      const month = getMonthLabel(po.created_at || po.po_release_date)
+      const current = monthlyPOMap.get(month) || {
+        month,
+        totalPO: 0,
+        totalValue: 0,
+      }
+
+      current.totalPO += 1
+      current.totalValue += Number(po.total_value || 0)
+
+      monthlyPOMap.set(month, current)
+    })
+
+    const monthlyPurchaseOrders = Array.from(monthlyPOMap.values())
+
+    const pendingPR = purchaseRequisitions.filter((pr: any) =>
+      ['PENDING', 'DRAFT', 'REQUESTED'].includes(normalizeStatus(pr.status))
+    ).length
+
+    const pendingPO = purchaseOrders.filter((po: any) =>
+      ['PENDING', 'PENDING_APPROVAL', 'DRAFT'].includes(normalizeStatus(po.status))
+    ).length
+
+    const delayedPO = purchaseOrders.filter((po: any) => {
+      const status = normalizeStatus(po.status)
+      return ['DELAYED', 'OVERDUE'].includes(status)
+    }).length
 
     const alerts = [
-      {
-        title: 'Pending PO Approval',
-        value: purchaseOrders.filter((item) => item.status === 'PENDING_APPROVAL')
-          .length,
-        description: 'Purchase orders waiting for approval.',
-      },
-      {
-        title: 'Waiting RFQ Response',
-        value: rfq.filter((item) => item.status === 'WAITING_RESPONSE').length,
-        description: 'RFQ documents waiting for supplier response.',
-      },
-      {
-        title: 'Delayed Tracking',
-        value: trackingReports.filter((item) => item.status === 'DELAYED').length,
-        description: 'Tracking reports marked as delayed.',
-      },
-      {
-        title: 'Mismatch Documents',
-        value: matchings.filter((item) => item.match_status === 'MISMATCH').length,
-        description: 'Three-way matching documents with mismatch result.',
-      },
+      ...(pendingPR > 0
+        ? [
+            {
+              id: 'pending-pr',
+              type: 'warning',
+              title: 'Pending Purchase Requisition',
+              message: `${pendingPR} purchase requisition(s) still need to be processed.`,
+            },
+          ]
+        : []),
+      ...(pendingPO > 0
+        ? [
+            {
+              id: 'pending-po',
+              type: 'warning',
+              title: 'Pending Purchase Order',
+              message: `${pendingPO} purchase order(s) are still pending.`,
+            },
+          ]
+        : []),
+      ...(delayedPO > 0
+        ? [
+            {
+              id: 'delayed-po',
+              type: 'danger',
+              title: 'Delayed Purchase Order',
+              message: `${delayedPO} purchase order(s) are delayed or overdue.`,
+            },
+          ]
+        : []),
     ]
 
     return NextResponse.json({
@@ -161,27 +202,16 @@ export async function GET() {
         summary: {
           totalSuppliers: suppliers.length,
           totalPurchaseRequisitions: purchaseRequisitions.length,
-          totalRFQ: rfq.length,
+          totalRFQ: quotations.length,
           totalNegotiations: negotiations.length,
           totalPurchaseOrders: purchaseOrders.length,
           totalGoodsReceipts: goodsReceipts.length,
-          totalThreeWayMatchings: matchings.length,
+          totalThreeWayMatchings: threeWayMatchings.length,
           totalTrackingReports: trackingReports.length,
-          pendingApprovalPO: purchaseOrders.filter(
-            (item) => item.status === 'PENDING_APPROVAL'
-          ).length,
-          releasedPO: purchaseOrders.filter((item) => item.status === 'RELEASED')
-            .length,
-          agreedNegotiations: negotiations.filter(
-            (item) => item.status === 'AGREED'
-          ).length,
-          matchedDocuments: matchings.filter(
-            (item) => item.match_status === 'MATCHED'
-          ).length,
         },
         monthlyPurchaseOrders,
-        poStatusOverview,
-        supplierStatusOverview,
+        poStatusOverview: buildStatusOverview(purchaseOrders, 'status'),
+        supplierStatusOverview: buildStatusOverview(suppliers, 'status'),
         alerts,
       },
     })

@@ -12,28 +12,78 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+function normalizeStatus(value?: string | null) {
+  return String(value || '').toUpperCase()
+}
+
+function addDays(value?: string | null, days = 7) {
+  const baseDate = value ? new Date(value) : new Date()
+
+  if (Number.isNaN(baseDate.getTime())) {
+    return new Date().toISOString()
+  }
+
+  baseDate.setDate(baseDate.getDate() + days)
+  return baseDate.toISOString()
+}
+
+function getTrackingStatus(poStatus?: string | null, hasReceipt = false) {
+  const status = normalizeStatus(poStatus)
+
+  if (hasReceipt || status === 'COMPLETED') return 'COMPLETED'
+  if (['RELEASED', 'SENT', 'ISSUED'].includes(status)) return 'IN_TRANSIT'
+  if (['APPROVED'].includes(status)) return 'PENDING'
+  if (['CANCELLED', 'REJECTED'].includes(status)) return 'CANCELLED'
+
+  return 'PENDING'
+}
+
 export async function GET() {
   try {
-    const { data: trackingData, error: trackingError } = await supabase
-      .from('purchasing_tracking_reports')
-      .select(`
-        id,
-        tracking_number,
-        entity_type,
-        entity_id,
-        status,
-        estimated_arrival_date,
-        supplier_notes,
-        created_by_name,
-        created_at
-      `)
-      .order('created_at', { ascending: false })
+    const [
+      poResult,
+      poDetailResult,
+      supplierResult,
+      productResult,
+      goodsReceiptResult,
+    ] = await Promise.all([
+      supabase
+        .from('tr_purchase_order')
+        .select(
+          'po_id, supplier_id, total_value, status, created_at, po_release_date'
+        )
+        .order('created_at', { ascending: false }),
 
-    if (trackingError) {
+      supabase
+        .from('tr_po_detail')
+        .select('po_detail_id, po_id, product_id, qty_order, unit_price, subtotal'),
+
+      supabase
+        .from('ms_supplier')
+        .select('supplier_id, supplier_name, contact, address, lead_time, top, status'),
+
+      supabase
+        .from('ms_product')
+        .select('product_id, product_name, category, uom'),
+
+      supabase
+        .from('tr_goods_receipt')
+        .select('receipt_id, po_id, receipt_date, status, created_at'),
+    ])
+
+    const errors = [
+      poResult.error,
+      poDetailResult.error,
+      supplierResult.error,
+      productResult.error,
+      goodsReceiptResult.error,
+    ].filter(Boolean)
+
+    if (errors.length > 0) {
       return NextResponse.json(
         {
           message: 'Failed to fetch tracking reports',
-          error: trackingError.message,
+          error: errors[0]?.message,
         },
         { status: 500 }
       )
@@ -76,15 +126,15 @@ export async function GET() {
       `)
       .in('id', poIds.length > 0 ? poIds : ['00000000-0000-0000-0000-000000000000'])
 
-    if (poError) {
-      return NextResponse.json(
-        {
-          message: 'Failed to fetch related purchase orders',
-          error: poError.message,
-        },
-        { status: 500 }
-      )
-    }
+    const supplierMap = new Map(
+      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
+    )
+
+    const productMap = new Map(
+      products.map((product: any) => [product.product_id, product])
+    )
+
+    const detailsByPO = new Map<string, any[]>()
 
     const purchaseOrderMap = new Map((poData || []).map((po: AnyObject) => [po.id, po]))
 
@@ -93,32 +143,34 @@ export async function GET() {
       const firstItem = po?.purchasing_purchase_order_items?.[0]
 
       return {
-        id: item.id,
-        trackingNo: item.tracking_number,
-        entityType: item.entity_type,
-        entityId: item.entity_id,
-        trackingStatus: item.status,
-        estimatedArrivalDate: item.estimated_arrival_date,
-        supplierNotes: item.supplier_notes || '-',
-        reportedBy: item.created_by_name || '-',
-        reportedAt: item.created_at,
+        id: String(po.po_id),
+        trackingNo: `TRK-${po.po_id}`,
+        entityType: 'PURCHASE_ORDER',
+        entityId: String(po.po_id),
+        trackingStatus: getTrackingStatus(po.status, Boolean(receipt)),
+        estimatedArrivalDate,
+        supplierNotes: receipt
+          ? 'Goods have been received by warehouse.'
+          : 'Purchase order is being monitored for delivery.',
+        reportedBy: 'Purchasing Staff',
+        reportedAt: receipt?.created_at || po.po_release_date || po.created_at,
 
-        poNo: po?.po_number || '-',
-        poDate: po?.po_date || null,
-        expectedDeliveryDate: po?.expected_delivery_date || null,
-        poStatus: po?.status || '-',
-        totalValue: po?.total_value || 0,
+        poNo: po.po_id,
+        poDate: po.created_at,
+        expectedDeliveryDate: estimatedArrivalDate,
+        poStatus: po.status || '-',
+        totalValue: Number(po.total_value || 0),
 
-        supplierId: po?.ms_suppliers?.supplier_code || '-',
-        supplierName: po?.ms_suppliers?.supplier_name || '-',
-        supplierContact: po?.ms_suppliers?.contact || '-',
-        supplierAddress: po?.ms_suppliers?.address || '-',
+        supplierId: supplier?.supplier_id || po.supplier_id || '-',
+        supplierName: supplier?.supplier_name || '-',
+        supplierContact: supplier?.contact || '-',
+        supplierAddress: supplier?.address || '-',
 
-        productCode: firstItem?.products?.sku || '-',
-        productName: firstItem?.products?.name || '-',
-        category: firstItem?.products?.category || '-',
-        qty: firstItem?.qty || 0,
-        unit: firstItem?.unit || firstItem?.products?.unit || '-',
+        productCode: product?.product_id || firstItem?.product_id || '-',
+        productName: product?.product_name || '-',
+        category: product?.category || '-',
+        qty: Number(firstItem?.qty_order || 0),
+        unit: product?.uom || '-',
       }
     })
 
@@ -197,8 +249,9 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
-      message: 'Tracking report saved successfully',
-      data,
+      message:
+        'Tracking report is generated from purchase order and goods receipt data. Manual tracking save is not enabled in the current schema.',
+      data: body,
     })
   } catch (error) {
     return NextResponse.json(

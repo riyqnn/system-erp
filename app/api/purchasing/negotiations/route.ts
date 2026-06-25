@@ -12,48 +12,188 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+function normalizeStatus(value?: string | null) {
+  const status = String(value || '').toUpperCase()
+
+  if (['WAITING_RESPONSE', 'WAITING', 'PENDING'].includes(status)) {
+    return 'WAITING_RESPONSE'
+  }
+
+  if (['RESPONDED', 'SUBMITTED'].includes(status)) {
+    return 'RESPONDED'
+  }
+
+  if (['NEGOTIATION', 'COUNTERED', 'SENT'].includes(status)) {
+    return 'NEGOTIATION'
+  }
+
+  if (['AGREED', 'ACCEPTED', 'APPROVED'].includes(status)) {
+    return 'AGREED'
+  }
+
+  if (['REJECTED', 'DECLINED'].includes(status)) {
+    return 'REJECTED'
+  }
+
+  return status || 'NEGOTIATION'
+}
+
+function generateNegotiationNo(quotationId: string) {
+  if (!quotationId) return '-'
+
+  return String(quotationId).startsWith('NEG-')
+    ? quotationId
+    : `NEG-${quotationId}`
+}
+
+function generateRFQNo(quotationId: string) {
+  if (!quotationId) return '-'
+
+  return String(quotationId).startsWith('RFQ-')
+    ? quotationId
+    : `RFQ-${quotationId}`
+}
+
+function getReferencePrice(priceData: any, quotation: any) {
+  return Number(
+    priceData?.estimated_price ||
+      priceData?.price ||
+      priceData?.unit_price ||
+      priceData?.supplier_price ||
+      quotation?.proposed_price ||
+      0
+  )
+}
+
+function getQuotationIdCandidates(negotiationNumber: string) {
+  const value = String(negotiationNumber || '').trim()
+
+  if (!value) return []
+
+  const withoutNegPrefix = value.replace(/^NEG-/, '')
+
+  return Array.from(new Set([value, withoutNegPrefix, `NEG-${withoutNegPrefix}`]))
+}
+
+function generatePONumber() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const random = String(Date.now()).slice(-5)
+
+  return `PO-${year}${month}-${random}`
+}
+
+async function createPurchaseOrderFromNegotiation(quotationId: string, quotation: any) {
+  const { data: existingPO, error: existingPOError } = await supabase
+    .from('tr_purchase_order')
+    .select('po_id')
+    .eq('quotation_id', quotationId)
+    .maybeSingle()
+
+  if (existingPOError) {
+    throw new Error(existingPOError.message)
+  }
+
+  if (existingPO) {
+    return {
+      poCreated: false,
+      poId: existingPO.po_id,
+      message: 'Purchase Order already exists for this approved negotiation',
+    }
+  }
+
+  const supplierId = quotation.supplier_id
+  const productId = quotation.product_id
+  const qty = Number(quotation.qty_requested || 0)
+  const unitPrice = Number(
+    quotation.final_price ||
+      quotation.accepted_price ||
+      quotation.proposed_price ||
+      0
+  )
+
+  if (!supplierId || !productId || qty <= 0 || unitPrice <= 0) {
+    throw new Error(
+      'Cannot generate PO because supplier, product, quantity, or final price is incomplete'
+    )
+  }
+
+  const subtotal = qty * unitPrice
+  const taxAmount = subtotal * 0.11
+  const totalValue = subtotal + taxAmount
+  const poNumber = generatePONumber()
+
+  const { data: poData, error: poError } = await supabase
+    .from('tr_purchase_order')
+    .insert({
+      po_id: poNumber,
+      pr_id: null,
+      supplier_id: supplierId,
+      quotation_id: quotationId,
+      approved_by: null,
+      total_value: totalValue,
+      status: 'APPROVED',
+      rejection_reason: null,
+      created_at: new Date().toISOString(),
+      po_release_date: new Date().toISOString(),
+    })
+    .select('po_id')
+    .single()
+
+  if (poError || !poData) {
+    throw new Error(poError?.message || 'Failed to create purchase order')
+  }
+
+  const { error: poDetailError } = await supabase.from('tr_po_detail').insert({
+    po_id: poData.po_id,
+    product_id: productId,
+    qty_order: qty,
+    unit_price: unitPrice,
+    subtotal,
+  })
+
+  if (poDetailError) {
+    throw new Error(poDetailError.message)
+  }
+
+  return {
+    poCreated: true,
+    poId: poData.po_id,
+    message: 'Purchase Order generated successfully from approved negotiation',
+  }
+}
+
 export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from('purchasing_price_negotiations')
-      .select(`
-        id,
-        negotiation_number,
-        reference_price,
-        proposed_price,
-        supplier_response_price,
-        final_price,
-        qty,
-        unit,
-        confirmation_deadline,
-        status,
-        notes,
-        created_at,
-        purchasing_rfq_sourcing (
-          id,
-          rfq_number,
-          quotation_deadline,
-          specification_notes,
-          status
-        ),
-        ms_suppliers (
-          supplier_id,
-          supplier_code,
-          supplier_name,
-          contact,
-          address
-        ),
-        products (
-          id,
-          sku,
-          name,
-          category,
-          unit
-        )
-      `)
-      .order('created_at', { ascending: false })
+    const [quotationResult, supplierResult, productResult, supplierPriceResult] =
+      await Promise.all([
+        supabase
+          .from('tr_price_quotation')
+          .select(
+            'quotation_id, supplier_id, product_id, proposed_price, accepted_price, final_price, qty_requested, status, quotation_date, expiry_date, notes'
+          )
+          .order('quotation_date', { ascending: false }),
 
-    if (error) {
+        supabase
+          .from('ms_supplier')
+          .select('supplier_id, supplier_name, contact, address, lead_time, top, status'),
+
+        supabase
+          .from('ms_product')
+          .select('product_id, product_name, category, uom'),
+
+        supabase.from('ms_supplier_price').select('*'),
+      ])
+
+    const errors = [
+      quotationResult.error,
+      supplierResult.error,
+      productResult.error,
+      supplierPriceResult.error,
+    ].filter(Boolean)
+
+    if (errors.length > 0) {
       return NextResponse.json(
         {
           message: 'Failed to fetch price negotiations',
@@ -116,7 +256,6 @@ export async function POST(request: Request) {
 
     const {
       negotiationNumber,
-      rfqNumber,
       supplierCode,
       productSku,
       referencePrice,
@@ -129,70 +268,63 @@ export async function POST(request: Request) {
       notes,
     } = body
 
-    if (!negotiationNumber || !supplierCode || !productSku) {
+    if (!supplierCode || !productSku) {
       return NextResponse.json(
         {
-          message:
-            'Negotiation number, supplier code, and product SKU are required',
+          message: 'Supplier code and product SKU are required',
         },
         { status: 400 }
       )
     }
 
     const { data: supplierData, error: supplierError } = await supabase
-      .from('ms_suppliers')
+      .from('ms_supplier')
       .select('supplier_id')
-      .eq('supplier_code', supplierCode)
-      .single()
+      .eq('supplier_id', supplierCode)
+      .maybeSingle()
 
     if (supplierError || !supplierData) {
       return NextResponse.json(
         {
           message: 'Supplier not found',
-          error: supplierError?.message,
+          error:
+            supplierError?.message || `Supplier ${supplierCode} does not exist`,
         },
         { status: 404 }
       )
     }
 
     const { data: productData, error: productError } = await supabase
-      .from('products')
-      .select('id, unit')
-      .eq('sku', productSku)
-      .single()
+      .from('ms_product')
+      .select('product_id')
+      .eq('product_id', productSku)
+      .maybeSingle()
 
     if (productError || !productData) {
       return NextResponse.json(
         {
           message: 'Product SKU not found',
-          error: productError?.message,
+          error:
+            productError?.message || `Product ${productSku} does not exist`,
         },
         { status: 404 }
       )
     }
 
-    let rfqId = null
+    const quotationId =
+      negotiationNumber ||
+      `NEG-${new Date().getFullYear()}${String(
+        new Date().getMonth() + 1
+      ).padStart(2, '0')}-${String(Date.now()).slice(-5)}`
 
-    if (rfqNumber) {
-      const { data: rfqData } = await supabase
-        .from('purchasing_rfq_sourcing')
-        .select('id')
-        .eq('rfq_number', rfqNumber)
-        .maybeSingle()
-
-      rfqId = rfqData?.id || null
-    }
-
-    const { data: negotiationData, error: negotiationError } = await supabase
-      .from('purchasing_price_negotiations')
+    const { data: quotationData, error: quotationError } = await supabase
+      .from('tr_price_quotation')
       .insert({
-        negotiation_number: negotiationNumber,
-        rfq_id: rfqId,
+        quotation_id: quotationId,
         supplier_id: supplierData.supplier_id,
-        product_id: productData.id,
-        reference_price: Number(referencePrice || 0),
-        proposed_price: Number(proposedPrice || 0),
-        supplier_response_price:
+        product_id: productData.product_id,
+        proposed_price: Number(proposedPrice || referencePrice || 0),
+        accepted_price:
           supplierResponsePrice === undefined || supplierResponsePrice === ''
             ? null
             : Number(supplierResponsePrice),
@@ -200,20 +332,20 @@ export async function POST(request: Request) {
           finalPrice === undefined || finalPrice === ''
             ? null
             : Number(finalPrice),
-        qty: Number(qty || 0),
-        unit: productData.unit || '-',
-        confirmation_deadline: confirmationDeadline || null,
-        status: status || 'SENT',
+        qty_requested: Number(qty || 0),
+        status: status ? normalizeStatus(status) : 'NEGOTIATION',
+        quotation_date: new Date().toISOString(),
+        expiry_date: confirmationDeadline || null,
         notes: notes || null,
       })
       .select()
       .single()
 
-    if (negotiationError) {
+    if (quotationError) {
       return NextResponse.json(
         {
           message: 'Failed to save price negotiation',
-          error: negotiationError.message,
+          error: quotationError.message,
         },
         { status: 500 }
       )
@@ -221,7 +353,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       message: 'Price negotiation saved successfully',
-      data: negotiationData,
+      data: quotationData,
     })
   } catch (error) {
     return NextResponse.json(
@@ -258,7 +390,7 @@ export async function PATCH(request: Request) {
     const updatePayload: AnyObject = {}
 
     if (supplierResponsePrice !== undefined) {
-      updatePayload.supplier_response_price =
+      updatePayload.accepted_price =
         supplierResponsePrice === '' ? null : Number(supplierResponsePrice)
     }
 
@@ -267,19 +399,17 @@ export async function PATCH(request: Request) {
     }
 
     if (status) {
-      updatePayload.status = status
+      updatePayload.status = normalizeStatus(status)
     }
 
     if (notes !== undefined) {
       updatePayload.notes = notes
     }
 
-    updatePayload.updated_at = new Date().toISOString()
-
     const { data, error } = await supabase
-      .from('purchasing_price_negotiations')
+      .from('tr_price_quotation')
       .update(updatePayload)
-      .eq('negotiation_number', negotiationNumber)
+      .eq('quotation_id', quotationId)
       .select()
       .single()
 
@@ -293,9 +423,35 @@ export async function PATCH(request: Request) {
       )
     }
 
+    let generatedPO = null
+    const normalizedStatus = normalizeStatus(data?.status)
+
+    if (normalizedStatus === 'AGREED') {
+      try {
+        generatedPO = await createPurchaseOrderFromNegotiation(quotationId, data)
+      } catch (poError) {
+        return NextResponse.json(
+          {
+            message:
+              'Price negotiation updated, but failed to generate purchase order',
+            data,
+            error:
+              poError instanceof Error
+                ? poError.message
+                : 'Unknown purchase order error',
+          },
+          { status: 500 }
+        )
+      }
+    }
+
     return NextResponse.json({
-      message: 'Price negotiation updated successfully',
+      message:
+        generatedPO?.poCreated
+          ? 'Price negotiation approved and purchase order generated successfully'
+          : 'Price negotiation updated successfully',
       data,
+      generatedPO,
     })
   } catch (error) {
     return NextResponse.json(

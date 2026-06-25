@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   ShoppingCart,
   ClipboardText,
@@ -10,7 +11,12 @@ import {
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type GoodsReceiptStatus = 'DRAFT' | 'ACCEPTED' | 'PARTIAL' | 'REJECTED'
+type GoodsReceiptStatus =
+  | 'DRAFT'
+  | 'ACCEPTED'
+  | 'PARTIAL'
+  | 'REJECTED'
+  | string
 
 type GoodsReceiptItem = {
   id: string
@@ -28,7 +34,7 @@ type GoodsReceiptItem = {
 type GoodsReceipt = {
   id: string
   grNo: string
-  receiptDate: string
+  receiptDate: string | null
   receivedBy: string
   status: GoodsReceiptStatus
   notes: string
@@ -60,11 +66,15 @@ type GoodsReceipt = {
 function formatDate(value?: string | null) {
   if (!value) return '-'
 
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '-'
+
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function formatNumber(value: number) {
@@ -79,6 +89,7 @@ function formatStatus(status: string) {
     REJECTED: 'Rejected',
     RELEASED: 'Released',
     APPROVED: 'Approved',
+    COMPLETED: 'Completed',
   }
 
   return statusMap[status] || status
@@ -92,12 +103,24 @@ function getStatusClass(status: string) {
     REJECTED: 'bg-red-100 text-red-700',
     RELEASED: 'bg-teal-100 text-teal-700',
     APPROVED: 'bg-green-100 text-green-700',
+    COMPLETED: 'bg-green-100 text-green-700',
   }
 
   return statusClassMap[status] || 'bg-slate-100 text-slate-600'
 }
 
+function createGRNumber() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const random = String(Date.now()).slice(-5)
+
+  return `GR-${year}${month}-${random}`
+}
+
 export function GoodsReceiptClient() {
+  const router = useRouter()
+
   const [goodsReceipts, setGoodsReceipts] = useState<GoodsReceipt[]>([])
   const [selectedGrId, setSelectedGrId] = useState('')
   const [receivedQty, setReceivedQty] = useState('')
@@ -107,6 +130,7 @@ export function GoodsReceiptClient() {
   const [notes, setNotes] = useState('')
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
 
   const fetchGoodsReceipts = async () => {
@@ -118,7 +142,7 @@ export function GoodsReceiptClient() {
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.message || 'Failed to fetch goods receipts')
+        throw new Error(result?.error || result?.message || 'Failed to fetch goods receipts')
       }
 
       const receiptData = result.data || []
@@ -129,11 +153,13 @@ export function GoodsReceiptClient() {
         const firstItem = firstReceipt.items?.[0]
 
         setSelectedGrId(firstReceipt.id)
-        setReceivedQty(String(firstItem?.receivedQty || firstReceipt.receivedQty || ''))
+        setReceivedQty(
+          String(firstItem?.receivedQty || firstReceipt.receivedQty || firstItem?.orderedQty || '')
+        )
         setExpiryDate(firstItem?.expiryDate || firstReceipt.expiryDate || '')
         setBatchNo(firstItem?.batchNumber || firstReceipt.batchNumber || '')
         setCondition(firstItem?.condition || firstReceipt.condition || 'GOOD')
-        setNotes(firstReceipt.notes || '')
+        setNotes(firstReceipt.notes === '-' ? '' : firstReceipt.notes || '')
       }
     } catch (error) {
       setErrorMessage(
@@ -154,31 +180,99 @@ export function GoodsReceiptClient() {
 
   const selectedItems = selectedReceipt?.items || []
 
-  const totalReceived = selectedItems.reduce(
-    (total, item) => total + Number(item.receivedQty || 0),
-    0
-  )
+  const totalReceived = selectedItems.reduce((total, item, index) => {
+    const value =
+      index === 0
+        ? Number(receivedQty || 0)
+        : Number(item.receivedQty || item.orderedQty || 0)
+
+    return total + value
+  }, 0)
 
   const handleChangeReceipt = (id: string) => {
     const receipt = goodsReceipts.find((item) => item.id === id)
     const firstItem = receipt?.items?.[0]
 
     setSelectedGrId(id)
-    setReceivedQty(String(firstItem?.receivedQty || receipt?.receivedQty || ''))
+    setReceivedQty(
+      String(firstItem?.receivedQty || receipt?.receivedQty || firstItem?.orderedQty || '')
+    )
     setExpiryDate(firstItem?.expiryDate || receipt?.expiryDate || '')
     setBatchNo(firstItem?.batchNumber || receipt?.batchNumber || '')
     setCondition(firstItem?.condition || receipt?.condition || 'GOOD')
-    setNotes(receipt?.notes || '')
+    setNotes(receipt?.notes === '-' ? '' : receipt?.notes || '')
     setIsConfirmed(false)
+    setErrorMessage('')
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (!selectedReceipt) {
+      setErrorMessage('Please select a purchase order first.')
+      return
+    }
+
     if (!isConfirmed) {
       alert('Please confirm the receipt before saving.')
       return
     }
 
-    alert('Goods receipt confirmation saved for demo.')
+    if (!selectedItems.length) {
+      setErrorMessage('No item found for this purchase order.')
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setErrorMessage('')
+
+      const grNumber = selectedReceipt.grNo?.startsWith('DRAFT-GR-')
+        ? createGRNumber()
+        : selectedReceipt.grNo || createGRNumber()
+
+      const payloadItems = selectedItems.map((item, index) => ({
+        productSku: item.productCode,
+        productCode: item.productCode,
+        receivedQty:
+          index === 0
+            ? Number(receivedQty || item.orderedQty || 0)
+            : Number(item.receivedQty || item.orderedQty || 0),
+        expiryDate: index === 0 ? expiryDate || null : item.expiryDate || null,
+        batchNumber: index === 0 ? batchNo || null : item.batchNumber || null,
+        condition: index === 0 ? condition || 'GOOD' : item.condition || 'GOOD',
+      }))
+
+      const response = await fetch('/api/purchasing/goods-receipts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          grNumber,
+          poNumber: selectedReceipt.poNo,
+          receiptDate: new Date().toISOString(),
+          receivedByName: 'Warehouse Staff',
+          status: 'ACCEPTED',
+          notes,
+          items: payloadItems,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result?.error || result?.message || 'Failed to save goods receipt')
+      }
+
+      await fetchGoodsReceipts()
+      alert('Goods Receipt saved successfully. Continue to Three-Way Matching.')
+      router.push('/apps/purchasing/three-way-matching')
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to save goods receipt'
+      )
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -214,6 +308,10 @@ export function GoodsReceiptClient() {
           {isLoading ? (
             <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
               Loading goods receipt data...
+            </div>
+          ) : goodsReceipts.length === 0 ? (
+            <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
+              No released or approved purchase order is available for goods receipt.
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.8fr]">
@@ -333,7 +431,7 @@ export function GoodsReceiptClient() {
                             value={
                               index === 0
                                 ? receivedQty
-                                : String(item.receivedQty)
+                                : String(item.receivedQty || item.orderedQty || '')
                             }
                             onChange={(event) =>
                               index === 0 && setReceivedQty(event.target.value)
@@ -358,7 +456,7 @@ export function GoodsReceiptClient() {
                         <td className="px-4 py-4">
                           <input
                             type="text"
-                            value={index === 0 ? batchNo : item.batchNumber}
+                            value={index === 0 ? batchNo : item.batchNumber || ''}
                             onChange={(event) =>
                               index === 0 && setBatchNo(event.target.value)
                             }
@@ -369,7 +467,7 @@ export function GoodsReceiptClient() {
 
                         <td className="px-4 py-4">
                           <select
-                            value={index === 0 ? condition : item.condition}
+                            value={index === 0 ? condition : item.condition || 'GOOD'}
                             onChange={(event) =>
                               index === 0 && setCondition(event.target.value)
                             }
@@ -441,7 +539,7 @@ export function GoodsReceiptClient() {
                       Received By
                     </p>
                     <p className="mt-1 text-sm font-bold text-slate-900">
-                      {selectedReceipt?.receivedBy || '-'}
+                      {selectedReceipt?.receivedBy || 'Warehouse Staff'}
                     </p>
                   </div>
                 </div>
@@ -459,9 +557,10 @@ export function GoodsReceiptClient() {
                 <button
                   type="button"
                   onClick={handleSave}
-                  className="h-11 rounded-lg bg-red-700 px-6 text-sm font-medium text-white hover:bg-red-800"
+                  disabled={isSaving || !selectedReceipt}
+                  className="h-11 rounded-lg bg-red-700 px-6 text-sm font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-red-300"
                 >
-                  Save GR
+                  {isSaving ? 'Saving...' : 'Save GR'}
                 </button>
               </div>
             </div>

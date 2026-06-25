@@ -98,6 +98,13 @@ function getMonthlyHeight(value: number) {
   return Math.max(value * 20, 32)
 }
 
+function getSafeKey(...values: Array<string | number | null | undefined>) {
+  return values
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean)
+    .join('-')
+}
+
 export function PurchasingPageClient() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -268,25 +275,25 @@ export function PurchasingPageClient() {
                 </div>
 
                 <div className="mt-8 flex h-56 items-end gap-5">
-                  {monthlyPOTrend.map((item) => (
-                    <div
-                      key={item.month}
-                      className="flex flex-1 flex-col items-center justify-end"
-                    >
+                  {monthlyPOTrend.length > 0 ? (
+                    monthlyPOTrend.map((item, index) => (
                       <div
-                        className="w-full rounded-t-xl bg-red-600 transition hover:bg-red-700"
-                        style={{ height: `${getMonthlyHeight(item.count)}px` }}
-                      />
-                      <p className="mt-3 text-xs font-medium text-slate-500">
-                        {item.month}
-                      </p>
-                      <p className="mt-1 text-xs font-bold text-slate-900">
-                        {item.count}
-                      </p>
-                    </div>
-                  ))}
-
-                  {monthlyPOTrend.length === 0 && (
+                        key={getSafeKey('monthly-po', item.month, index)}
+                        className="flex flex-1 flex-col items-center justify-end"
+                      >
+                        <div
+                          className="w-full rounded-t-xl bg-red-600 transition hover:bg-red-700"
+                          style={{ height: `${getMonthlyHeight(item.count)}px` }}
+                        />
+                        <p className="mt-3 text-xs font-medium text-slate-500">
+                          {item.month || '-'}
+                        </p>
+                        <p className="mt-1 text-xs font-bold text-slate-900">
+                          {item.count}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
                     <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">
                       No monthly purchase order data available.
                     </div>
@@ -303,14 +310,14 @@ export function PurchasingPageClient() {
                 </p>
 
                 <div className="mt-6 space-y-4">
-                  {poStatusOverview.map((item) => {
+                  {poStatusOverview.map((item, index) => {
                     const percentage = getPercentage(item.value, totalPOStatus)
 
                     return (
-                      <div key={item.label}>
+                      <div key={getSafeKey('po-status', item.label, index)}>
                         <div className="mb-2 flex items-center justify-between text-sm">
                           <span className="font-medium text-slate-700">
-                            {item.label}
+                            {item.label || '-'}
                           </span>
                           <span className="font-semibold text-slate-900">
                             {item.value} PO
@@ -342,17 +349,17 @@ export function PurchasingPageClient() {
                 </p>
 
                 <div className="mt-6 space-y-5">
-                  {supplierStatusOverview.map((item) => {
+                  {supplierStatusOverview.map((item, index) => {
                     const percentage = getPercentage(
                       item.value,
                       totalSupplierStatus
                     )
 
                     return (
-                      <div key={item.label}>
+                      <div key={getSafeKey('supplier-status', item.label, index)}>
                         <div className="mb-2 flex items-center justify-between text-sm">
                           <span className="font-medium text-slate-700">
-                            {item.label}
+                            {item.label || '-'}
                           </span>
                           <span className="font-semibold text-slate-900">
                             {item.value} suppliers
@@ -388,13 +395,18 @@ export function PurchasingPageClient() {
                 </div>
 
                 <div className="space-y-3">
-                  {alerts.map((alert) => {
+                  {alerts.map((alert, index) => {
                     const AlertIcon =
                       alert.value > 0 ? WarningCircle : CheckCircle
 
                     return (
                       <div
-                        key={alert.title}
+                        key={getSafeKey(
+                          'alert',
+                          alert.title,
+                          alert.description,
+                          index
+                        )}
                         className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4"
                       >
                         <div className="rounded-lg bg-white p-2 text-red-600">

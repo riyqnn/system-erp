@@ -16,6 +16,7 @@ import { ModuleHeader } from '@/components/shared'
 
 type PRStatus =
   | 'PENDING_PO_CREATION'
+  | 'PENDING_SOURCING'
   | 'PROCESSED'
   | 'CLOSED'
   | 'CANCELLED'
@@ -50,11 +51,15 @@ type PurchaseRequisition = {
 function formatDate(value?: string | null) {
   if (!value) return '-'
 
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '-'
+
   return new Intl.DateTimeFormat('id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 function formatCurrency(value: number) {
@@ -71,7 +76,8 @@ function formatNumber(value: number) {
 
 function getStatusLabel(status: PRStatus) {
   const statusMap: Record<string, string> = {
-    PENDING_PO_CREATION: 'Pending PO Creation',
+    PENDING_PO_CREATION: 'Pending Sourcing',
+    PENDING_SOURCING: 'Pending Sourcing',
     PROCESSED: 'Processed',
     CLOSED: 'Closed',
     CANCELLED: 'Cancelled',
@@ -83,6 +89,7 @@ function getStatusLabel(status: PRStatus) {
 function getStatusClass(status: PRStatus) {
   const statusMap: Record<string, string> = {
     PENDING_PO_CREATION: 'bg-orange-100 text-orange-700',
+    PENDING_SOURCING: 'bg-orange-100 text-orange-700',
     PROCESSED: 'bg-blue-100 text-blue-700',
     CLOSED: 'bg-emerald-100 text-emerald-700',
     CANCELLED: 'bg-red-100 text-red-700',
@@ -213,7 +220,7 @@ function normalizePR(raw: PurchaseRequisitionRaw): PurchaseRequisition {
       '-',
     department: raw.department || raw.requester_department || 'Inventory',
     priority: raw.priority || '-',
-    status: raw.status || 'PENDING_PO_CREATION',
+    status: raw.status || 'PENDING_SOURCING',
     purpose: raw.purpose || raw.description || '-',
     notes: raw.notes || '-',
     totalEstimatedValue,
@@ -274,7 +281,9 @@ export function PurchaseRequisitionClient() {
         )
 
       const matchesStatus =
-        statusFilter === 'All Status' || item.status === statusFilter
+        statusFilter === 'All Status' ||
+        item.status === statusFilter ||
+        (statusFilter === 'PENDING_SOURCING' && isPendingSourcing(item.status))
 
       return matchesSearch && matchesStatus
     })
@@ -305,7 +314,7 @@ export function PurchaseRequisitionClient() {
       <div className="space-y-6">
         <ModuleHeader
           title="Purchase Requisition"
-          description="View purchase requisitions submitted from the Inventory module."
+          description="View purchase requisitions submitted from the Inventory module before continuing to RFQ, sourcing, and price negotiation."
         />
 
         {errorMessage && (
@@ -314,15 +323,21 @@ export function PurchaseRequisitionClient() {
           </div>
         )}
 
+        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          PR tidak langsung dibuat menjadi PO. PR diproses terlebih dahulu ke
+          RFQ/Sourcing, lalu masuk Price Negotiation. PO otomatis terbentuk
+          setelah hasil negosiasi disetujui.
+        </div>
+
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  Pending PO Creation
+                  Pending Sourcing
                 </p>
                 <h3 className="mt-2 text-4xl font-bold text-slate-900">
-                  {pendingCount}
+                  {pendingSourcingCount}
                 </h3>
               </div>
               <div className="rounded-xl bg-orange-50 p-3">
@@ -395,7 +410,7 @@ export function PurchaseRequisitionClient() {
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
               >
                 <option>All Status</option>
-                <option value="PENDING_PO_CREATION">Pending PO Creation</option>
+                <option value="PENDING_SOURCING">Pending Sourcing</option>
                 <option value="PROCESSED">Processed</option>
                 <option value="CLOSED">Closed</option>
                 <option value="CANCELLED">Cancelled</option>
@@ -472,13 +487,13 @@ export function PurchaseRequisitionClient() {
                               <Eye size={18} weight="bold" />
                             </button>
 
-                            {item.status === 'PENDING_PO_CREATION' && (
+                            {isPendingSourcing(item.status) && (
                               <Link
-                                href={`/apps/purchasing/purchase-orders/create?prNo=${encodeURIComponent(
+                                href={`/apps/purchasing/rfq-sourcing?prNo=${encodeURIComponent(
                                   item.prNo
                                 )}`}
                                 className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 transition hover:bg-red-100"
-                                title="Process to PO"
+                                title="Process to RFQ/Sourcing"
                               >
                                 <PaperPlaneTilt size={18} weight="bold" />
                               </Link>
@@ -517,7 +532,8 @@ export function PurchaseRequisitionClient() {
                     {selectedPR.prNo}
                   </h3>
                   <p className="mt-1 text-sm text-slate-500">
-                    Submitted from Inventory module.
+                    Submitted from Inventory module and ready to continue into
+                    RFQ/Sourcing before negotiation and PO generation.
                   </p>
                 </div>
 
@@ -666,14 +682,14 @@ export function PurchaseRequisitionClient() {
                   Close
                 </button>
 
-                {selectedPR.status === 'PENDING_PO_CREATION' && (
+                {isPendingSourcing(selectedPR.status) && (
                   <Link
-                    href={`/apps/purchasing/purchase-orders/create?prNo=${encodeURIComponent(
+                    href={`/apps/purchasing/rfq-sourcing?prNo=${encodeURIComponent(
                       selectedPR.prNo
                     )}`}
                     className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
                   >
-                    Process to PO
+                    Process to RFQ/Sourcing
                     <PaperPlaneTilt size={16} weight="bold" />
                   </Link>
                 )}
