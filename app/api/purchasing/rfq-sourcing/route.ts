@@ -39,9 +39,141 @@ function normalizeStatus(value?: string | null) {
 
 function generateRFQNo(quotationId: string) {
   if (!quotationId) return '-'
+
   return String(quotationId).startsWith('RFQ-')
     ? quotationId
     : `RFQ-${quotationId}`
+}
+
+function generateQuotationId() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const random = String(Date.now()).slice(-5)
+
+  return `RFQ-${year}${month}-${random}`
+}
+
+function createProductIdFromName(productName?: string | null) {
+  const cleanName = String(productName || 'PRODUCT')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 20)
+
+  return `AUTO-${cleanName || 'PRODUCT'}-${String(Date.now()).slice(-4)}`
+}
+
+async function resolveProduct(params: {
+  productSku?: string
+  productName?: string
+  category?: string
+  unit?: string
+}) {
+  const productSku = String(params.productSku || '').trim()
+  const productName = String(params.productName || '').trim()
+  const category = String(params.category || '-').trim()
+  const unit = String(params.unit || '-').trim()
+
+  if (productSku && productSku !== '-') {
+    const { data: productById, error: productByIdError } = await supabase
+      .from('ms_product')
+      .select('product_id, product_name, category, uom')
+      .eq('product_id', productSku)
+      .maybeSingle()
+
+    if (productByIdError) {
+      throw new Error(productByIdError.message)
+    }
+
+    if (productById) {
+      return productById
+    }
+  }
+
+  if (productName && productName !== '-') {
+    const { data: productByName, error: productByNameError } = await supabase
+      .from('ms_product')
+      .select('product_id, product_name, category, uom')
+      .ilike('product_name', productName)
+      .limit(1)
+      .maybeSingle()
+
+    if (productByNameError) {
+      throw new Error(productByNameError.message)
+    }
+
+    if (productByName) {
+      return productByName
+    }
+  }
+
+  const newProductId =
+    productSku && productSku !== '-' ? productSku : createProductIdFromName(productName)
+
+  const { data: createdProduct, error: createProductError } = await supabase
+    .from('ms_product')
+    .insert({
+      product_id: newProductId,
+      product_name: productName || newProductId,
+      category: category || '-',
+      uom: unit || '-',
+    })
+    .select('product_id, product_name, category, uom')
+    .single()
+
+  if (createProductError) {
+    throw new Error(
+      `Product not found and failed to create product master: ${createProductError.message}`
+    )
+  }
+
+  return createdProduct
+}
+
+async function resolveSupplier(params: {
+  supplierCode?: string
+  candidateSupplierName?: string
+}) {
+  const supplierCode = String(params.supplierCode || '').trim()
+  const candidateSupplierName = String(params.candidateSupplierName || '').trim()
+
+  if (supplierCode && supplierCode !== '-') {
+    const { data: supplierById, error: supplierByIdError } = await supabase
+      .from('ms_supplier')
+      .select('supplier_id, supplier_name, contact, address')
+      .eq('supplier_id', supplierCode)
+      .maybeSingle()
+
+    if (supplierByIdError) {
+      throw new Error(supplierByIdError.message)
+    }
+
+    if (supplierById) {
+      return supplierById
+    }
+  }
+
+  if (candidateSupplierName && candidateSupplierName !== '-') {
+    const { data: supplierByName, error: supplierByNameError } = await supabase
+      .from('ms_supplier')
+      .select('supplier_id, supplier_name, contact, address')
+      .ilike('supplier_name', candidateSupplierName)
+      .limit(1)
+      .maybeSingle()
+
+    if (supplierByNameError) {
+      throw new Error(supplierByNameError.message)
+    }
+
+    if (supplierByName) {
+      return supplierByName
+    }
+  }
+
+  throw new Error(
+    `Supplier ${supplierCode || candidateSupplierName || '-'} does not exist in supplier master`
+  )
 }
 
 export async function GET() {
@@ -51,6 +183,7 @@ export async function GET() {
       supplierResult,
       productResult,
       prResult,
+      prDetailResult,
       userResult,
     ] = await Promise.all([
       supabase
@@ -73,6 +206,10 @@ export async function GET() {
         .select('pr_id, requested_by, request_date, status, notes, created_at'),
 
       supabase
+      .from('tr_pr_detail')
+      .select('*'),
+
+      supabase
         .from('ms_user')
         .select('user_id, username, full_name, email, role'),
     ])
@@ -82,6 +219,7 @@ export async function GET() {
       supplierResult.error,
       productResult.error,
       prResult.error,
+      prDetailResult.error,
       userResult.error,
     ].filter(Boolean)
 
@@ -99,6 +237,7 @@ export async function GET() {
     const suppliers = supplierResult.data || []
     const products = productResult.data || []
     const purchaseRequisitions = prResult.data || []
+    const prDetails = prDetailResult.data || []
     const users = userResult.data || []
 
     const supplierMap = new Map(
@@ -111,12 +250,21 @@ export async function GET() {
 
     const userMap = new Map(users.map((user: any) => [user.user_id, user]))
 
+    const prMap = new Map(
+      purchaseRequisitions.map((pr: any) => [pr.pr_id, pr])
+    )
+
     const prByProduct = new Map<string, any>()
 
-    purchaseRequisitions.forEach((pr: any) => {
-      const productId = pr.product_id || pr.product_code
-      if (productId && !prByProduct.has(productId)) {
-        prByProduct.set(productId, pr)
+    prDetails.forEach((detail: any) => {
+      const productId = detail.product_id
+      const pr = prMap.get(detail.pr_id)
+
+      if (productId && pr && !prByProduct.has(productId)) {
+        prByProduct.set(productId, {
+          ...pr,
+          detail,
+        })
       }
     })
 
@@ -182,7 +330,11 @@ export async function POST(request: Request) {
 
     const {
       rfqNumber,
+      prNumber,
       productSku,
+      productName,
+      category,
+      unit,
       requiredQty,
       supplierCode,
       candidateSupplierName,
@@ -192,54 +344,44 @@ export async function POST(request: Request) {
       proposedPrice,
     } = body
 
-    if (!productSku || !requiredQty || !supplierCode) {
+    if (!requiredQty || Number(requiredQty) <= 0) {
       return NextResponse.json(
         {
-          message: 'Product SKU, required quantity, and supplier code are required',
+          message: 'Required quantity is required',
         },
         { status: 400 }
       )
     }
 
-    const { data: productData, error: productError } = await supabase
-      .from('ms_product')
-      .select('product_id')
-      .eq('product_id', productSku)
-      .maybeSingle()
-
-    if (productError || !productData) {
+    if (!supplierCode && !candidateSupplierName) {
       return NextResponse.json(
         {
-          message: 'Product SKU not found',
-          error:
-            productError?.message || `Product ${productSku} does not exist`,
+          message: 'Supplier is required',
         },
-        { status: 404 }
+        { status: 400 }
       )
     }
 
-    const { data: supplierData, error: supplierError } = await supabase
-      .from('ms_supplier')
-      .select('supplier_id')
-      .eq('supplier_id', supplierCode)
-      .maybeSingle()
+    const productData = await resolveProduct({
+      productSku,
+      productName,
+      category,
+      unit,
+    })
 
-    if (supplierError || !supplierData) {
-      return NextResponse.json(
-        {
-          message: 'Supplier not found',
-          error:
-            supplierError?.message || `Supplier ${supplierCode} does not exist`,
-        },
-        { status: 404 }
-      )
-    }
+    const supplierData = await resolveSupplier({
+      supplierCode,
+      candidateSupplierName,
+    })
 
-    const quotationId =
-      rfqNumber ||
-      `QTN-${new Date().getFullYear()}${String(
-        new Date().getMonth() + 1
-      ).padStart(2, '0')}-${String(Date.now()).slice(-5)}`
+    const quotationId = rfqNumber || generateQuotationId()
+
+    const notes = [
+      specificationNotes || '',
+      prNumber ? `PR Reference: ${prNumber}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ')
 
     const { data: quotationData, error: quotationError } = await supabase
       .from('tr_price_quotation')
@@ -251,13 +393,9 @@ export async function POST(request: Request) {
         accepted_price: null,
         final_price: null,
         qty_requested: Number(requiredQty || 0),
-        status: status || 'WAITING_RESPONSE',
         quotation_date: new Date().toISOString(),
         expiry_date: quotationDeadline || null,
-        notes:
-          specificationNotes ||
-          candidateSupplierName ||
-          'RFQ created from purchasing sourcing page',
+        notes: notes || 'RFQ created from purchasing sourcing page',
       })
       .select()
       .single()

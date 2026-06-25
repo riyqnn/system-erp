@@ -329,10 +329,10 @@ export function PurchaseOrdersClient() {
           />
 
           <Link
-            href="/apps/purchasing/purchase-orders/create"
+            href="/apps/purchasing/negotiation"
             className="inline-flex h-10 items-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700"
           >
-            + Create New PO
+            Go to Price Negotiation
           </Link>
         </div>
 
