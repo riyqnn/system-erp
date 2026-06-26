@@ -107,45 +107,76 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch purchase orders',
-          error: error instanceof Error ? error.message : String(error),
+          error: errors[0] instanceof Error ? errors[0].message : String(errors[0]),
         },
         { status: 500 }
       )
     }
 
-    const purchaseOrders = (data || []).map((item: AnyObject) => {
-      const items = item.purchasing_purchase_order_items || []
-      const firstItem = items[0]
+    const suppliers = supplierResult.data || []
+    const products = productResult.data || []
+    const prs = prResult.data || []
+    const quotations = quotationResult.data || []
 
-      const subtotal = items.reduce(
-        (total: number, item: any) => total + Number(item.subtotal || 0),
+    const supplierMap = new Map(
+      suppliers.map((s: AnyObject) => [s.supplier_id, s])
+    )
+    const productMap = new Map(
+      products.map((p: AnyObject) => [p.product_id, p])
+    )
+    const prMap = new Map(
+      prs.map((p: AnyObject) => [p.pr_id, p])
+    )
+    const quotationMap = new Map(
+      quotations.map((q: AnyObject) => [q.quotation_id, q])
+    )
+
+    const detailsByPO = new Map()
+    ;(poDetailResult.data || []).forEach((d: AnyObject) => {
+      const poId = String(d.po_id || '')
+      if (!detailsByPO.has(poId)) detailsByPO.set(poId, [])
+      detailsByPO.get(poId).push(d)
+    })
+
+    const purchaseOrders = (poResult.data || []).map((item: AnyObject) => {
+      const poId = String(item.po_id || '')
+      const supplier = supplierMap.get(item.supplier_id)
+      const pr = prMap.get(item.pr_id)
+      const quotation = quotationMap.get(item.quotation_id)
+
+      const poItems = detailsByPO.get(poId) || []
+      const firstItem = poItems[0]
+
+      const subtotal = poItems.reduce(
+        (total: number, pi: AnyObject) => total + Number(pi.subtotal || 0),
         0
       )
 
-      const totalValue = Number(po.total_value || subtotal || 0)
+      const totalValue = Number(item.total_value || subtotal || 0)
       const taxAmount = Math.max(totalValue - subtotal, 0)
-      const status = normalizeStatus(po.status)
+      const status = normalizeStatus(item.status)
+
+      const firstProduct = firstItem ? productMap.get(firstItem.product_id) : undefined
 
       return {
-        id: String(po.po_id),
-        poNo: String(po.po_id),
-        poDate: po.created_at || null,
+        id: poId,
+        poNo: poId,
+        poDate: item.created_at || null,
         expectedDeliveryDate: null,
 
-        supplierId: supplier?.supplier_id || po.supplier_id || '-',
+        supplierId: supplier?.supplier_id || item.supplier_id || '-',
         supplierName: supplier?.supplier_name || '-',
         supplierContact: supplier?.contact || '-',
         supplierAddress: supplier?.address || '-',
 
-        prNo: pr?.pr_id || po.pr_id || '-',
-        quotationNo: quotation?.quotation_id || po.quotation_id || '-',
-        requestedBy:
-          item.purchasing_purchase_requisitions?.requested_by_name || '-',
-        department: item.purchasing_purchase_requisitions?.department || '-',
-        subtotal: item.subtotal || 0,
-        taxAmount: item.tax_amount || 0,
-        totalValue: item.total_value || 0,
-        status: item.status,
+        prNo: pr?.pr_id || item.pr_id || '-',
+        quotationNo: quotation?.quotation_id || item.quotation_id || '-',
+        requestedBy: pr?.requested_by || '-',
+        department: pr?.department || '-',
+        subtotal,
+        taxAmount,
+        totalValue,
+        status,
         approvalLevel: item.approval_level || '-',
         approver: item.approved_by_name || '-',
         approvedAt: item.approved_at,
@@ -154,29 +185,32 @@ export async function GET() {
         releasedAt: item.released_at,
         createdBy: item.created_by_name || '-',
 
-        productCode: firstItem?.products?.sku || '-',
-        productName: firstItem?.products?.name || '-',
-        category: firstItem?.products?.category || '-',
-        qty: firstItem?.qty || 0,
-        unit: firstItem?.unit || firstItem?.products?.unit || '-',
+        productCode: firstProduct?.product_id || firstItem?.product_id || '-',
+        productName: firstProduct?.product_name || '-',
+        category: firstProduct?.category || '-',
+        qty: firstItem?.qty_order || 0,
+        unit: firstProduct?.uom || '-',
         unitPrice: firstItem?.unit_price || 0,
 
-        items: items.map((poItem: AnyObject) => ({
-          id: poItem.id,
-          productCode: poItem.products?.sku || '-',
-          productName: poItem.products?.name || '-',
-          category: poItem.products?.category || '-',
-          qty: poItem.qty || 0,
-          unit: poItem.unit || poItem.products?.unit || '-',
-          unitPrice: poItem.unit_price || 0,
-          subtotal: poItem.subtotal || 0,
-        })),
+        items: poItems.map((poItem: AnyObject) => {
+          const prod = productMap.get(poItem.product_id)
+          return {
+            id: poItem.po_detail_id || poItem.id,
+            productCode: prod?.product_id || poItem.product_id || '-',
+            productName: prod?.product_name || '-',
+            category: prod?.category || '-',
+            qty: poItem.qty_order || 0,
+            unit: prod?.uom || '-',
+            unitPrice: poItem.unit_price || 0,
+            subtotal: poItem.subtotal || 0,
+          }
+        }),
       }
     })
 
     return NextResponse.json({
       message: 'Purchase orders fetched successfully',
-      data,
+      data: purchaseOrders,
     })
   } catch (error) {
     return NextResponse.json(
@@ -409,7 +443,7 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const updatePayload: Record<string, any> = {
+    const updatePayload: AnyObject = {
       status,
     }
 

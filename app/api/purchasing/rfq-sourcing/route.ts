@@ -12,40 +12,6 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-function normalizeStatus(value?: string | null) {
-  const status = String(value || '').toUpperCase()
-
-  if (['WAITING_RESPONSE', 'WAITING', 'PENDING'].includes(status)) {
-    return 'WAITING_RESPONSE'
-  }
-
-  if (['RESPONDED', 'SUBMITTED'].includes(status)) {
-    return 'RESPONDED'
-  }
-
-  if (['NEGOTIATION', 'COUNTERED'].includes(status)) {
-    return 'NEGOTIATION'
-  }
-
-  if (['AGREED', 'ACCEPTED', 'APPROVED'].includes(status)) {
-    return 'AGREED'
-  }
-
-  if (['REJECTED', 'DECLINED'].includes(status)) {
-    return 'REJECTED'
-  }
-
-  return status || 'WAITING_RESPONSE'
-}
-
-function generateRFQNo(quotationId: string) {
-  if (!quotationId) return '-'
-
-  return String(quotationId).startsWith('RFQ-')
-    ? quotationId
-    : `RFQ-${quotationId}`
-}
-
 function generateQuotationId() {
   const now = new Date()
   const year = now.getFullYear()
@@ -228,13 +194,13 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch RFQ sourcing data',
-          error: error instanceof Error ? error.message : String(error),
+          error: errors[0] instanceof Error ? errors[0].message : String(errors[0]),
         },
         { status: 500 }
       )
     }
 
-    const rfqSourcing = (data || []).map((item: AnyObject) => ({
+    const rfqSourcing = (quotationResult.data || []).map((item: AnyObject) => ({
       id: item.id,
       rfqNo: item.rfq_number,
       requiredQty: item.required_qty || 0,
@@ -298,7 +264,6 @@ export async function POST(request: Request) {
       candidateSupplierName,
       quotationDeadline,
       specificationNotes,
-      status,
       proposedPrice,
     } = body
 

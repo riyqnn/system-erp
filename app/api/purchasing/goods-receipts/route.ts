@@ -22,11 +22,11 @@ function normalizeStatus(value?: string | null) {
   return status || 'DRAFT'
 }
 
-function getReceiptId(receipt: any) {
+function getReceiptId(receipt: AnyObject) {
   return receipt?.receipt_id || receipt?.gr_id || receipt?.goods_receipt_id || receipt?.id || '-'
 }
 
-function getReceivedQty(receipt: any) {
+function getReceivedQty(receipt: AnyObject) {
   return Number(
     receipt?.received_qty ||
       receipt?.qty_received ||
@@ -37,7 +37,7 @@ function getReceivedQty(receipt: any) {
   )
 }
 
-function getReceiptProductId(receipt: any) {
+function getReceiptProductId(receipt: AnyObject) {
   return receipt?.product_id || receipt?.item_id || receipt?.sku || null
 }
 
@@ -55,14 +55,12 @@ function buildReceiptRows({
   grNumber,
   poId,
   receiptDate,
-  receivedByName,
   qtyColumn,
 }: {
-  items: any[]
+  items: AnyObject[]
   grNumber: string
   poId: string
   receiptDate?: string
-  receivedByName?: string
   qtyColumn: 'qty_received' | 'received_qty' | 'qty' | 'quantity' | 'received_quantity'
 }) {
   return items.map((item, index) => {
@@ -84,19 +82,17 @@ async function insertGoodsReceiptWithFallback({
   grNumber,
   poId,
   receiptDate,
-  receivedByName,
 }: {
-  items: any[]
+  items: AnyObject[]
   grNumber: string
   poId: string
   receiptDate?: string
-  receivedByName?: string
 }) {
   const qtyColumns: Array<
     'qty_received' | 'received_qty' | 'qty' | 'quantity' | 'received_quantity'
   > = ['qty_received', 'received_qty', 'qty', 'quantity', 'received_quantity']
 
-  let lastError: any = null
+  let lastError: AnyObject = null
 
   for (const qtyColumn of qtyColumns) {
     const rows = buildReceiptRows({
@@ -104,7 +100,6 @@ async function insertGoodsReceiptWithFallback({
       grNumber,
       poId,
       receiptDate,
-      receivedByName,
       qtyColumn,
     })
 
@@ -166,63 +161,39 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch goods receipts',
-          error: error instanceof Error ? error.message : String(error),
+          error: errors[0] instanceof Error ? errors[0].message : String(errors[0]),
         },
         { status: 500 }
       )
     }
 
-    const goodsReceipts = (data || []).map((item: AnyObject) => {
-      const receiptItems = item.purchasing_goods_receipt_items || []
-      const firstItem = receiptItems[0]
-      const po = item.purchasing_purchase_orders
+    const purchaseOrders = poResult.data || []
+    const suppliers = supplierResult.data || []
+    const products = productResult.data || []
 
-      return {
-        id: item.id,
-        grNo: item.gr_number,
-        receiptDate: item.receipt_date,
-        receivedBy: item.received_by_name || '-',
-        status: item.status,
-        notes: item.notes || '-',
+    const supplierMap = new Map(
+      suppliers.map((supplier: AnyObject) => [supplier.supplier_id, supplier])
+    )
+    const productMap = new Map(
+      products.map((product: AnyObject) => [product.product_id, product])
+    )
 
-        poNo: po?.po_number || '-',
-        poDate: po?.po_date || null,
-        expectedDeliveryDate: po?.expected_delivery_date || null,
-        poStatus: po?.status || '-',
-        totalValue: po?.total_value || 0,
+    const receiptsByPO = new Map()
+    ;(receiptResult.data || []).forEach((r: AnyObject) => {
+      const poId = String(r.po_id || '')
+      if (!receiptsByPO.has(poId)) receiptsByPO.set(poId, [])
+      receiptsByPO.get(poId).push(r)
+    })
 
-        supplierId: po?.ms_suppliers?.supplier_code || '-',
-        supplierName: po?.ms_suppliers?.supplier_name || '-',
-        supplierContact: po?.ms_suppliers?.contact || '-',
-        supplierAddress: po?.ms_suppliers?.address || '-',
-
-        productCode: firstItem?.products?.sku || '-',
-        productName: firstItem?.products?.name || '-',
-        category: firstItem?.products?.category || '-',
-        orderedQty: firstItem?.ordered_qty || 0,
-        receivedQty: firstItem?.received_qty || 0,
-        unit: firstItem?.unit || firstItem?.products?.unit || '-',
-        expiryDate: firstItem?.expiry_date || null,
-        batchNumber: firstItem?.batch_number || '-',
-        condition: firstItem?.condition || '-',
-
-        items: receiptItems.map((receiptItem: AnyObject) => ({
-          id: receiptItem.id,
-          productCode: receiptItem.products?.sku || '-',
-          productName: receiptItem.products?.name || '-',
-          category: receiptItem.products?.category || '-',
-          orderedQty: receiptItem.ordered_qty || 0,
-          receivedQty: receiptItem.received_qty || 0,
-          unit: receiptItem.unit || receiptItem.products?.unit || '-',
-          expiryDate: receiptItem.expiry_date || null,
-          batchNumber: receiptItem.batch_number || '-',
-          condition: receiptItem.condition || '-',
-        })),
-      }
+    const detailsByPO = new Map()
+    ;(poDetailResult.data || []).forEach((d: AnyObject) => {
+      const poId = String(d.po_id || '')
+      if (!detailsByPO.has(poId)) detailsByPO.set(poId, [])
+      detailsByPO.get(poId).push(d)
     })
 
     const goodsReceipts = purchaseOrders
-      .filter((po: any) => {
+      .filter((po: AnyObject) => {
         const poId = String(po.po_id || '')
         const poStatus = String(po.status || '').toUpperCase()
 
@@ -231,7 +202,7 @@ export async function GET() {
           ['RELEASED', 'APPROVED', 'COMPLETED'].includes(poStatus)
         )
       })
-      .map((po: any) => {
+      .map((po: AnyObject) => {
         const supplier = supplierMap.get(po.supplier_id)
         const receiptRows = receiptsByPO.get(String(po.po_id || '')) || []
         const firstReceipt = receiptRows[0]
@@ -239,12 +210,12 @@ export async function GET() {
 
         const poItems = detailsByPO.get(String(po.po_id || '')) || []
 
-        const items = poItems.map((poItem: any) => {
+        const items = poItems.map((poItem: AnyObject) => {
           const product = productMap.get(poItem.product_id)
 
           const matchingReceipt =
             receiptRows.find(
-              (receipt: any) =>
+              (receipt: AnyObject) =>
                 String(getReceiptProductId(receipt) || '') === String(poItem.product_id || '')
             ) || firstReceipt
 
@@ -328,7 +299,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
 
-    const { grNumber, poNumber, receiptDate, receivedByName, items } = body
+    const { grNumber, poNumber, receiptDate, items } = body
 
     if (!poNumber || !items?.length) {
       return NextResponse.json(
@@ -391,7 +362,6 @@ export async function POST(request: Request) {
       grNumber: finalGRNumber,
       poId: poData.po_id,
       receiptDate,
-      receivedByName,
     })
 
     if (error) {

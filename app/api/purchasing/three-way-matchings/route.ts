@@ -16,7 +16,7 @@ function normalizeStatus(value?: string | null) {
   return String(value || '').toUpperCase()
 }
 
-function getReceiptId(receipt: any) {
+function getReceiptId(receipt: AnyObject) {
   return (
     receipt?.receipt_id ||
     receipt?.gr_id ||
@@ -26,7 +26,7 @@ function getReceiptId(receipt: any) {
   )
 }
 
-function getReceivedQty(receipt: any) {
+function getReceivedQty(receipt: AnyObject) {
   return Number(
     receipt?.received_qty ||
       receipt?.qty_received ||
@@ -37,19 +37,19 @@ function getReceivedQty(receipt: any) {
   )
 }
 
-function getReceiptProductId(receipt: any) {
+function getReceiptProductId(receipt: AnyObject) {
   return receipt?.product_id || receipt?.item_id || receipt?.sku || null
 }
 
-function getAPId(ap: any) {
+function getAPId(ap: AnyObject) {
   return ap?.ap_id || ap?.id || ap?.account_payable_id || '-'
 }
 
-function getAPStatus(ap: any) {
+function getAPStatus(ap: AnyObject) {
   return ap?.ap_status || ap?.status || ap?.payment_status || 'PENDING'
 }
 
-function getAPAmount(ap: any) {
+function getAPAmount(ap: AnyObject) {
   return Number(
     ap?.grand_total ||
       ap?.total_value ||
@@ -61,15 +61,15 @@ function getAPAmount(ap: any) {
   )
 }
 
-function getAPDate(ap: any) {
+function getAPDate(ap: AnyObject) {
   return ap?.invoice_date || ap?.ap_date || ap?.created_at || null
 }
 
-function getDueDate(ap: any) {
+function getDueDate(ap: AnyObject) {
   return ap?.due_date || ap?.payment_due_date || ap?.created_at || null
 }
 
-function getPOQty(poItem: any) {
+function getPOQty(poItem: AnyObject) {
   return Number(
     poItem?.qty_order ||
       poItem?.order_qty ||
@@ -80,7 +80,7 @@ function getPOQty(poItem: any) {
   )
 }
 
-function getUnitPrice(poItem: any) {
+function getUnitPrice(poItem: AnyObject) {
   return Number(
     poItem?.unit_price ||
       poItem?.price ||
@@ -90,7 +90,7 @@ function getUnitPrice(poItem: any) {
   )
 }
 
-function getSubtotal(poItem: any) {
+function getSubtotal(poItem: AnyObject) {
   const subtotal = Number(poItem?.subtotal || poItem?.total || 0)
 
   if (subtotal > 0) return subtotal
@@ -106,7 +106,7 @@ function getMatchStatus(poTotal: number, receivedQty: number, orderedQty: number
   return 'MATCHED'
 }
 
-function buildResults(po: any, poItem: any, receipt: any, ap: any) {
+function buildResults(po: AnyObject, poItem: AnyObject, receipt: AnyObject, ap: AnyObject) {
   const orderedQty = getPOQty(poItem)
   const receivedQty = getReceivedQty(receipt)
   const poTotal = Number(po?.total_value || 0)
@@ -163,7 +163,7 @@ async function tryUpdateAccountPayable(poId: string, sentToFinance: boolean) {
     { payment_status: sentToFinance ? 'PENDING_PAYMENT' : 'DRAFT' },
   ]
 
-  let lastError: any = null
+  let lastError: AnyObject = null
 
   for (const payload of updateAttempts) {
     const { data, error } = await supabase
@@ -230,104 +230,45 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch three-way matchings',
-          error: error instanceof Error ? error.message : String(error),
+          error: errors[0] instanceof Error ? errors[0].message : String(errors[0]),
         },
         { status: 500 }
       )
     }
 
-    const matchings = (data || []).map((item: AnyObject) => {
-      const po = item.purchasing_purchase_orders
-      const gr = item.purchasing_goods_receipts
-      const invoice = item.purchasing_supplier_invoices
+    const purchaseOrders = poResult.data || []
+    const suppliers = supplierResult.data || []
+    const products = productResult.data || []
 
     const supplierMap = new Map(
-      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
+      suppliers.map((supplier: AnyObject) => [supplier.supplier_id, supplier])
     )
-
     const productMap = new Map(
-      products.map((product: any) => [product.product_id, product])
+      products.map((product: AnyObject) => [product.product_id, product])
     )
 
-      return {
-        id: item.id,
-        matchingNo: item.matching_number,
-        matchStatus: item.match_status,
-        sentToFinance: item.sent_to_finance,
-        sentToFinanceAt: item.sent_to_finance_at,
-        createdAt: item.created_at,
+    const receiptsByPO = new Map()
+    ;(receiptResult.data || []).forEach((r: AnyObject) => {
+      const poId = String(r.po_id || '')
+      if (!receiptsByPO.has(poId)) receiptsByPO.set(poId, [])
+      receiptsByPO.get(poId).push(r)
+    })
 
-        poNo: po?.po_number || '-',
-        poDate: po?.po_date || null,
-        poStatus: po?.status || '-',
-        poSubtotal: po?.subtotal || 0,
-        poTaxAmount: po?.tax_amount || 0,
-        poTotalValue: po?.total_value || 0,
+    const detailsByPO = new Map()
+    ;(poDetailResult.data || []).forEach((d: AnyObject) => {
+      const poId = String(d.po_id || '')
+      if (!detailsByPO.has(poId)) detailsByPO.set(poId, [])
+      detailsByPO.get(poId).push(d)
+    })
 
-        grNo: gr?.gr_number || '-',
-        receiptDate: gr?.receipt_date || null,
-        grStatus: gr?.status || '-',
-
-        invoiceNo: invoice?.invoice_number || '-',
-        invoiceDate: invoice?.invoice_date || null,
-        dueDate: invoice?.due_date || null,
-        invoiceSubtotal: invoice?.subtotal || 0,
-        invoiceTaxAmount: invoice?.tax_amount || 0,
-        invoiceGrandTotal: invoice?.grand_total || 0,
-        paymentStatus: invoice?.payment_status || '-',
-
-        supplierId: po?.ms_suppliers?.supplier_code || '-',
-        supplierName: po?.ms_suppliers?.supplier_name || '-',
-        supplierContact: po?.ms_suppliers?.contact || '-',
-        supplierAddress: po?.ms_suppliers?.address || '-',
-
-        productCode:
-          firstPoItem?.products?.sku || firstGrItem?.products?.sku || '-',
-        productName:
-          firstPoItem?.products?.name || firstGrItem?.products?.name || '-',
-        category:
-          firstPoItem?.products?.category ||
-          firstGrItem?.products?.category ||
-          '-',
-
-        poQty: firstPoItem?.qty || 0,
-        grReceivedQty: firstGrItem?.received_qty || 0,
-        unit: firstPoItem?.unit || firstGrItem?.unit || '-',
-        unitPrice: firstPoItem?.unit_price || 0,
-
-        poItems: poItems.map((poItem: AnyObject) => ({
-          id: poItem.id,
-          productCode: poItem.products?.sku || '-',
-          productName: poItem.products?.name || '-',
-          category: poItem.products?.category || '-',
-          qty: poItem.qty || 0,
-          unit: poItem.unit || poItem.products?.unit || '-',
-          unitPrice: poItem.unit_price || 0,
-          subtotal: poItem.subtotal || 0,
-        })),
-
-        grItems: grItems.map((grItem: AnyObject) => ({
-          id: grItem.id,
-          productCode: grItem.products?.sku || '-',
-          productName: grItem.products?.name || '-',
-          category: grItem.products?.category || '-',
-          orderedQty: grItem.ordered_qty || 0,
-          receivedQty: grItem.received_qty || 0,
-          unit: grItem.unit || grItem.products?.unit || '-',
-          condition: grItem.condition || '-',
-        })),
-
-        results: matchingResults.map((result: AnyObject) => ({
-          id: result.id,
-          checkItem: result.check_item,
-          checkResult: result.check_result,
-          detail: result.detail || '-',
-        })),
-      }
+    const apByPO = new Map()
+    ;(apResult.data || []).forEach((a: AnyObject) => {
+      const poId = String(a.po_id || '')
+      if (!apByPO.has(poId)) apByPO.set(poId, a)
     })
 
     const matchings = purchaseOrders
-      .filter((po: any) => {
+      .filter((po: AnyObject) => {
         const poId = String(po.po_id || '')
         const poStatus = normalizeStatus(po.status)
 
@@ -337,7 +278,7 @@ export async function GET() {
           ['RELEASED', 'APPROVED', 'COMPLETED'].includes(poStatus)
         )
       })
-      .map((po: any) => {
+      .map((po: AnyObject) => {
         const poId = String(po.po_id || '')
         const supplier = supplierMap.get(po.supplier_id)
         const poItems = detailsByPO.get(poId) || []
@@ -349,7 +290,7 @@ export async function GET() {
 
         const matchingReceipt =
           receiptRows.find(
-            (receipt: any) =>
+            (receipt: AnyObject) =>
               String(getReceiptProductId(receipt) || '') ===
               String(firstPoItem?.product_id || '')
           ) || firstReceipt
@@ -358,7 +299,7 @@ export async function GET() {
         const receivedQty = getReceivedQty(matchingReceipt)
 
         const poSubtotal = poItems.reduce(
-          (total: number, item: any) => total + getSubtotal(item),
+          (total: number, item: AnyObject) => total + getSubtotal(item),
           0
         )
 
@@ -473,7 +414,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json(
         {
           message: 'Failed to update three-way matching',
-          error: error instanceof Error ? error.message : String(error),
+          error: poError instanceof Error ? poError.message : String(poError),
         },
         { status: 500 }
       )

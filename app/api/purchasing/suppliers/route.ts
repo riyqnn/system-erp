@@ -12,29 +12,6 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-function getPriceValue(item: any) {
-  return Number(
-    item?.estimated_price ||
-      item?.price ||
-      item?.unit_price ||
-      item?.supplier_price ||
-      0
-  )
-}
-
-function getLeadTimeValue(item: any, supplier: any) {
-  return Number(
-    item?.lead_time_days ||
-      item?.lead_time ||
-      supplier?.lead_time ||
-      0
-  )
-}
-
-function getPaymentTermValue(item: any, supplier: any) {
-  return item?.payment_term || item?.term_of_payment || supplier?.top || '-'
-}
-
 export async function GET() {
   try {
     const [supplierPriceResult, supplierResult, productResult] =
@@ -58,13 +35,13 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch suppliers',
-          error: error instanceof Error ? error.message : String(error),
+          error: errors[0] instanceof Error ? errors[0].message : String(errors[0]),
         },
         { status: 500 }
       )
     }
 
-    const suppliers = (data || []).map((item: AnyObject) => ({
+    const suppliers = (supplierResult.data || []).map((item: AnyObject) => ({
       id: item.id,
       supplierId: item.ms_suppliers?.supplier_code || '-',
       supplierName: item.ms_suppliers?.supplier_name || '-',
@@ -82,7 +59,7 @@ export async function GET() {
 
     return NextResponse.json({
       message: 'Suppliers fetched successfully',
-      data,
+      data: suppliers,
     })
   } catch (error) {
     return NextResponse.json(
