@@ -38,43 +38,6 @@ function normalizeStatus(value?: string | null) {
   return status || 'NEGOTIATION'
 }
 
-function generateNegotiationNo(quotationId: string) {
-  if (!quotationId) return '-'
-
-  return String(quotationId).startsWith('NEG-')
-    ? quotationId
-    : `NEG-${quotationId}`
-}
-
-function generateRFQNo(quotationId: string) {
-  if (!quotationId) return '-'
-
-  return String(quotationId).startsWith('RFQ-')
-    ? quotationId
-    : `RFQ-${quotationId}`
-}
-
-function getReferencePrice(priceData: any, quotation: any) {
-  return Number(
-    priceData?.estimated_price ||
-      priceData?.price ||
-      priceData?.unit_price ||
-      priceData?.supplier_price ||
-      quotation?.proposed_price ||
-      0
-  )
-}
-
-function getQuotationIdCandidates(negotiationNumber: string) {
-  const value = String(negotiationNumber || '').trim()
-
-  if (!value) return []
-
-  const withoutNegPrefix = value.replace(/^NEG-/, '')
-
-  return Array.from(new Set([value, withoutNegPrefix, `NEG-${withoutNegPrefix}`]))
-}
-
 function generatePONumber() {
   const now = new Date()
   const year = now.getFullYear()
@@ -84,7 +47,7 @@ function generatePONumber() {
   return `PO-${year}${month}-${random}`
 }
 
-async function createPurchaseOrderFromNegotiation(quotationId: string, quotation: any) {
+async function createPurchaseOrderFromNegotiation(quotationId: string, quotation: AnyObject) {
   const { data: existingPO, error: existingPOError } = await supabase
     .from('tr_purchase_order')
     .select('po_id')
@@ -197,13 +160,13 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch price negotiations',
-          error: error instanceof Error ? error.message : String(error),
+          error: errors[0] instanceof Error ? errors[0].message : String(errors[0]),
         },
         { status: 500 }
       )
     }
 
-    const negotiations = (data || []).map((item: AnyObject) => ({
+    const negotiations = (quotationResult.data || []).map((item: AnyObject) => ({
       id: item.id,
       negotiationNo: item.negotiation_number,
 
@@ -409,7 +372,7 @@ export async function PATCH(request: Request) {
     const { data, error } = await supabase
       .from('tr_price_quotation')
       .update(updatePayload)
-      .eq('quotation_id', quotationId)
+      .eq('quotation_id', negotiationNumber)
       .select()
       .single()
 
@@ -428,7 +391,7 @@ export async function PATCH(request: Request) {
 
     if (normalizedStatus === 'AGREED') {
       try {
-        generatedPO = await createPurchaseOrderFromNegotiation(quotationId, data)
+        generatedPO = await createPurchaseOrderFromNegotiation(negotiationNumber, data)
       } catch (poError) {
         return NextResponse.json(
           {

@@ -1,3 +1,4 @@
+import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -28,7 +29,7 @@ function getMonthLabel(value?: string | null) {
   }).format(date)
 }
 
-function buildStatusOverview(rows: any[], statusKey: string) {
+function buildStatusOverview(rows: AnyObject[], statusKey: string) {
   const statusMap = new Map<string, number>()
 
   rows.forEach((row) => {
@@ -107,26 +108,26 @@ export async function GET() {
     const goodsReceipts = goodsReceiptResult.data || []
     const accountPayables = apResult.data || []
 
-    const negotiations = quotations.filter((quotation: any) =>
+    const negotiations = quotations.filter((quotation: AnyObject) =>
       ['NEGOTIATION', 'COUNTERED', 'AGREED', 'ACCEPTED', 'APPROVED'].includes(
         normalizeStatus(quotation.status)
       )
     )
 
     const receiptPOSet = new Set(
-      goodsReceipts.map((receipt: any) => String(receipt.po_id || ''))
+      goodsReceipts.map((receipt: AnyObject) => String(receipt.po_id || ''))
     )
 
     const apPOSet = new Set(
-      accountPayables.map((ap: any) => String(ap.po_id || ''))
+      accountPayables.map((ap: AnyObject) => String(ap.po_id || ''))
     )
 
-    const threeWayMatchings = purchaseOrders.filter((po: any) => {
+    const threeWayMatchings = purchaseOrders.filter((po: AnyObject) => {
       const poId = String(po.po_id || '')
       return receiptPOSet.has(poId) || apPOSet.has(poId)
     })
 
-    const trackingReports = purchaseOrders.filter((po: any) =>
+    const trackingReports = purchaseOrders.filter((po: AnyObject) =>
       ['APPROVED', 'RELEASED', 'SENT', 'ISSUED'].includes(
         normalizeStatus(po.status)
       )
@@ -134,7 +135,7 @@ export async function GET() {
 
     const monthlyPOMap = new Map<string, { month: string; totalPO: number; totalValue: number }>()
 
-    purchaseOrders.forEach((po: any) => {
+    purchaseOrders.forEach((po: AnyObject) => {
       const month = getMonthLabel(po.created_at || po.po_release_date)
       const current = monthlyPOMap.get(month) || {
         month,
@@ -150,15 +151,15 @@ export async function GET() {
 
     const monthlyPurchaseOrders = Array.from(monthlyPOMap.values())
 
-    const pendingPR = purchaseRequisitions.filter((pr: any) =>
+    const pendingPR = purchaseRequisitions.filter((pr: AnyObject) =>
       ['PENDING', 'DRAFT', 'REQUESTED'].includes(normalizeStatus(pr.status))
     ).length
 
-    const pendingPO = purchaseOrders.filter((po: any) =>
+    const pendingPO = purchaseOrders.filter((po: AnyObject) =>
       ['PENDING', 'PENDING_APPROVAL', 'DRAFT'].includes(normalizeStatus(po.status))
     ).length
 
-    const delayedPO = purchaseOrders.filter((po: any) => {
+    const delayedPO = purchaseOrders.filter((po: AnyObject) => {
       const status = normalizeStatus(po.status)
       return ['DELAYED', 'OVERDUE'].includes(status)
     }).length

@@ -89,87 +89,68 @@ export async function GET() {
       )
     }
 
-    const poIds =
-      trackingData
-        ?.filter((item: AnyObject) => item.entity_type === 'PURCHASE_ORDER' || item.entity_type === 'DELIVERY')
-        .map((item: AnyObject) => item.entity_id)
-        .filter(Boolean) || []
-
-    const { data: poData, error: poError } = await supabase
-      .from('purchasing_purchase_orders')
-      .select(`
-        id,
-        po_number,
-        po_date,
-        expected_delivery_date,
-        total_value,
-        status,
-        ms_suppliers (
-          supplier_id,
-          supplier_code,
-          supplier_name,
-          contact,
-          address
-        ),
-        purchasing_purchase_order_items (
-          id,
-          qty,
-          unit,
-          products (
-            id,
-            sku,
-            name,
-            category,
-            unit
-          )
-        )
-      `)
-      .in('id', poIds.length > 0 ? poIds : ['00000000-0000-0000-0000-000000000000'])
+    const suppliers = supplierResult.data || []
+    const products = productResult.data || []
 
     const supplierMap = new Map(
-      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
+      suppliers.map((s: AnyObject) => [s.supplier_id, s])
     )
-
     const productMap = new Map(
-      products.map((product: any) => [product.product_id, product])
+      products.map((p: AnyObject) => [p.product_id, p])
     )
 
-    const detailsByPO = new Map<string, any[]>()
+    const receiptsByPO = new Map()
+    ;(goodsReceiptResult.data || []).forEach((r: AnyObject) => {
+      const poId = String(r.po_id || '')
+      if (!receiptsByPO.has(poId)) receiptsByPO.set(poId, [])
+      receiptsByPO.get(poId).push(r)
+    })
 
-    const purchaseOrderMap = new Map((poData || []).map((po: AnyObject) => [po.id, po]))
+    const detailsByPO = new Map()
+    ;(poDetailResult.data || []).forEach((d: AnyObject) => {
+      const poId = String(d.po_id || '')
+      if (!detailsByPO.has(poId)) detailsByPO.set(poId, [])
+      detailsByPO.get(poId).push(d)
+    })
 
-    const trackingReports = (trackingData || []).map((item: AnyObject) => {
-      const po = purchaseOrderMap.get(item.entity_id)
-      const firstItem = po?.purchasing_purchase_order_items?.[0]
+    const trackingReports = (poResult.data || []).map((item: AnyObject) => {
+      const poId = String(item.po_id || '')
+      const poDetails = detailsByPO.get(poId) || []
+      const firstDetail = poDetails[0]
+      const receiptRows = receiptsByPO.get(poId) || []
+      const firstReceipt = receiptRows[0]
+      const supplier = supplierMap.get(item.supplier_id)
+      const product = firstDetail ? productMap.get(firstDetail.product_id) : undefined
+      const estimatedArrivalDate = addDays(item.po_release_date, 7)
 
       return {
-        id: String(po.po_id),
-        trackingNo: `TRK-${po.po_id}`,
+        id: poId,
+        trackingNo: `TRK-${poId}`,
         entityType: 'PURCHASE_ORDER',
-        entityId: String(po.po_id),
-        trackingStatus: getTrackingStatus(po.status, Boolean(receipt)),
+        entityId: poId,
+        trackingStatus: getTrackingStatus(item.status, Boolean(firstReceipt)),
         estimatedArrivalDate,
-        supplierNotes: receipt
+        supplierNotes: firstReceipt
           ? 'Goods have been received by warehouse.'
           : 'Purchase order is being monitored for delivery.',
         reportedBy: 'Purchasing Staff',
-        reportedAt: receipt?.created_at || po.po_release_date || po.created_at,
+        reportedAt: firstReceipt?.created_at || item.po_release_date || item.created_at,
 
-        poNo: po.po_id,
-        poDate: po.created_at,
+        poNo: poId,
+        poDate: item.created_at,
         expectedDeliveryDate: estimatedArrivalDate,
-        poStatus: po.status || '-',
-        totalValue: Number(po.total_value || 0),
+        poStatus: item.status || '-',
+        totalValue: Number(item.total_value || 0),
 
-        supplierId: supplier?.supplier_id || po.supplier_id || '-',
+        supplierId: supplier?.supplier_id || item.supplier_id || '-',
         supplierName: supplier?.supplier_name || '-',
         supplierContact: supplier?.contact || '-',
         supplierAddress: supplier?.address || '-',
 
-        productCode: product?.product_id || firstItem?.product_id || '-',
+        productCode: product?.product_id || firstDetail?.product_id || '-',
         productName: product?.product_name || '-',
         category: product?.category || '-',
-        qty: Number(firstItem?.qty_order || 0),
+        qty: Number(firstDetail?.qty_order || 0),
         unit: product?.uom || '-',
       }
     })
@@ -224,7 +205,7 @@ export async function POST(request: Request) {
       entityId = poData?.id || null
     }
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('purchasing_tracking_reports')
       .insert({
         tracking_number: trackingNumber,

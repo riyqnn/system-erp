@@ -30,9 +30,6 @@ import {
   Handshake,
   Scales,
   CheckSquare,
-  FileText,
-  Handshake,
-  Scales,
 
   Bell,
 
