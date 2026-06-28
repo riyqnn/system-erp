@@ -7,6 +7,7 @@ import {
   ClipboardText,
   CheckCircle,
   Package,
+  WarningCircle,
 } from '@phosphor-icons/react'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
@@ -28,18 +29,20 @@ type GoodsReceiptItem = {
   unit: string
   expiryDate: string | null
   batchNumber: string
-  condition: string
+  condition?: string
+  rejectQty?: number
+  rejectReason?: string
 }
 
 type GoodsReceipt = {
   id: string
   grNo: string
   receiptDate: string | null
-  receivedBy: string
+  receivedBy: number | null
   status: GoodsReceiptStatus
-  notes: string
 
   poNo: string
+  prNo?: string
   poDate: string | null
   expectedDeliveryDate: string | null
   poStatus: string
@@ -50,6 +53,9 @@ type GoodsReceipt = {
   supplierContact: string
   supplierAddress: string
 
+  warehouseId?: string
+  warehouseName?: string
+
   productCode: string
   productName: string
   category: string
@@ -58,9 +64,19 @@ type GoodsReceipt = {
   unit: string
   expiryDate: string | null
   batchNumber: string
-  condition: string
+  condition?: string
+  rejectQty?: number
+  rejectReason?: string
 
   items: GoodsReceiptItem[]
+}
+
+type EditableItem = {
+  receivedQty: string
+  expiryDate: string
+  batchNumber: string
+  rejectQty: string
+  rejectReason: string
 }
 
 function formatDate(value?: string | null) {
@@ -81,6 +97,10 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('id-ID').format(value || 0)
 }
 
+function formatCurrency(value: number) {
+  return `Rp ${new Intl.NumberFormat('id-ID').format(value || 0)}`
+}
+
 function formatStatus(status: string) {
   const statusMap: Record<string, string> = {
     DRAFT: 'Draft',
@@ -90,6 +110,7 @@ function formatStatus(status: string) {
     RELEASED: 'Released',
     APPROVED: 'Approved',
     COMPLETED: 'Completed',
+    PENDING_RECEIPT: 'Pending Receipt',
   }
 
   return statusMap[status] || status
@@ -104,6 +125,7 @@ function getStatusClass(status: string) {
     RELEASED: 'bg-teal-100 text-teal-700',
     APPROVED: 'bg-green-100 text-green-700',
     COMPLETED: 'bg-green-100 text-green-700',
+    PENDING_RECEIPT: 'bg-amber-100 text-amber-700',
   }
 
   return statusClassMap[status] || 'bg-slate-100 text-slate-600'
@@ -113,9 +135,32 @@ function createGRNumber() {
   const now = new Date()
   const year = now.getFullYear()
   const month = String(now.getMonth() + 1).padStart(2, '0')
-  const random = String(Date.now()).slice(-5)
+  const timestamp = String(Date.now()).slice(-6)
+  const random = String(Math.floor(Math.random() * 999)).padStart(3, '0')
 
-  return `GR-${year}${month}-${random}`
+  return `GR-${year}${month}-${timestamp}${random}`
+}
+
+function buildEditableItems(items: GoodsReceiptItem[]) {
+  const nextItems: Record<string, EditableItem> = {}
+
+  items.forEach((item) => {
+    const remainingQty =
+      Number(item.orderedQty || 0) - Number(item.receivedQty || 0)
+
+    nextItems[item.id] = {
+      receivedQty:
+        item.receivedQty > 0
+          ? String(item.receivedQty)
+          : String(Math.max(remainingQty, item.orderedQty || 0)),
+      expiryDate: item.expiryDate || '',
+      batchNumber: item.batchNumber || '',
+      rejectQty: String(item.rejectQty || 0),
+      rejectReason: item.rejectReason || '',
+    }
+  })
+
+  return nextItems
 }
 
 export function GoodsReceiptClient() {
@@ -123,11 +168,12 @@ export function GoodsReceiptClient() {
 
   const [goodsReceipts, setGoodsReceipts] = useState<GoodsReceipt[]>([])
   const [selectedGrId, setSelectedGrId] = useState('')
-  const [receivedQty, setReceivedQty] = useState('')
-  const [expiryDate, setExpiryDate] = useState('')
-  const [batchNo, setBatchNo] = useState('')
-  const [condition, setCondition] = useState('GOOD')
-  const [notes, setNotes] = useState('')
+  const [editableItems, setEditableItems] = useState<Record<string, EditableItem>>(
+    {}
+  )
+  const [receiptDate, setReceiptDate] = useState(() =>
+    new Date().toISOString().slice(0, 10)
+  )
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -142,24 +188,20 @@ export function GoodsReceiptClient() {
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result?.error || result?.message || 'Failed to fetch goods receipts')
+        throw new Error(
+          result?.error || result?.message || 'Failed to fetch goods receipts'
+        )
       }
 
-      const receiptData = result.data || []
+      const receiptData: GoodsReceipt[] = result.data || []
       setGoodsReceipts(receiptData)
 
       if (receiptData.length > 0) {
         const firstReceipt = receiptData[0]
-        const firstItem = firstReceipt.items?.[0]
 
         setSelectedGrId(firstReceipt.id)
-        setReceivedQty(
-          String(firstItem?.receivedQty || firstReceipt.receivedQty || firstItem?.orderedQty || '')
-        )
-        setExpiryDate(firstItem?.expiryDate || firstReceipt.expiryDate || '')
-        setBatchNo(firstItem?.batchNumber || firstReceipt.batchNumber || '')
-        setCondition(firstItem?.condition || firstReceipt.condition || 'GOOD')
-        setNotes(firstReceipt.notes === '-' ? '' : firstReceipt.notes || '')
+        setEditableItems(buildEditableItems(firstReceipt.items || []))
+        setReceiptDate(new Date().toISOString().slice(0, 10))
       }
     } catch (error) {
       setErrorMessage(
@@ -180,46 +222,115 @@ export function GoodsReceiptClient() {
 
   const selectedItems = selectedReceipt?.items || []
 
-  const totalReceived = selectedItems.reduce((total, item, index) => {
-    const value =
-      index === 0
-        ? Number(receivedQty || 0)
-        : Number(item.receivedQty || item.orderedQty || 0)
+  const isExistingReceipt =
+    selectedReceipt?.status &&
+    !['DRAFT', 'PENDING_RECEIPT'].includes(
+      String(selectedReceipt.status || '').toUpperCase()
+    )
 
-    return total + value
+  const totalOrdered = selectedItems.reduce(
+    (total, item) => total + Number(item.orderedQty || 0),
+    0
+  )
+
+  const totalReceived = selectedItems.reduce((total, item) => {
+    const editable = editableItems[item.id]
+    return total + Number(editable?.receivedQty || 0)
   }, 0)
+
+  const totalRejected = selectedItems.reduce((total, item) => {
+    const editable = editableItems[item.id]
+    return total + Number(editable?.rejectQty || 0)
+  }, 0)
+
+  const predictedStatus = useMemo(() => {
+    if (!selectedItems.length) return 'DRAFT'
+    if (totalReceived <= 0) return 'REJECTED'
+    if (totalReceived < totalOrdered) return 'PARTIAL'
+    return 'ACCEPTED'
+  }, [selectedItems.length, totalReceived, totalOrdered])
 
   const handleChangeReceipt = (id: string) => {
     const receipt = goodsReceipts.find((item) => item.id === id)
-    const firstItem = receipt?.items?.[0]
 
     setSelectedGrId(id)
-    setReceivedQty(
-      String(firstItem?.receivedQty || receipt?.receivedQty || firstItem?.orderedQty || '')
-    )
-    setExpiryDate(firstItem?.expiryDate || receipt?.expiryDate || '')
-    setBatchNo(firstItem?.batchNumber || receipt?.batchNumber || '')
-    setCondition(firstItem?.condition || receipt?.condition || 'GOOD')
-    setNotes(receipt?.notes === '-' ? '' : receipt?.notes || '')
+    setEditableItems(buildEditableItems(receipt?.items || []))
+    setReceiptDate(new Date().toISOString().slice(0, 10))
     setIsConfirmed(false)
     setErrorMessage('')
   }
 
-  const handleSave = async () => {
+  const updateEditableItem = (
+    itemId: string,
+    field: keyof EditableItem,
+    value: string
+  ) => {
+    setEditableItems((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || {
+          receivedQty: '0',
+          expiryDate: '',
+          batchNumber: '',
+          rejectQty: '0',
+          rejectReason: '',
+        }),
+        [field]: value,
+      },
+    }))
+  }
+
+  const validateBeforeSave = () => {
     if (!selectedReceipt) {
-      setErrorMessage('Please select a purchase order first.')
-      return
+      return 'Please select a purchase order first.'
     }
 
-    if (!isConfirmed) {
-      alert('Please confirm the receipt before saving.')
-      return
+    if (isExistingReceipt) {
+      return 'Goods Receipt for this purchase order has already been recorded.'
     }
 
     if (!selectedItems.length) {
-      setErrorMessage('No item found for this purchase order.')
+      return 'No item found for this purchase order.'
+    }
+
+    if (!isConfirmed) {
+      return 'Please confirm the receipt before saving.'
+    }
+
+    for (const item of selectedItems) {
+      const editable = editableItems[item.id]
+      const receivedQty = Number(editable?.receivedQty || 0)
+      const rejectQty = Number(editable?.rejectQty || 0)
+
+      if (Number.isNaN(receivedQty) || receivedQty < 0) {
+        return `Received quantity for ${item.productName} must be a valid number.`
+      }
+
+      if (Number.isNaN(rejectQty) || rejectQty < 0) {
+        return `Reject quantity for ${item.productName} must be a valid number.`
+      }
+
+      if (receivedQty > Number(item.orderedQty || 0)) {
+        return `Received quantity for ${item.productName} cannot exceed ordered quantity.`
+      }
+
+      if (rejectQty > 0 && !editable?.rejectReason?.trim()) {
+        return `Reject reason is required for ${item.productName}.`
+      }
+    }
+
+    return ''
+  }
+
+  const handleSave = async () => {
+    const validationError = validateBeforeSave()
+
+    if (validationError) {
+      setErrorMessage(validationError)
       return
     }
+
+    if (!selectedReceipt) return
 
     try {
       setIsSaving(true)
@@ -229,17 +340,20 @@ export function GoodsReceiptClient() {
         ? createGRNumber()
         : selectedReceipt.grNo || createGRNumber()
 
-      const payloadItems = selectedItems.map((item, index) => ({
-        productSku: item.productCode,
-        productCode: item.productCode,
-        receivedQty:
-          index === 0
-            ? Number(receivedQty || item.orderedQty || 0)
-            : Number(item.receivedQty || item.orderedQty || 0),
-        expiryDate: index === 0 ? expiryDate || null : item.expiryDate || null,
-        batchNumber: index === 0 ? batchNo || null : item.batchNumber || null,
-        condition: index === 0 ? condition || 'GOOD' : item.condition || 'GOOD',
-      }))
+      const payloadItems = selectedItems.map((item) => {
+        const editable = editableItems[item.id]
+
+        return {
+          productSku: item.productCode,
+          productCode: item.productCode,
+          receivedQty: Number(editable?.receivedQty || 0),
+          quantity: Number(editable?.receivedQty || 0),
+          expiryDate: editable?.expiryDate || null,
+          batchNumber: editable?.batchNumber || null,
+          rejectQty: Number(editable?.rejectQty || 0),
+          rejectReason: editable?.rejectReason || null,
+        }
+      })
 
       const response = await fetch('/api/purchasing/goods-receipts', {
         method: 'POST',
@@ -249,10 +363,9 @@ export function GoodsReceiptClient() {
         body: JSON.stringify({
           grNumber,
           poNumber: selectedReceipt.poNo,
-          receiptDate: new Date().toISOString(),
-          receivedByName: 'Warehouse Staff',
-          status: 'ACCEPTED',
-          notes,
+          receiptDate: receiptDate
+            ? new Date(receiptDate).toISOString()
+            : new Date().toISOString(),
           items: payloadItems,
         }),
       })
@@ -260,11 +373,15 @@ export function GoodsReceiptClient() {
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result?.error || result?.message || 'Failed to save goods receipt')
+        throw new Error(
+          result?.error || result?.message || 'Failed to save goods receipt'
+        )
       }
 
       await fetchGoodsReceipts()
-      alert('Goods Receipt saved successfully. Continue to Three-Way Matching.')
+      alert(
+        'Goods Receipt saved successfully. Stock has been updated and the document is ready for Three-Way Matching.'
+      )
       router.push('/apps/purchasing/three-way-matching')
     } catch (error) {
       setErrorMessage(
@@ -288,7 +405,7 @@ export function GoodsReceiptClient() {
       <div className="space-y-6">
         <ModuleHeader
           title="Goods Receipt"
-          description="Record goods received from suppliers based on released purchase orders."
+          description="Receive released purchase orders, record actual quantities, and update inventory stock automatically."
         />
 
         {errorMessage && (
@@ -301,7 +418,7 @@ export function GoodsReceiptClient() {
           <div className="mb-4 flex items-center gap-2">
             <ShoppingCart size={20} className="text-red-600" />
             <h3 className="text-lg font-semibold text-slate-900">
-              Select Purchase Order
+              Select Released Purchase Order
             </h3>
           </div>
 
@@ -311,7 +428,7 @@ export function GoodsReceiptClient() {
             </div>
           ) : goodsReceipts.length === 0 ? (
             <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
-              No released or approved purchase order is available for goods receipt.
+              No released purchase order is available for goods receipt.
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.8fr]">
@@ -353,7 +470,7 @@ export function GoodsReceiptClient() {
 
                 <div>
                   <p className="text-[11px] font-semibold uppercase text-slate-400">
-                    Status
+                    PO Status
                   </p>
                   <span
                     className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
@@ -366,11 +483,15 @@ export function GoodsReceiptClient() {
 
                 <div>
                   <p className="text-[11px] font-semibold uppercase text-slate-400">
-                    Expected Delivery
+                    GR Status
                   </p>
-                  <p className="mt-1 text-sm font-bold text-slate-900">
-                    {formatDate(selectedReceipt?.expectedDeliveryDate)}
-                  </p>
+                  <span
+                    className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
+                      selectedReceipt?.status || 'DRAFT'
+                    )}`}
+                  >
+                    {formatStatus(selectedReceipt?.status || 'DRAFT')}
+                  </span>
                 </div>
               </div>
             </div>
@@ -378,24 +499,47 @@ export function GoodsReceiptClient() {
         </div>
 
         <div className="rounded-xl border border-red-100 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <ClipboardText size={20} className="text-red-600" />
-            <h3 className="text-lg font-semibold text-slate-900">
-              Receipt Detail
-            </h3>
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2">
+              <ClipboardText size={20} className="text-red-600" />
+              <h3 className="text-lg font-semibold text-slate-900">
+                Receipt Detail
+              </h3>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-semibold text-slate-500">
+                Receipt Date
+              </label>
+              <input
+                type="date"
+                value={receiptDate}
+                onChange={(event) => setReceiptDate(event.target.value)}
+                disabled={Boolean(isExistingReceipt)}
+                className="h-10 rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300 disabled:bg-slate-50"
+              />
+            </div>
           </div>
+
+          {isExistingReceipt && (
+            <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+              Goods Receipt has already been recorded for this purchase order.
+              This document is ready for Three-Way Matching.
+            </div>
+          )}
 
           <div className="overflow-hidden rounded-xl border border-slate-200">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Product</th>
                     <th className="px-4 py-3 font-semibold">Ordered Qty</th>
                     <th className="px-4 py-3 font-semibold">Received Qty</th>
-                    <th className="px-4 py-3 font-semibold">Expiry Date</th>
+                    <th className="px-4 py-3 font-semibold">Reject Qty</th>
                     <th className="px-4 py-3 font-semibold">Batch No.</th>
-                    <th className="px-4 py-3 font-semibold">Condition</th>
+                    <th className="px-4 py-3 font-semibold">Expiry Date</th>
+                    <th className="px-4 py-3 font-semibold">Reject Reason</th>
                   </tr>
                 </thead>
 
@@ -403,100 +547,122 @@ export function GoodsReceiptClient() {
                   {selectedItems.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="px-4 py-8 text-center text-sm text-slate-500"
                       >
                         No goods receipt item found.
                       </td>
                     </tr>
                   ) : (
-                    selectedItems.map((item, index) => (
-                      <tr key={item.id}>
-                        <td className="px-4 py-4">
-                          <p className="font-bold text-slate-900">
-                            {item.productName}
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            {item.productCode}
-                          </p>
-                        </td>
+                    selectedItems.map((item) => {
+                      const editable = editableItems[item.id]
 
-                        <td className="px-4 py-4 text-slate-700">
-                          {formatNumber(item.orderedQty)} {item.unit}
-                        </td>
+                      return (
+                        <tr key={item.id}>
+                          <td className="px-4 py-4">
+                            <p className="font-bold text-slate-900">
+                              {item.productName}
+                            </p>
+                            <p className="text-xs text-slate-400">
+                              {item.productCode} · {item.category}
+                            </p>
+                          </td>
 
-                        <td className="px-4 py-4">
-                          <input
-                            type="text"
-                            value={
-                              index === 0
-                                ? receivedQty
-                                : String(item.receivedQty || item.orderedQty || '')
-                            }
-                            onChange={(event) =>
-                              index === 0 && setReceivedQty(event.target.value)
-                            }
-                            disabled={index !== 0}
-                            className="h-10 w-28 rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300 disabled:bg-slate-50"
-                          />
-                        </td>
+                          <td className="px-4 py-4 text-slate-700">
+                            {formatNumber(item.orderedQty)} {item.unit}
+                          </td>
 
-                        <td className="px-4 py-4">
-                          <input
-                            type="date"
-                            value={index === 0 ? expiryDate : item.expiryDate || ''}
-                            onChange={(event) =>
-                              index === 0 && setExpiryDate(event.target.value)
-                            }
-                            disabled={index !== 0}
-                            className="h-10 w-40 rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300 disabled:bg-slate-50"
-                          />
-                        </td>
+                          <td className="px-4 py-4">
+                            <input
+                              type="number"
+                              min="0"
+                              max={item.orderedQty}
+                              value={editable?.receivedQty || ''}
+                              onChange={(event) =>
+                                updateEditableItem(
+                                  item.id,
+                                  'receivedQty',
+                                  event.target.value
+                                )
+                              }
+                              disabled={Boolean(isExistingReceipt)}
+                              className="h-10 w-28 rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300 disabled:bg-slate-50"
+                            />
+                          </td>
 
-                        <td className="px-4 py-4">
-                          <input
-                            type="text"
-                            value={index === 0 ? batchNo : item.batchNumber || ''}
-                            onChange={(event) =>
-                              index === 0 && setBatchNo(event.target.value)
-                            }
-                            disabled={index !== 0}
-                            className="h-10 w-40 rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300 disabled:bg-slate-50"
-                          />
-                        </td>
+                          <td className="px-4 py-4">
+                            <input
+                              type="number"
+                              min="0"
+                              value={editable?.rejectQty || '0'}
+                              onChange={(event) =>
+                                updateEditableItem(
+                                  item.id,
+                                  'rejectQty',
+                                  event.target.value
+                                )
+                              }
+                              disabled={Boolean(isExistingReceipt)}
+                              className="h-10 w-28 rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300 disabled:bg-slate-50"
+                            />
+                          </td>
 
-                        <td className="px-4 py-4">
-                          <select
-                            value={index === 0 ? condition : item.condition || 'GOOD'}
-                            onChange={(event) =>
-                              index === 0 && setCondition(event.target.value)
-                            }
-                            disabled={index !== 0}
-                            className="h-10 rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300 disabled:bg-slate-50"
-                          >
-                            <option value="GOOD">Good</option>
-                            <option value="DAMAGED">Damaged</option>
-                            <option value="PARTIAL">Partial</option>
-                          </select>
-                        </td>
-                      </tr>
-                    ))
+                          <td className="px-4 py-4">
+                            <input
+                              type="text"
+                              value={editable?.batchNumber || ''}
+                              onChange={(event) =>
+                                updateEditableItem(
+                                  item.id,
+                                  'batchNumber',
+                                  event.target.value
+                                )
+                              }
+                              disabled={Boolean(isExistingReceipt)}
+                              placeholder="Batch"
+                              className="h-10 w-36 rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300 disabled:bg-slate-50"
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <input
+                              type="date"
+                              value={editable?.expiryDate || ''}
+                              onChange={(event) =>
+                                updateEditableItem(
+                                  item.id,
+                                  'expiryDate',
+                                  event.target.value
+                                )
+                              }
+                              disabled={Boolean(isExistingReceipt)}
+                              className="h-10 w-40 rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300 disabled:bg-slate-50"
+                            />
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <input
+                              type="text"
+                              value={editable?.rejectReason || ''}
+                              onChange={(event) =>
+                                updateEditableItem(
+                                  item.id,
+                                  'rejectReason',
+                                  event.target.value
+                                )
+                              }
+                              disabled={Boolean(isExistingReceipt)}
+                              placeholder="Required if reject qty > 0"
+                              className="h-10 w-56 rounded-lg border border-red-100 px-3 text-sm outline-none focus:border-red-300 disabled:bg-slate-50"
+                            />
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>
             </div>
-          </div>
-
-          <div className="mt-5">
-            <label className="mb-2 block text-xs font-semibold text-slate-600">
-              Notes
-            </label>
-            <textarea
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              placeholder="Add receiving notes here, such as truck condition, arrival time, or packaging condition."
-              className="min-h-[110px] w-full rounded-xl border border-red-100 px-4 py-3 text-sm outline-none focus:border-red-300"
-            />
           </div>
         </div>
 
@@ -516,15 +682,26 @@ export function GoodsReceiptClient() {
                     type="checkbox"
                     checked={isConfirmed}
                     onChange={(event) => setIsConfirmed(event.target.checked)}
+                    disabled={Boolean(isExistingReceipt)}
                     className="mt-1 h-4 w-4 rounded border-slate-300"
                   />
                   <span>
-                    I confirm that the received goods are correct and have been
-                    inspected physically by the warehouse team.
+                    I confirm that the received goods have been physically
+                    checked by Inventory and the quantity will update stock
+                    balance after saving.
                   </span>
                 </label>
 
-                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-slate-400">
+                      Total Ordered
+                    </p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+                      {formatNumber(totalOrdered)} {selectedItems[0]?.unit || ''}
+                    </p>
+                  </div>
+
                   <div>
                     <p className="text-xs font-semibold uppercase text-slate-400">
                       Total Received
@@ -536,11 +713,15 @@ export function GoodsReceiptClient() {
 
                   <div>
                     <p className="text-xs font-semibold uppercase text-slate-400">
-                      Received By
+                      Predicted GR Status
                     </p>
-                    <p className="mt-1 text-sm font-bold text-slate-900">
-                      {selectedReceipt?.receivedBy || 'Warehouse Staff'}
-                    </p>
+                    <span
+                      className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
+                        predictedStatus
+                      )}`}
+                    >
+                      {formatStatus(predictedStatus)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -548,8 +729,12 @@ export function GoodsReceiptClient() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsConfirmed(false)}
-                  className="h-11 rounded-lg border border-slate-200 bg-white px-6 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                  onClick={() => {
+                    setIsConfirmed(false)
+                    setErrorMessage('')
+                  }}
+                  disabled={Boolean(isExistingReceipt)}
+                  className="h-11 rounded-lg border border-slate-200 bg-white px-6 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-50"
                 >
                   Cancel
                 </button>
@@ -557,10 +742,14 @@ export function GoodsReceiptClient() {
                 <button
                   type="button"
                   onClick={handleSave}
-                  disabled={isSaving || !selectedReceipt}
+                  disabled={isSaving || !selectedReceipt || Boolean(isExistingReceipt)}
                   className="h-11 rounded-lg bg-red-700 px-6 text-sm font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-red-300"
                 >
-                  {isSaving ? 'Saving...' : 'Save GR'}
+                  {isSaving
+                    ? 'Saving...'
+                    : isExistingReceipt
+                      ? 'GR Recorded'
+                      : 'Save GR'}
                 </button>
               </div>
             </div>
@@ -570,28 +759,46 @@ export function GoodsReceiptClient() {
             <div className="mb-4 flex items-center gap-2">
               <Package size={20} className="text-red-600" />
               <h3 className="text-lg font-semibold text-slate-900">
-                Inventory Insight
+                Inventory Integration
               </h3>
             </div>
 
             <p className="text-sm leading-relaxed text-slate-600">
-              This receipt will increase warehouse stock by the received quantity.
-              Current warehouse capacity is within the safe threshold.
+              After Goods Receipt is saved, the system will automatically update
+              stock balance, record stock movement as inbound goods, and send
+              notifications for the next verification process.
             </p>
 
-            <div className="mt-6">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-slate-700">Safety Stock</span>
-                <span className="font-bold text-slate-900">200 kg</span>
+            <div className="mt-5 space-y-3">
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-400">
+                  PO Value
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {formatCurrency(selectedReceipt?.totalValue || 0)}
+                </p>
               </div>
 
-              <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full w-[70%] rounded-full bg-red-600" />
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-400">
+                  Warehouse
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {selectedReceipt?.warehouseName &&
+                  selectedReceipt.warehouseName !== '-'
+                    ? selectedReceipt.warehouseName
+                    : 'Default warehouse from master data'}
+                </p>
               </div>
 
-              <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
-                <span>Current: 850 kg</span>
-                <span>Target: 1.000 kg</span>
+              <div className="rounded-lg bg-amber-50 p-3">
+                <div className="flex gap-2">
+                  <WarningCircle size={18} className="mt-0.5 text-amber-600" />
+                  <p className="text-xs leading-relaxed text-amber-700">
+                    Reject quantity will not be added to inventory stock. Only
+                    accepted received quantity will increase stock balance.
+                  </p>
+                </div>
               </div>
             </div>
           </div>

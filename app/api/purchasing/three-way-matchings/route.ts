@@ -12,115 +12,167 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+type MatchStatus =
+  | 'WAITING_GR'
+  | 'WAITING_INVOICE'
+  | 'PARTIAL_RECEIPT'
+  | 'PRICE_MISMATCH'
+  | 'MATCHED'
+
 function normalizeStatus(value?: string | null) {
   return String(value || '').toUpperCase()
 }
 
+function createAPNumber() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const timestamp = String(Date.now()).slice(-6)
+  const random = String(Math.floor(Math.random() * 999)).padStart(3, '0')
+
+  return `AP-${year}${month}-${timestamp}${random}`
+}
+
+function createInvoiceNumber(poId: string) {
+  const cleanPo = String(poId || '').replace(/[^a-zA-Z0-9]/g, '')
+  return `INV-${cleanPo}-${String(Date.now()).slice(-5)}`
+}
+
+function formatDateOnly(value?: string | null) {
+  if (!value) return null
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return null
+
+  return date.toISOString().slice(0, 10)
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+
+  return next
+}
+
 function getReceiptId(receipt: any) {
-  return (
-    receipt?.receipt_id ||
-    receipt?.gr_id ||
-    receipt?.goods_receipt_id ||
-    receipt?.id ||
-    '-'
-  )
+  return receipt?.receipt_id || '-'
 }
 
 function getReceivedQty(receipt: any) {
-  return Number(
-    receipt?.received_qty ||
-      receipt?.qty_received ||
-      receipt?.qty ||
-      receipt?.quantity ||
-      receipt?.received_quantity ||
-      0
-  )
+  return Number(receipt?.quantity || 0)
 }
 
 function getReceiptProductId(receipt: any) {
-  return receipt?.product_id || receipt?.item_id || receipt?.sku || null
+  return receipt?.product_id || null
 }
 
 function getAPId(ap: any) {
-  return ap?.ap_id || ap?.id || ap?.account_payable_id || '-'
+  return ap?.ap_id || '-'
 }
 
 function getAPStatus(ap: any) {
-  return ap?.ap_status || ap?.status || ap?.payment_status || 'PENDING'
+  return ap?.ap_status || 'DRAFT'
 }
 
 function getAPAmount(ap: any) {
-  return Number(
-    ap?.grand_total ||
-      ap?.total_value ||
-      ap?.total_amount ||
-      ap?.invoice_total ||
-      ap?.amount ||
-      ap?.payable_amount ||
-      0
-  )
+  return Number(ap?.ap_amount || 0)
 }
 
 function getAPDate(ap: any) {
-  return ap?.invoice_date || ap?.ap_date || ap?.created_at || null
+  return ap?.invoice_date || ap?.created_at || null
 }
 
 function getDueDate(ap: any) {
-  return ap?.due_date || ap?.payment_due_date || ap?.created_at || null
+  return ap?.due_date || null
 }
 
 function getPOQty(poItem: any) {
-  return Number(
-    poItem?.qty_order ||
-      poItem?.order_qty ||
-      poItem?.qty ||
-      poItem?.quantity ||
-      poItem?.qty_requested ||
-      0
-  )
+  return Number(poItem?.qty_order || 0)
 }
 
 function getUnitPrice(poItem: any) {
-  return Number(
-    poItem?.unit_price ||
-      poItem?.price ||
-      poItem?.final_price ||
-      poItem?.accepted_price ||
-      0
-  )
+  return Number(poItem?.unit_price || 0)
 }
 
 function getSubtotal(poItem: any) {
-  const subtotal = Number(poItem?.subtotal || poItem?.total || 0)
+  const subtotal = Number(poItem?.subtotal || 0)
 
   if (subtotal > 0) return subtotal
 
   return getPOQty(poItem) * getUnitPrice(poItem)
 }
 
-function getMatchStatus(poTotal: number, receivedQty: number, orderedQty: number) {
-  if (receivedQty <= 0) return 'PENDING'
-  if (orderedQty > 0 && Number(receivedQty) !== Number(orderedQty)) return 'MISMATCH'
-  if (poTotal <= 0) return 'PENDING'
+function getPOSubtotal(poItems: any[]) {
+  return poItems.reduce((total, item) => total + getSubtotal(item), 0)
+}
+
+function getPOReceivedQty(poItems: any[], receipts: any[]) {
+  return poItems.reduce((total, item) => {
+    const receipt = receipts.find(
+      (row: any) =>
+        String(getReceiptProductId(row) || '') === String(item.product_id || '')
+    )
+
+    return total + getReceivedQty(receipt)
+  }, 0)
+}
+
+function getPOOrderedQty(poItems: any[]) {
+  return poItems.reduce((total, item) => total + getPOQty(item), 0)
+}
+
+function determineMatchStatus({
+  orderedQty,
+  receivedQty,
+  poTotal,
+  apAmount,
+  hasReceipt,
+  hasAP,
+}: {
+  orderedQty: number
+  receivedQty: number
+  poTotal: number
+  apAmount: number
+  hasReceipt: boolean
+  hasAP: boolean
+}): MatchStatus {
+  if (!hasReceipt || receivedQty <= 0) return 'WAITING_GR'
+  if (receivedQty < orderedQty) return 'PARTIAL_RECEIPT'
+  if (!hasAP) return 'WAITING_INVOICE'
+  if (Math.round(apAmount) !== Math.round(poTotal)) return 'PRICE_MISMATCH'
 
   return 'MATCHED'
 }
 
-function buildResults(po: any, poItem: any, receipt: any, ap: any) {
-  const orderedQty = getPOQty(poItem)
-  const receivedQty = getReceivedQty(receipt)
-  const poTotal = Number(po?.total_value || 0)
-  const apAmount = getAPAmount(ap)
-
-  const qtyMatch =
-    receivedQty > 0 && orderedQty > 0 && Number(receivedQty) === Number(orderedQty)
-
-  const receiptExists = Boolean(receipt)
-
-  const invoiceMatch =
-    !ap || apAmount === 0 || Math.round(apAmount) === Math.round(poTotal)
+function buildResults({
+  orderedQty,
+  receivedQty,
+  poTotal,
+  apAmount,
+  hasReceipt,
+  hasAP,
+}: {
+  orderedQty: number
+  receivedQty: number
+  poTotal: number
+  apAmount: number
+  hasReceipt: boolean
+  hasAP: boolean
+}) {
+  const qtyMatch = hasReceipt && orderedQty > 0 && receivedQty === orderedQty
+  const invoiceAvailable = hasAP
+  const priceMatch = hasAP && Math.round(apAmount) === Math.round(poTotal)
 
   return [
+    {
+      id: 'receipt-check',
+      checkItem: 'Goods Receipt Availability',
+      checkResult: hasReceipt ? 'MATCH' : 'MISMATCH',
+      detail: hasReceipt
+        ? 'Goods Receipt is available for this Purchase Order.'
+        : 'Goods Receipt is not available yet.',
+    },
     {
       id: 'qty-check',
       checkItem: 'PO Qty vs GR Qty',
@@ -130,66 +182,125 @@ function buildResults(po: any, poItem: any, receipt: any, ap: any) {
         : `Ordered quantity is ${orderedQty}, while received quantity is ${receivedQty}.`,
     },
     {
-      id: 'receipt-check',
-      checkItem: 'Goods Receipt Availability',
-      checkResult: receiptExists ? 'MATCH' : 'MISMATCH',
-      detail: receiptExists
-        ? 'Goods receipt record is available for this purchase order.'
-        : 'Goods receipt record is not available yet.',
+      id: 'invoice-check',
+      checkItem: 'Supplier Invoice / AP Availability',
+      checkResult: invoiceAvailable ? 'MATCH' : 'MISMATCH',
+      detail: invoiceAvailable
+        ? 'Supplier invoice / AP record is available.'
+        : 'Supplier invoice / AP record is not available yet.',
     },
     {
-      id: 'invoice-check',
-      checkItem: 'PO Total vs AP/Invoice Total',
-      checkResult: invoiceMatch ? 'MATCH' : 'MISMATCH',
-      detail: ap
-        ? invoiceMatch
-          ? `PO total and AP amount are aligned at ${poTotal}.`
-          : `PO total is ${poTotal}, while AP amount is ${apAmount}.`
-        : 'Account payable record is not available yet. For demo, this matching can still be sent to Finance.',
+      id: 'amount-check',
+      checkItem: 'PO Total vs AP Amount',
+      checkResult: priceMatch ? 'MATCH' : 'MISMATCH',
+      detail: priceMatch
+        ? `PO total and AP amount are aligned.`
+        : `PO total is ${poTotal}, while AP amount is ${apAmount}.`,
     },
   ]
 }
 
-async function tryUpdateAccountPayable(poId: string, sentToFinance: boolean) {
-  const updateAttempts = [
-    { ap_status: sentToFinance ? 'APPROVED' : 'DRAFT' },
-    { status: sentToFinance ? 'APPROVED' : 'DRAFT' },
-    { payment_status: sentToFinance ? 'APPROVED' : 'DRAFT' },
-    { ap_status: sentToFinance ? 'POSTED' : 'DRAFT' },
-    { status: sentToFinance ? 'POSTED' : 'DRAFT' },
-    { payment_status: sentToFinance ? 'POSTED' : 'DRAFT' },
-    { ap_status: sentToFinance ? 'PENDING_PAYMENT' : 'DRAFT' },
-    { status: sentToFinance ? 'PENDING_PAYMENT' : 'DRAFT' },
-    { payment_status: sentToFinance ? 'PENDING_PAYMENT' : 'DRAFT' },
-  ]
+async function createNotification({
+  title,
+  message,
+  recipientRole,
+  sourceRefId,
+  sourceRefType,
+  actionUrl,
+  priority = 'MEDIUM',
+}: {
+  title: string
+  message: string
+  recipientRole: string
+  sourceRefId: string
+  sourceRefType: string
+  actionUrl: string
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+}) {
+  const { error } = await supabase.from('notifications').insert({
+    title,
+    message,
+    type: 'INFORMATION',
+    priority,
+    status: 'UNREAD',
+    recipient_role: recipientRole,
+    source_module: 'PURCHASING',
+    source_ref_id: sourceRefId,
+    source_ref_type: sourceRefType,
+    action_url: actionUrl,
+  })
 
-  let lastError: any = null
+  if (error) {
+    console.warn('Failed to create notification:', error.message)
+  }
+}
 
-  for (const payload of updateAttempts) {
+async function createOrUpdateAccountPayable({
+  po,
+  supplierId,
+  poTotal,
+}: {
+  po: any
+  supplierId: string | null
+  poTotal: number
+}) {
+  const poId = String(po.po_id || '')
+
+  const { data: existingAP, error: fetchError } = await supabase
+    .from('tr_account_payable')
+    .select('*')
+    .eq('po_id', poId)
+    .maybeSingle()
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch account payable: ${fetchError.message}`)
+  }
+
+  const today = new Date()
+  const invoiceDate = formatDateOnly(today.toISOString())
+  const dueDate = formatDateOnly(addDays(today, 30).toISOString())
+
+  if (existingAP) {
     const { data, error } = await supabase
       .from('tr_account_payable')
-      .update(payload)
-      .eq('po_id', poId)
+      .update({
+        supplier_id: supplierId,
+        ap_amount: Number(existingAP.ap_amount || poTotal || 0),
+        ap_status: 'PENDING_VERIFICATION',
+        invoice_date: existingAP.invoice_date || invoiceDate,
+        due_date: existingAP.due_date || dueDate,
+      })
+      .eq('ap_id', existingAP.ap_id)
       .select()
+      .single()
 
-    if (!error) {
-      return {
-        updated: true,
-        data,
-        error: null,
-        payload,
-      }
+    if (error) {
+      throw new Error(`Failed to update account payable: ${error.message}`)
     }
 
-    lastError = error
+    return data
   }
 
-  return {
-    updated: false,
-    data: null,
-    error: lastError,
-    payload: null,
+  const { data, error } = await supabase
+    .from('tr_account_payable')
+    .insert({
+      ap_id: createAPNumber(),
+      po_id: poId,
+      supplier_id: supplierId,
+      inv_supp_no: createInvoiceNumber(poId),
+      invoice_date: invoiceDate,
+      ap_amount: poTotal,
+      ap_status: 'PENDING_VERIFICATION',
+      due_date: dueDate,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    throw new Error(`Failed to create account payable: ${error.message}`)
   }
+
+  return data
 }
 
 export async function GET() {
@@ -202,9 +313,10 @@ export async function GET() {
       receiptResult,
       apResult,
     ] = await Promise.all([
-      supabase.from('tr_purchase_order').select('*').order('created_at', {
-        ascending: false,
-      }),
+      supabase
+        .from('tr_purchase_order')
+        .select('*')
+        .order('created_at', { ascending: false }),
 
       supabase.from('tr_po_detail').select('*'),
 
@@ -328,48 +440,38 @@ export async function GET() {
 
     const matchings = purchaseOrders
       .filter((po: any) => {
-        const poId = String(po.po_id || '')
         const poStatus = normalizeStatus(po.status)
 
-        return (
-          receiptsByPO.has(poId) ||
-          apByPO.has(poId) ||
-          ['RELEASED', 'APPROVED', 'COMPLETED'].includes(poStatus)
-        )
+        return ['RELEASED', 'COMPLETED'].includes(poStatus)
       })
       .map((po: any) => {
         const poId = String(po.po_id || '')
         const supplier = supplierMap.get(po.supplier_id)
         const poItems = detailsByPO.get(poId) || []
         const receiptRows = receiptsByPO.get(poId) || []
+        const ap = apByPO.get(poId)
         const firstPoItem = poItems[0]
         const firstReceipt = receiptRows[0]
-        const ap = apByPO.get(poId)
         const product = productMap.get(firstPoItem?.product_id)
 
-        const matchingReceipt =
-          receiptRows.find(
-            (receipt: any) =>
-              String(getReceiptProductId(receipt) || '') ===
-              String(firstPoItem?.product_id || '')
-          ) || firstReceipt
+        const orderedQty = getPOOrderedQty(poItems)
+        const receivedQty = getPOReceivedQty(poItems, receiptRows)
+        const hasReceipt = receiptRows.length > 0 && receivedQty > 0
+        const hasAP = Boolean(ap)
 
-        const orderedQty = getPOQty(firstPoItem)
-        const receivedQty = getReceivedQty(matchingReceipt)
-
-        const poSubtotal = poItems.reduce(
-          (total: number, item: any) => total + getSubtotal(item),
-          0
-        )
-
+        const poSubtotal = getPOSubtotal(poItems)
         const poTotalValue = Number(po.total_value || poSubtotal || 0)
         const poTaxAmount = Math.max(poTotalValue - poSubtotal, 0)
+        const apAmount = getAPAmount(ap)
 
-        const matchStatus = getMatchStatus(
-          poTotalValue,
+        const matchStatus = determineMatchStatus({
+          orderedQty,
           receivedQty,
-          orderedQty
-        )
+          poTotal: poTotalValue,
+          apAmount,
+          hasReceipt,
+          hasAP,
+        })
 
         const apStatus = normalizeStatus(getAPStatus(ap))
 
@@ -377,10 +479,14 @@ export async function GET() {
           id: poId,
           matchingNo: `TWM-${poId}`,
           matchStatus,
-          sentToFinance: ['APPROVED', 'POSTED', 'PAID', 'PENDING_PAYMENT'].includes(
-            apStatus
-          ),
-          sentToFinanceAt: ap?.updated_at || ap?.created_at || null,
+          sentToFinance: [
+            'PENDING_VERIFICATION',
+            'APPROVED',
+            'PAID',
+            'OUTSTANDING',
+            'OVERDUE',
+          ].includes(apStatus),
+          sentToFinanceAt: ap?.created_at || null,
           createdAt:
             firstReceipt?.created_at ||
             po.po_release_date ||
@@ -401,12 +507,12 @@ export async function GET() {
             null,
           grStatus: firstReceipt?.status || '-',
 
-          invoiceNo: ap ? String(getAPId(ap)) : `AP-${poId}`,
+          invoiceNo: ap?.inv_supp_no || (ap ? String(getAPId(ap)) : '-'),
           invoiceDate: getAPDate(ap),
           dueDate: getDueDate(ap),
-          invoiceSubtotal: getAPAmount(ap),
+          invoiceSubtotal: apAmount,
           invoiceTaxAmount: 0,
-          invoiceGrandTotal: getAPAmount(ap),
+          invoiceGrandTotal: apAmount,
           paymentStatus: getAPStatus(ap),
 
           supplierId: supplier?.supplier_id || po.supplier_id || '-',
@@ -423,13 +529,23 @@ export async function GET() {
           unit: product?.uom || '-',
           unitPrice: getUnitPrice(firstPoItem),
 
-          results: buildResults(po, firstPoItem, matchingReceipt, ap),
+          results: buildResults({
+            orderedQty,
+            receivedQty,
+            poTotal: poTotalValue,
+            apAmount,
+            hasReceipt,
+            hasAP,
+          }),
         }
       })
 
     return NextResponse.json({
       message: 'Three-way matchings fetched successfully',
       data: matchings,
+      meta: {
+        total: matchings.length,
+      },
     })
   } catch (error) {
     return NextResponse.json(
@@ -445,8 +561,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json()
-
-    const { matchingNo, poNumber, sentToFinance } = body
+    const { matchingNo, poNumber } = body
 
     const target = poNumber || matchingNo
 
@@ -463,23 +578,33 @@ export async function PATCH(request: Request) {
       ? String(target).replace(/^TWM-/, '')
       : String(target)
 
-    const { data: poData, error: poError } = await supabase
-      .from('tr_purchase_order')
-      .select('*')
-      .eq('po_id', poId)
-      .maybeSingle()
+    const [
+      poResult,
+      poDetailResult,
+      receiptResult,
+    ] = await Promise.all([
+      supabase
+        .from('tr_purchase_order')
+        .select('*')
+        .eq('po_id', poId)
+        .maybeSingle(),
 
-    if (poError) {
+      supabase.from('tr_po_detail').select('*').eq('po_id', poId),
+
+      supabase.from('tr_goods_receipt').select('*').eq('po_id', poId),
+    ])
+
+    if (poResult.error) {
       return NextResponse.json(
         {
-          message: 'Failed to update three-way matching',
-          error: error instanceof Error ? error.message : String(error),
+          message: 'Failed to fetch purchase order',
+          error: poResult.error.message,
         },
         { status: 500 }
       )
     }
 
-    if (!poData) {
+    if (!poResult.data) {
       return NextResponse.json(
         {
           message: 'Purchase order not found',
@@ -489,56 +614,76 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const { data: apData, error: apFetchError } = await supabase
-      .from('tr_account_payable')
-      .select('*')
-      .eq('po_id', poId)
-      .maybeSingle()
-
-    if (apFetchError) {
+    if (poDetailResult.error || receiptResult.error) {
       return NextResponse.json(
         {
-          message: 'Failed to fetch account payable data',
-          error: apFetchError.message,
+          message: 'Failed to fetch matching data',
+          error: poDetailResult.error?.message || receiptResult.error?.message,
         },
         { status: 500 }
       )
     }
 
-    if (apData) {
-      const updateResult = await tryUpdateAccountPayable(
-        poId,
-        Boolean(sentToFinance)
-      )
+    const po = poResult.data
+    const poItems = poDetailResult.data || []
+    const receipts = receiptResult.data || []
 
-      return NextResponse.json({
-        message: 'Three-way matching sent to Finance successfully',
-        data: {
-          poId,
-          sentToFinance: Boolean(sentToFinance),
-          apExists: true,
-          apUpdated: updateResult.updated,
-          updatePayload: updateResult.payload,
-          updateWarning: updateResult.error?.message || null,
-          accountPayable: updateResult.data || apData,
+    const orderedQty = getPOOrderedQty(poItems)
+    const receivedQty = getPOReceivedQty(poItems, receipts)
+    const hasReceipt = receipts.length > 0 && receivedQty > 0
+    const poSubtotal = getPOSubtotal(poItems)
+    const poTotalValue = Number(po.total_value || poSubtotal || 0)
+
+    if (!hasReceipt) {
+      return NextResponse.json(
+        {
+          message: 'Cannot send to Finance because Goods Receipt is not available yet',
+          error: 'WAITING_GR',
         },
-      })
+        { status: 400 }
+      )
     }
 
+    if (receivedQty < orderedQty) {
+      return NextResponse.json(
+        {
+          message:
+            'Cannot send to Finance because Goods Receipt is still partial',
+          error: 'PARTIAL_RECEIPT',
+        },
+        { status: 400 }
+      )
+    }
+
+    const accountPayable = await createOrUpdateAccountPayable({
+      po,
+      supplierId: po.supplier_id || null,
+      poTotal: poTotalValue,
+    })
+
+    await createNotification({
+      title: 'Account Payable Pending Verification',
+      message: `PO ${poId} has passed purchasing verification and is waiting for Finance verification.`,
+      recipientRole: 'FINANCE',
+      sourceRefId: accountPayable.ap_id,
+      sourceRefType: 'AP',
+      actionUrl: '/apps/purchasing/finance',
+      priority: 'HIGH',
+    })
+
     return NextResponse.json({
-      message:
-        'Three-way matching sent to Finance successfully. Account payable record was not found, so this is treated as a finance handoff for demo.',
+      message: 'Three-way matching sent to Finance successfully',
       data: {
         poId,
-        sentToFinance: Boolean(sentToFinance),
-        apExists: false,
-        financeHandoff: true,
+        matchingNo: `TWM-${poId}`,
+        sentToFinance: true,
+        accountPayable,
       },
     })
   } catch (error) {
     return NextResponse.json(
       {
-        message: 'Unexpected error while sending three-way matching to finance',
+        message: 'Unexpected error while sending three-way matching to Finance',
         error: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
