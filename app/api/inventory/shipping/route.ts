@@ -104,7 +104,7 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json()
     const supabase = await createRouteHandlerClient()
 
-    const { do_id, status, do_code, product_id, quantity, warehouse_id } = body
+    const { do_id, status, do_code, warehouse_id } = body
 
     if (!warehouse_id) {
       return NextResponse.json({ error: 'Warehouse ID is required' }, { status: 400 })
@@ -165,58 +165,8 @@ export async function PATCH(request: NextRequest) {
       })
     }
 
-    // 3. Update stock balances and ledgers
+    // 3. Notify Sales that Delivery Order has been delivered
     if (dbStatus === 'DELIVERED' && currentDO.status !== 'DELIVERED') {
-      if (product_id && Number(quantity) > 0) {
-        const now = new Date()
-        const timestamp = now.getTime().toString().slice(-6)
-        const randomStr = Math.random().toString(36).substring(2, 6).toUpperCase()
-        const mvCode = `MV-${timestamp}-${randomStr}`
-
-        const payload = {
-          movement_id: mvCode,
-          product_id,
-          warehouse_id: String(warehouse_id),
-          type: 'OUT',
-          quantity: Number(quantity),
-          reference_id: do_code,
-          reference_type: 'DO',
-          movement_date: now.toISOString()
-        }
-
-        const { error: mvError } = await supabase
-          .from('tr_stock_movement')
-          .insert([payload])
-
-        if (mvError) {
-          console.error("CRITICAL: Failed to insert stock movement:", mvError)
-          throw new Error('Gagal memotong stok. Silakan hubungi administrator.')
-        }
-
-        // Update actual stock balance (ms_inventory equivalent)
-        const { data: existingStock } = await supabase
-          .from('tr_stock_balance')
-          .select('*')
-          .eq('product_id', product_id)
-          .eq('warehouse_id', String(warehouse_id))
-          .eq('status', 'AVAILABLE')
-          .order('created_at', { ascending: true }) // simple FEFO
-          .limit(1)
-          .single()
-
-        if (existingStock) {
-          await supabase
-            .from('tr_stock_balance')
-            .update({ quantity: Number(existingStock.quantity) - Number(quantity) })
-            .eq('stock_id', existingStock.stock_id)
-        } else {
-           // Could not find available stock to deduct, this means they bypassed validation
-           // But we will still deduct it to cause negative stock, revealing the error
-           console.warn("Stock not found during DO Delivery! Force deduction skipped.")
-        }
-      }
-
-      // Notify Sales that Delivery Order has been delivered
       await createNotification({
         title: `Order Delivered: ${do_code}`,
         message: `Inventory has successfully delivered the order to the customer.`,
@@ -229,51 +179,6 @@ export async function PATCH(request: NextRequest) {
         actionUrl: `/snm/sales`, // Link to Sales module
         createdBy: user.user_id,
       })
-    } else if (dbStatus === 'VOID' && currentDO.status === 'DELIVERED') {
-       // Restore stock if DO is voided after being delivered
-       if (product_id && Number(quantity) > 0) {
-         const now = new Date()
-         const mvCode = `MV-${now.getTime().toString().slice(-6)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
-
-         await supabase
-           .from('tr_stock_movement')
-           .insert([{
-             movement_id: mvCode,
-             product_id,
-             warehouse_id: String(warehouse_id),
-             type: 'IN', // Return stock
-             quantity: Number(quantity),
-             reference_id: do_code,
-             reference_type: 'DO',
-             movement_date: now.toISOString()
-           }])
-
-         const { data: existingStock } = await supabase
-           .from('tr_stock_balance')
-           .select('*')
-           .eq('product_id', product_id)
-           .eq('warehouse_id', String(warehouse_id))
-           .eq('status', 'AVAILABLE')
-           .order('created_at', { ascending: false })
-           .limit(1)
-           .single()
-
-         if (existingStock) {
-           await supabase
-             .from('tr_stock_balance')
-             .update({ quantity: Number(existingStock.quantity) + Number(quantity) })
-             .eq('stock_id', existingStock.stock_id)
-         } else {
-           await supabase
-             .from('tr_stock_balance')
-             .insert([{
-               product_id,
-               warehouse_id: String(warehouse_id),
-               quantity: Number(quantity),
-               status: 'AVAILABLE'
-             }])
-         }
-       }
     }
 
     return NextResponse.json({ data: doData })
