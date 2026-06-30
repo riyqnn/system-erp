@@ -1,12 +1,9 @@
 import { requireRole } from '@/lib/auth/server-auth'
-import { PurchasingPageClient } from './PurchasingPageClient'
+import { PurchasingDefaultRedirect } from './PurchasingDefaultRedirect'
 
 // Server component - handles role-based access control
 export default async function PurchasingPage() {
-  // Only PURCHASING and ADMIN roles can access this page
-  // Non-authorized users will be redirected to their own module
-  await requireRole(['PURCHASING', 'ADMIN'])
+  await requireRole(['PURCHASING', 'MANAGER_PURCHASING', 'ADMIN'])
 
-  return <PurchasingPageClient />
+  return <PurchasingDefaultRedirect />
 }
-

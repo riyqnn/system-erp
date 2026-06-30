@@ -13,7 +13,15 @@ import {
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
-type MatchStatus = 'MATCHED' | 'MISMATCH' | 'PENDING' | string
+type MatchStatus =
+  | 'WAITING_GR'
+  | 'WAITING_INVOICE'
+  | 'PARTIAL_RECEIPT'
+  | 'PRICE_MISMATCH'
+  | 'MATCHED'
+  | 'MISMATCH'
+  | 'PENDING'
+  | string
 
 type MatchingResult = {
   id: string
@@ -89,6 +97,10 @@ function formatNumber(value: number) {
 
 function formatMatchStatus(status: MatchStatus) {
   const statusMap: Record<string, string> = {
+    WAITING_GR: 'Waiting Goods Receipt',
+    WAITING_INVOICE: 'Waiting Supplier Invoice',
+    PARTIAL_RECEIPT: 'Partial Receipt',
+    PRICE_MISMATCH: 'Price Mismatch',
     MATCHED: 'Matched',
     MISMATCH: 'Mismatch',
     PENDING: 'Pending',
@@ -99,6 +111,10 @@ function formatMatchStatus(status: MatchStatus) {
 
 function getMatchStatusClass(status: MatchStatus) {
   const statusClassMap: Record<string, string> = {
+    WAITING_GR: 'bg-amber-100 text-amber-700',
+    WAITING_INVOICE: 'bg-orange-100 text-orange-700',
+    PARTIAL_RECEIPT: 'bg-yellow-100 text-yellow-700',
+    PRICE_MISMATCH: 'bg-red-100 text-red-700',
     MATCHED: 'bg-green-100 text-green-700',
     MISMATCH: 'bg-red-100 text-red-700',
     PENDING: 'bg-amber-100 text-amber-700',
@@ -111,6 +127,12 @@ function getResultClass(result: 'MATCH' | 'MISMATCH') {
   return result === 'MATCH'
     ? 'bg-green-100 text-green-700'
     : 'bg-red-100 text-red-700'
+}
+
+function canSendToFinance(matching: ThreeWayMatching | null) {
+  if (!matching) return false
+
+  return matching.matchStatus === 'MATCHED' && !matching.sentToFinance
 }
 
 export function ThreeWayMatchingClient() {
@@ -127,7 +149,9 @@ export function ThreeWayMatchingClient() {
       setIsLoading(true)
       setErrorMessage('')
 
-      const response = await fetch('/api/purchasing/three-way-matchings')
+      const response = await fetch('/api/purchasing/three-way-matchings', {
+        cache: 'no-store',
+      })
       const result = await response.json()
 
       if (!response.ok) {
@@ -142,7 +166,13 @@ export function ThreeWayMatchingClient() {
       setMatchings(matchingData)
 
       if (matchingData.length > 0) {
-        setSelectedMatchingId(matchingData[0].id)
+        setSelectedMatchingId((currentId) => {
+          const currentStillExists = matchingData.some(
+            (item: ThreeWayMatching) => item.id === currentId
+          )
+
+          return currentStillExists ? currentId : matchingData[0].id
+        })
       }
     } catch (error) {
       setErrorMessage(
@@ -167,16 +197,34 @@ export function ThreeWayMatchingClient() {
     (item) => item.matchStatus === 'MATCHED'
   ).length
 
-  const mismatchCount = matchings.filter(
-    (item) => item.matchStatus === 'MISMATCH'
+  const reviewRequiredCount = matchings.filter(
+    (item) =>
+      item.matchStatus !== 'MATCHED' &&
+      item.matchStatus !== 'WAITING_GR' &&
+      item.matchStatus !== 'WAITING_INVOICE'
   ).length
 
-  const pendingCount = matchings.filter(
-    (item) => item.matchStatus === 'PENDING'
+  const pendingCount = matchings.filter((item) =>
+    ['WAITING_GR', 'WAITING_INVOICE', 'PENDING'].includes(item.matchStatus)
   ).length
 
   const handleSendToFinance = async () => {
     if (!selectedMatching) return
+
+    if (!canSendToFinance(selectedMatching)) {
+      setErrorMessage(
+        selectedMatching.sentToFinance
+          ? 'This matching document has already been sent to Finance.'
+          : 'Only matched documents can be sent to Finance.'
+      )
+      return
+    }
+
+    const confirmed = window.confirm(
+      'Send this matched document to Finance Account Payable?'
+    )
+
+    if (!confirmed) return
 
     try {
       setIsSending(true)
@@ -190,8 +238,6 @@ export function ThreeWayMatchingClient() {
         body: JSON.stringify({
           matchingNo: selectedMatching.matchingNo,
           poNumber: selectedMatching.poNo,
-          invoiceNo: selectedMatching.invoiceNo,
-          sentToFinance: true,
         }),
       })
 
@@ -201,7 +247,7 @@ export function ThreeWayMatchingClient() {
         throw new Error(
           result?.error ||
             result?.message ||
-            'Failed to send matching to finance'
+            'Failed to send matching to Finance Account Payable'
         )
       }
 
@@ -212,18 +258,19 @@ export function ThreeWayMatchingClient() {
                 ...item,
                 sentToFinance: true,
                 sentToFinanceAt: new Date().toISOString(),
+                paymentStatus: 'PENDING_VERIFICATION',
               }
             : item
         )
       )
 
-      alert('Three-Way Matching has been sent to Finance.')
-      router.push('/apps/purchasing/finance')
+      alert('Three-Way Matching has been sent to Finance Account Payable.')
+      router.push('/finance/account-payable')
     } catch (error) {
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : 'Failed to send matching to finance'
+          : 'Failed to send matching to Finance Account Payable'
       )
     } finally {
       setIsSending(false)
@@ -243,7 +290,7 @@ export function ThreeWayMatchingClient() {
       <div className="space-y-6">
         <ModuleHeader
           title="Three-Way Matching"
-          description="Match purchase order, goods receipt, and supplier invoice before sending to finance."
+          description="Match purchase order, goods receipt, and supplier invoice before sending to Finance Account Payable."
         />
 
         {errorMessage && (
@@ -273,10 +320,10 @@ export function ThreeWayMatchingClient() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase text-slate-400">
-                  Mismatch
+                  Review Required
                 </p>
                 <h3 className="mt-2 text-4xl font-bold text-slate-900">
-                  {mismatchCount}
+                  {reviewRequiredCount}
                 </h3>
               </div>
               <div className="rounded-xl bg-red-50 p-3">
@@ -575,6 +622,20 @@ export function ThreeWayMatchingClient() {
                 </div>
               </div>
 
+              {selectedMatching.sentToFinance && (
+                <div className="mt-5 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+                  This matching document has already been sent to Finance
+                  Account Payable.
+                </div>
+              )}
+
+              {selectedMatching.matchStatus !== 'MATCHED' && (
+                <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                  This document cannot be sent to Finance yet because the
+                  matching status is {formatMatchStatus(selectedMatching.matchStatus)}.
+                </div>
+              )}
+
               <div className="mt-5 flex flex-col justify-end gap-3 sm:flex-row">
                 <button
                   type="button"
@@ -586,13 +647,14 @@ export function ThreeWayMatchingClient() {
                 <button
                   type="button"
                   onClick={handleSendToFinance}
-                  disabled={
-                    isSending ||
-                    selectedMatching.matchStatus !== 'MATCHED'
-                  }
+                  disabled={isSending || !canSendToFinance(selectedMatching)}
                   className="rounded-lg bg-red-700 px-5 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  {isSending ? 'Sending...' : 'Confirm and Send to Finance'}
+                  {isSending
+                    ? 'Sending...'
+                    : selectedMatching.sentToFinance
+                      ? 'Already Sent to Finance'
+                      : 'Confirm and Send to Finance'}
                 </button>
               </div>
             </div>

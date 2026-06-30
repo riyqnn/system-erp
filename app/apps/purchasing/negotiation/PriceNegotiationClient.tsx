@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   WarningCircle,
   PaperPlaneTilt,
@@ -15,7 +16,9 @@ import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
 type NegotiationStatus =
+  | 'PROPOSED'
   | 'SENT'
+  | 'NEGOTIATION'
   | 'RESPONDED'
   | 'COUNTERED'
   | 'AGREED'
@@ -59,7 +62,9 @@ function formatNumber(value: number) {
 
 function formatStatus(status: NegotiationStatus) {
   const statusMap: Record<string, string> = {
+    PROPOSED: 'Proposed',
     SENT: 'Sent',
+    NEGOTIATION: 'Negotiation',
     RESPONDED: 'Responded',
     COUNTERED: 'Countered',
     AGREED: 'Agreed',
@@ -72,7 +77,9 @@ function formatStatus(status: NegotiationStatus) {
 
 function getStatusClass(status: NegotiationStatus) {
   const statusClassMap: Record<string, string> = {
+    PROPOSED: 'bg-slate-100 text-slate-700',
     SENT: 'bg-blue-100 text-blue-700',
+    NEGOTIATION: 'bg-purple-100 text-purple-700',
     RESPONDED: 'bg-amber-100 text-amber-700',
     COUNTERED: 'bg-purple-100 text-purple-700',
     AGREED: 'bg-green-100 text-green-700',
@@ -84,7 +91,11 @@ function getStatusClass(status: NegotiationStatus) {
 }
 
 function parseCurrencyInput(value: string) {
-  return Number(value.replace(/\./g, '').replace(/,/g, '')) || 0
+  return Number(String(value || '').replace(/\./g, '').replace(/,/g, '')) || 0
+}
+
+function parseQuantityInput(value: string) {
+  return Number(String(value || '').replace(/\./g, '').replace(/,/g, '')) || 0
 }
 
 function formatCurrencyInput(value: number) {
@@ -92,6 +103,8 @@ function formatCurrencyInput(value: number) {
 }
 
 export function PriceNegotiationClient() {
+  const router = useRouter()
+
   const [negotiations, setNegotiations] = useState<PriceNegotiation[]>([])
   const [selectedNegotiationId, setSelectedNegotiationId] = useState('')
   const [offerPrice, setOfferPrice] = useState('')
@@ -102,6 +115,22 @@ export function PriceNegotiationClient() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+
+  const applySelectedNegotiation = (selected: PriceNegotiation) => {
+    setSelectedNegotiationId(selected.id)
+    setOfferPrice(
+      formatCurrencyInput(
+        selected.finalPrice ||
+          selected.supplierResponsePrice ||
+          selected.proposedPrice ||
+          selected.referencePrice ||
+          0
+      )
+    )
+    setQuantity(String(selected.qty || ''))
+    setDeadline(selected.confirmationDeadline || '')
+    setNotes(selected.notes === '-' ? '' : selected.notes)
+  }
 
   const fetchNegotiations = async () => {
     try {
@@ -119,20 +148,18 @@ export function PriceNegotiationClient() {
       setNegotiations(data)
 
       if (data.length > 0) {
-        const firstData = data[0]
-        setSelectedNegotiationId(firstData.id)
-        setOfferPrice(
-          formatCurrencyInput(
-            firstData.finalPrice ||
-              firstData.supplierResponsePrice ||
-              firstData.proposedPrice ||
-              firstData.referencePrice ||
-              0
-          )
-        )
-        setQuantity(String(firstData.qty || ''))
-        setDeadline(firstData.confirmationDeadline || '')
-        setNotes(firstData.notes === '-' ? '' : firstData.notes)
+        const searchParams = new URLSearchParams(window.location.search)
+        const negotiationNoFromUrl =
+          searchParams.get('negotiationNo') ||
+          searchParams.get('negotiation_no') ||
+          searchParams.get('negotiationId') ||
+          searchParams.get('negotiation_id')
+
+        const selectedFromUrl = negotiationNoFromUrl
+          ? data.find((item) => item.negotiationNo === negotiationNoFromUrl)
+          : null
+
+        applySelectedNegotiation(selectedFromUrl || data[0])
       }
     } catch (error) {
       setErrorMessage(
@@ -145,6 +172,7 @@ export function PriceNegotiationClient() {
 
   useEffect(() => {
     fetchNegotiations()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const selectedNegotiation = useMemo(() => {
@@ -154,27 +182,14 @@ export function PriceNegotiationClient() {
   const agreedCount = negotiations.filter((item) => item.status === 'AGREED').length
 
   const waitingCount = negotiations.filter((item) =>
-    ['SENT', 'RESPONDED', 'COUNTERED'].includes(item.status)
+    ['SENT', 'NEGOTIATION', 'RESPONDED', 'COUNTERED'].includes(item.status)
   ).length
 
   const handleSelectNegotiation = (id: string) => {
     const selected = negotiations.find((item) => item.id === id)
 
-    setSelectedNegotiationId(id)
-
     if (selected) {
-      setOfferPrice(
-        formatCurrencyInput(
-          selected.finalPrice ||
-            selected.supplierResponsePrice ||
-            selected.proposedPrice ||
-            selected.referencePrice ||
-            0
-        )
-      )
-      setQuantity(String(selected.qty || ''))
-      setDeadline(selected.confirmationDeadline || '')
-      setNotes(selected.notes === '-' ? '' : selected.notes)
+      applySelectedNegotiation(selected)
     }
   }
 
@@ -186,6 +201,15 @@ export function PriceNegotiationClient() {
       setErrorMessage('')
 
       const finalPrice = parseCurrencyInput(offerPrice)
+      const revisedQuantity = parseQuantityInput(quantity)
+
+      if (finalPrice <= 0) {
+        throw new Error('Final price must be greater than zero.')
+      }
+
+      if (revisedQuantity <= 0) {
+        throw new Error('Quantity must be greater than zero.')
+      }
 
       const response = await fetch('/api/purchasing/negotiations', {
         method: 'PATCH',
@@ -196,6 +220,8 @@ export function PriceNegotiationClient() {
           negotiationNumber: selectedNegotiation.negotiationNo,
           supplierResponsePrice: finalPrice,
           finalPrice,
+          qty: revisedQuantity,
+          confirmationDeadline: deadline || null,
           status: 'AGREED',
           notes,
         }),
@@ -207,7 +233,20 @@ export function PriceNegotiationClient() {
         throw new Error(result.message || 'Failed to update negotiation')
       }
 
+      const generatedPO = result.generatedPO
+      const poId = generatedPO?.poId
+
       await fetchNegotiations()
+
+      if (poId) {
+        alert(
+          result.message ||
+            'Negotiation has been agreed and purchase order has been updated.'
+        )
+        router.push(`/apps/purchasing/purchase-orders/create?poNo=${poId}`)
+        return
+      }
+
       alert('Negotiation offer has been saved to database.')
     } catch (error) {
       setErrorMessage(
@@ -288,10 +327,12 @@ export function PriceNegotiationClient() {
                       {selectedNegotiation?.productCode || '-'} —{' '}
                       {selectedNegotiation?.productName || '-'}
                     </span>
+
                     <span className="rounded-full bg-purple-100 px-3 py-1 font-semibold text-purple-700">
                       Supplier: {selectedNegotiation?.supplierName || '-'} (
                       {selectedNegotiation?.supplierId || '-'})
                     </span>
+
                     {selectedNegotiation && (
                       <span
                         className={`rounded-full px-3 py-1 font-semibold ${getStatusClass(
@@ -345,6 +386,7 @@ export function PriceNegotiationClient() {
               <label className="mb-1 block text-xs font-semibold text-slate-600">
                 Proposed / Final Price
               </label>
+
               <div className="flex h-10 overflow-hidden rounded-lg border border-slate-200 focus-within:border-red-300">
                 <span className="flex items-center border-r border-slate-200 px-3 text-sm text-slate-500">
                   Rp
@@ -356,6 +398,7 @@ export function PriceNegotiationClient() {
                   className="w-full px-3 text-sm outline-none"
                 />
               </div>
+
               <p className="mt-1 text-xs text-slate-400">
                 Reference: {formatCurrency(selectedNegotiation?.referencePrice || 0)}
                 /{selectedNegotiation?.unit || '-'}
@@ -366,6 +409,7 @@ export function PriceNegotiationClient() {
               <label className="mb-1 block text-xs font-semibold text-slate-600">
                 Quantity
               </label>
+
               <div className="flex h-10 overflow-hidden rounded-lg border border-slate-200">
                 <input
                   type="text"
@@ -383,6 +427,7 @@ export function PriceNegotiationClient() {
               <label className="mb-1 block text-xs font-semibold text-slate-600">
                 Confirmation Deadline
               </label>
+
               <input
                 type="date"
                 value={deadline}
@@ -395,6 +440,7 @@ export function PriceNegotiationClient() {
               <label className="mb-1 block text-xs font-semibold text-slate-600">
                 Notes
               </label>
+
               <input
                 type="text"
                 value={notes}
@@ -453,18 +499,23 @@ export function PriceNegotiationClient() {
                       <td className="px-4 py-4 font-semibold text-slate-900">
                         {item.negotiationNo}
                       </td>
+
                       <td className="px-4 py-4 text-slate-600">
                         {item.supplierName}
                       </td>
+
                       <td className="px-4 py-4 text-slate-600">
                         {item.productName}
                       </td>
+
                       <td className="px-4 py-4 text-slate-600">
                         {formatCurrency(item.proposedPrice)}
                       </td>
+
                       <td className="px-4 py-4 font-semibold text-slate-900">
                         {item.finalPrice ? formatCurrency(item.finalPrice) : '-'}
                       </td>
+
                       <td className="px-4 py-4">
                         <span
                           className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(

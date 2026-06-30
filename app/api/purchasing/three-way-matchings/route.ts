@@ -38,6 +38,33 @@ function createInvoiceNumber(poId: string) {
   return `INV-${cleanPo}-${String(Date.now()).slice(-5)}`
 }
 
+function createFinanceInvoiceNumber({
+  existingInvoiceNo,
+  poId,
+  receiptId,
+}: {
+  existingInvoiceNo?: string | null
+  poId: string
+  receiptId?: string | null
+}) {
+  if (existingInvoiceNo && existingInvoiceNo !== '-') {
+    return existingInvoiceNo
+  }
+
+  const cleanReceiptId = String(receiptId || '').replace(/[^a-zA-Z0-9]/g, '')
+  const cleanPoId = String(poId || '').replace(/[^a-zA-Z0-9]/g, '')
+
+  if (cleanReceiptId) {
+    return `INV-${cleanReceiptId}`
+  }
+
+  if (cleanPoId) {
+    return `INV-${cleanPoId}-${String(Date.now()).slice(-5)}`
+  }
+
+  return `INV-${String(Date.now()).slice(-8)}`
+}
+
 function formatDateOnly(value?: string | null) {
   if (!value) return null
 
@@ -122,6 +149,24 @@ function getPOOrderedQty(poItems: any[]) {
   return poItems.reduce((total, item) => total + getPOQty(item), 0)
 }
 
+function normalizeFinanceSupplierId(value?: string | number | null) {
+  if (value === null || value === undefined) return value
+
+  const textValue = String(value)
+
+  if (/^\d+$/.test(textValue)) {
+    return Number(textValue)
+  }
+
+  const match = textValue.match(/\d+/)
+
+  if (match?.[0]) {
+    return Number(match[0])
+  }
+
+  return value
+}
+
 function determineMatchStatus({
   orderedQty,
   receivedQty,
@@ -194,7 +239,7 @@ function buildResults({
       checkItem: 'PO Total vs AP Amount',
       checkResult: priceMatch ? 'MATCH' : 'MISMATCH',
       detail: priceMatch
-        ? `PO total and AP amount are aligned.`
+        ? 'PO total and AP amount are aligned.'
         : `PO total is ${poTotal}, while AP amount is ${apAmount}.`,
     },
   ]
@@ -239,10 +284,16 @@ async function createOrUpdateAccountPayable({
   po,
   supplierId,
   poTotal,
+  invoiceNo,
+  invoiceDate,
+  dueDate,
 }: {
   po: any
   supplierId: string | null
   poTotal: number
+  invoiceNo: string
+  invoiceDate: string
+  dueDate: string
 }) {
   const poId = String(po.po_id || '')
 
@@ -256,15 +307,12 @@ async function createOrUpdateAccountPayable({
     throw new Error(`Failed to fetch account payable: ${fetchError.message}`)
   }
 
-  const today = new Date()
-  const invoiceDate = formatDateOnly(today.toISOString())
-  const dueDate = formatDateOnly(addDays(today, 30).toISOString())
-
   if (existingAP) {
     const { data, error } = await supabase
       .from('tr_account_payable')
       .update({
         supplier_id: supplierId,
+        inv_supp_no: existingAP.inv_supp_no || invoiceNo,
         ap_amount: Number(existingAP.ap_amount || poTotal || 0),
         ap_status: 'PENDING_VERIFICATION',
         invoice_date: existingAP.invoice_date || invoiceDate,
@@ -287,7 +335,7 @@ async function createOrUpdateAccountPayable({
       ap_id: createAPNumber(),
       po_id: poId,
       supplier_id: supplierId,
-      inv_supp_no: createInvoiceNumber(poId),
+      inv_supp_no: invoiceNo,
       invoice_date: invoiceDate,
       ap_amount: poTotal,
       ap_status: 'PENDING_VERIFICATION',
@@ -301,6 +349,66 @@ async function createOrUpdateAccountPayable({
   }
 
   return data
+}
+
+async function sendToFinancePayable({
+  request,
+  po,
+  poId,
+  receipt,
+  amount,
+  invoiceNo,
+  invoiceDate,
+  dueDate,
+}: {
+  request: Request
+  po: any
+  poId: string
+  receipt: any
+  amount: number
+  invoiceNo: string
+  invoiceDate: string
+  dueDate: string
+}) {
+  const origin = new URL(request.url).origin
+
+  const financePayload = {
+    action: 'match',
+    no_invoice: invoiceNo,
+    no_po: poId,
+    gr_code: String(getReceiptId(receipt)),
+    supplier_id: normalizeFinanceSupplierId(po.supplier_id),
+    supplier_code: po.supplier_id,
+    jumlah: amount,
+    tanggal_invoice: invoiceDate,
+    due_date: dueDate,
+    source_module: 'PURCHASING',
+    source_matching_no: `TWM-${poId}`,
+  }
+
+  const response = await fetch(`${origin}/api/finance/payable`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      cookie: request.headers.get('cookie') || '',
+    },
+    body: JSON.stringify(financePayload),
+  })
+
+  const result = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    throw new Error(
+      result?.error ||
+        result?.message ||
+        'Failed to send matching data to Finance Account Payable'
+    )
+  }
+
+  return {
+    payload: financePayload,
+    result,
+  }
 }
 
 export async function GET() {
@@ -481,12 +589,15 @@ export async function GET() {
           matchStatus,
           sentToFinance: [
             'PENDING_VERIFICATION',
+            'VERIFIED',
             'APPROVED',
             'PAID',
             'OUTSTANDING',
             'OVERDUE',
+            'BELUM_LUNAS',
+            'LUNAS',
           ].includes(apStatus),
-          sentToFinanceAt: ap?.created_at || null,
+          sentToFinanceAt: ap?.created_at || ap?.invoice_date || null,
           createdAt:
             firstReceipt?.created_at ||
             po.po_release_date ||
@@ -578,21 +689,24 @@ export async function PATCH(request: Request) {
       ? String(target).replace(/^TWM-/, '')
       : String(target)
 
-    const [
-      poResult,
-      poDetailResult,
-      receiptResult,
-    ] = await Promise.all([
-      supabase
-        .from('tr_purchase_order')
-        .select('*')
-        .eq('po_id', poId)
-        .maybeSingle(),
+    const [poResult, poDetailResult, receiptResult, apResult] =
+      await Promise.all([
+        supabase
+          .from('tr_purchase_order')
+          .select('*')
+          .eq('po_id', poId)
+          .maybeSingle(),
 
-      supabase.from('tr_po_detail').select('*').eq('po_id', poId),
+        supabase.from('tr_po_detail').select('*').eq('po_id', poId),
 
-      supabase.from('tr_goods_receipt').select('*').eq('po_id', poId),
-    ])
+        supabase.from('tr_goods_receipt').select('*').eq('po_id', poId),
+
+        supabase
+          .from('tr_account_payable')
+          .select('*')
+          .eq('po_id', poId)
+          .maybeSingle(),
+      ])
 
     if (poResult.error) {
       return NextResponse.json(
@@ -614,11 +728,14 @@ export async function PATCH(request: Request) {
       )
     }
 
-    if (poDetailResult.error || receiptResult.error) {
+    if (poDetailResult.error || receiptResult.error || apResult.error) {
       return NextResponse.json(
         {
           message: 'Failed to fetch matching data',
-          error: poDetailResult.error?.message || receiptResult.error?.message,
+          error:
+            poDetailResult.error?.message ||
+            receiptResult.error?.message ||
+            apResult.error?.message,
         },
         { status: 500 }
       )
@@ -627,17 +744,20 @@ export async function PATCH(request: Request) {
     const po = poResult.data
     const poItems = poDetailResult.data || []
     const receipts = receiptResult.data || []
+    const existingAP = apResult.data || null
 
     const orderedQty = getPOOrderedQty(poItems)
     const receivedQty = getPOReceivedQty(poItems, receipts)
     const hasReceipt = receipts.length > 0 && receivedQty > 0
     const poSubtotal = getPOSubtotal(poItems)
     const poTotalValue = Number(po.total_value || poSubtotal || 0)
+    const existingAPAmount = getAPAmount(existingAP)
 
     if (!hasReceipt) {
       return NextResponse.json(
         {
-          message: 'Cannot send to Finance because Goods Receipt is not available yet',
+          message:
+            'Cannot send to Finance because Goods Receipt is not available yet',
           error: 'WAITING_GR',
         },
         { status: 400 }
@@ -655,29 +775,74 @@ export async function PATCH(request: Request) {
       )
     }
 
+    if (existingAP && Math.round(existingAPAmount) !== Math.round(poTotalValue)) {
+      return NextResponse.json(
+        {
+          message:
+            'Cannot send to Finance because supplier invoice amount does not match PO total',
+          error: 'PRICE_MISMATCH',
+        },
+        { status: 400 }
+      )
+    }
+
+    const firstReceipt = receipts[0]
+    const today = new Date()
+
+    const invoiceDate =
+      formatDateOnly(existingAP?.invoice_date) ||
+      formatDateOnly(today.toISOString()) ||
+      today.toISOString().slice(0, 10)
+
+    const dueDate =
+      formatDateOnly(existingAP?.due_date) ||
+      formatDateOnly(addDays(today, 30).toISOString()) ||
+      addDays(today, 30).toISOString().slice(0, 10)
+
+    const invoiceNo = createFinanceInvoiceNumber({
+      existingInvoiceNo: existingAP?.inv_supp_no,
+      poId,
+      receiptId: getReceiptId(firstReceipt),
+    })
+
+    const financeResponse = await sendToFinancePayable({
+      request,
+      po,
+      poId,
+      receipt: firstReceipt,
+      amount: existingAP ? existingAPAmount : poTotalValue,
+      invoiceNo,
+      invoiceDate,
+      dueDate,
+    })
+
     const accountPayable = await createOrUpdateAccountPayable({
       po,
       supplierId: po.supplier_id || null,
-      poTotal: poTotalValue,
+      poTotal: existingAP ? existingAPAmount : poTotalValue,
+      invoiceNo,
+      invoiceDate,
+      dueDate,
     })
 
     await createNotification({
-      title: 'Account Payable Pending Verification',
-      message: `PO ${poId} has passed purchasing verification and is waiting for Finance verification.`,
+      title: 'Account Payable Sent to Finance',
+      message: `PO ${poId} has passed three-way matching and has been sent to Finance Account Payable.`,
       recipientRole: 'FINANCE',
-      sourceRefId: accountPayable.ap_id,
+      sourceRefId: String(accountPayable.ap_id),
       sourceRefType: 'AP',
-      actionUrl: '/apps/purchasing/finance',
+      actionUrl: '/finance/account-payable',
       priority: 'HIGH',
     })
 
     return NextResponse.json({
-      message: 'Three-way matching sent to Finance successfully',
+      message: 'Three-way matching sent to Finance Account Payable successfully',
       data: {
         poId,
         matchingNo: `TWM-${poId}`,
         sentToFinance: true,
         accountPayable,
+        finance: financeResponse.result,
       },
     })
   } catch (error) {

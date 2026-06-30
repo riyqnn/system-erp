@@ -1,4 +1,3 @@
-import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -27,8 +26,8 @@ function normalizeStatus(value?: string | null) {
     return 'RELEASED'
   }
 
-  if (['REJECTED', 'CANCELLED'].includes(status)) {
-    return 'REJECTED'
+  if (['REVISION_REQUIRED', 'REJECTED', 'CANCELLED'].includes(status)) {
+    return 'REVISION_REQUIRED'
   }
 
   if (status === 'COMPLETED') return 'COMPLETED'
@@ -39,13 +38,135 @@ function normalizeStatus(value?: string | null) {
 function denormalizeStatus(value?: string | null) {
   const status = normalizeStatus(value)
 
-  if (status === 'PENDING_APPROVAL') return 'PENDING'
+  if (status === 'PENDING_APPROVAL') return 'PENDING_APPROVAL'
   if (status === 'RELEASED') return 'RELEASED'
   if (status === 'APPROVED') return 'APPROVED'
-  if (status === 'REJECTED') return 'REJECTED'
+  if (status === 'REVISION_REQUIRED') return 'REVISION_REQUIRED'
   if (status === 'COMPLETED') return 'COMPLETED'
 
-  return status || 'DRAFT'
+  return 'DRAFT'
+}
+
+function parseBudgetAmount(notes?: string | null) {
+  const text = String(notes || '')
+  const match = text.match(/\[BUDGET_AMOUNT:([^\]]+)\]/i)
+
+  if (!match?.[1]) return null
+
+  const rawValue = match[1].trim().replace(/[^\d.,-]/g, '')
+
+  if (!rawValue) return null
+
+  let normalizedValue = rawValue
+
+  if (rawValue.includes('.') && rawValue.includes(',')) {
+    const lastDotIndex = rawValue.lastIndexOf('.')
+    const lastCommaIndex = rawValue.lastIndexOf(',')
+
+    normalizedValue =
+      lastCommaIndex > lastDotIndex
+        ? rawValue.replace(/\./g, '').replace(',', '.')
+        : rawValue.replace(/,/g, '')
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(rawValue)) {
+    normalizedValue = rawValue.replace(/\./g, '')
+  } else if (/^\d{1,3}(,\d{3})+$/.test(rawValue)) {
+    normalizedValue = rawValue.replace(/,/g, '')
+  } else if (rawValue.includes(',')) {
+    normalizedValue = rawValue.replace(',', '.')
+  }
+
+  const budgetAmount = Number(normalizedValue)
+
+  return Number.isFinite(budgetAmount) ? budgetAmount : null
+}
+
+function getBudgetInfo(totalValue: number, notes?: string | null) {
+  const budgetAmount = parseBudgetAmount(notes)
+  const budgetVariance = budgetAmount === null ? null : totalValue - budgetAmount
+  const isOverBudget = budgetAmount === null ? false : totalValue > budgetAmount
+
+  return {
+    budgetAmount,
+    budgetVariance,
+    isOverBudget,
+    budgetStatus:
+      budgetAmount === null
+        ? 'NO_BUDGET'
+        : isOverBudget
+          ? 'OVER_BUDGET'
+          : 'WITHIN_BUDGET',
+  }
+}
+
+function normalizePatchAction(value?: string | null) {
+  const action = String(value || '')
+    .trim()
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .toUpperCase()
+
+  if (['APPROVE', 'APPROVE_OVER_BUDGET', 'OVER_BUDGET_APPROVE'].includes(action)) {
+    return 'APPROVE_OVER_BUDGET'
+  }
+
+  if (['REJECT', 'REJECT_OVER_BUDGET', 'OVER_BUDGET_REJECT'].includes(action)) {
+    return 'REJECT_OVER_BUDGET'
+  }
+
+  return action || null
+}
+
+async function createNotification({
+  title,
+  message,
+  referenceId,
+  recipientRole,
+}: {
+  title: string
+  message: string
+  referenceId: string
+  recipientRole: string
+}) {
+  const now = new Date().toISOString()
+
+  const payloads = [
+    {
+      title,
+      message,
+      type: 'PURCHASE_ORDER',
+      module: 'PURCHASING',
+      reference_id: referenceId,
+      reference_type: 'PURCHASE_ORDER',
+      recipient_role: recipientRole,
+      is_read: false,
+      created_at: now,
+    },
+    {
+      title,
+      message,
+      notification_type: 'PURCHASE_ORDER',
+      module: 'PURCHASING',
+      reference_id: referenceId,
+      recipient_role: recipientRole,
+      is_read: false,
+      created_at: now,
+    },
+    {
+      message: `${title}: ${message}`,
+      type: 'PURCHASE_ORDER',
+      reference_id: referenceId,
+      is_read: false,
+      created_at: now,
+    },
+  ]
+
+  for (const payload of payloads) {
+    const { error } = await supabase.from('notifications').insert(payload)
+
+    if (!error) return true
+  }
+
+  return false
 }
 
 export async function GET() {
@@ -107,14 +228,70 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch purchase orders',
-          error: error instanceof Error ? error.message : String(error),
+          error: errors[0]?.message,
         },
         { status: 500 }
       )
     }
 
-    const purchaseOrders = (data || []).map((item: AnyObject) => {
-      const items = item.purchasing_purchase_order_items || []
+    const purchaseOrders = poResult.data || []
+    const poDetails = poDetailResult.data || []
+    const purchaseRequisitions = prResult.data || []
+    const quotations = quotationResult.data || []
+    const suppliers = supplierResult.data || []
+    const products = productResult.data || []
+    const users = userResult.data || []
+
+    const prMap = new Map(purchaseRequisitions.map((pr: any) => [pr.pr_id, pr]))
+
+    const quotationMap = new Map(
+      quotations.map((quotation: any) => [quotation.quotation_id, quotation])
+    )
+
+    const supplierMap = new Map(
+      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
+    )
+
+    const productMap = new Map(
+      products.map((product: any) => [product.product_id, product])
+    )
+
+    const userMap = new Map(users.map((user: any) => [user.user_id, user]))
+
+    const detailsByPO = new Map<string, any[]>()
+
+    poDetails.forEach((detail: any) => {
+      const poId = String(detail.po_id || '')
+      const currentDetails = detailsByPO.get(poId) || []
+
+      currentDetails.push(detail)
+      detailsByPO.set(poId, currentDetails)
+    })
+
+    const data = purchaseOrders.map((po: any) => {
+      const pr = prMap.get(po.pr_id)
+      const quotation = quotationMap.get(po.quotation_id)
+      const supplier = supplierMap.get(po.supplier_id)
+      const approver = userMap.get(po.approved_by)
+      const requester = pr ? userMap.get(pr.requested_by) : null
+
+      const rawItems = detailsByPO.get(po.po_id) || []
+
+      const items = rawItems.map((item: any) => {
+        const product = productMap.get(item.product_id)
+
+        return {
+          id: String(item.po_detail_id),
+          productCode: product?.product_id || item.product_id || '-',
+          productName: product?.product_name || '-',
+          category: product?.category || '-',
+          qty: Number(item.qty_order || 0),
+          unit: product?.uom || '-',
+          unitPrice: Number(item.unit_price || 0),
+          subtotal: Number(item.subtotal || 0),
+        }
+      })
+
       const firstItem = items[0]
 
       const subtotal = items.reduce(
@@ -125,6 +302,10 @@ export async function GET() {
       const totalValue = Number(po.total_value || subtotal || 0)
       const taxAmount = Math.max(totalValue - subtotal, 0)
       const status = normalizeStatus(po.status)
+      const budgetInfo = getBudgetInfo(totalValue, pr?.notes)
+
+      const poNote = String(po.rejection_reason || '')
+      const isApprovalNote = poNote.toLowerCase().includes('approval')
 
       return {
         id: String(po.po_id),
@@ -140,37 +321,55 @@ export async function GET() {
         prNo: pr?.pr_id || po.pr_id || '-',
         quotationNo: quotation?.quotation_id || po.quotation_id || '-',
         requestedBy:
-          item.purchasing_purchase_requisitions?.requested_by_name || '-',
-        department: item.purchasing_purchase_requisitions?.department || '-',
-        subtotal: item.subtotal || 0,
-        taxAmount: item.tax_amount || 0,
-        totalValue: item.total_value || 0,
-        status: item.status,
-        approvalLevel: item.approval_level || '-',
-        approver: item.approved_by_name || '-',
-        approvedAt: item.approved_at,
-        approvalNotes: item.approval_notes || '-',
-        rejectionReason: item.rejection_reason || '-',
-        releasedAt: item.released_at,
-        createdBy: item.created_by_name || '-',
+          requester?.full_name || requester?.username || 'Inventory Staff',
+        department: requester?.role || 'Inventory',
 
-        productCode: firstItem?.products?.sku || '-',
-        productName: firstItem?.products?.name || '-',
-        category: firstItem?.products?.category || '-',
-        qty: firstItem?.qty || 0,
-        unit: firstItem?.unit || firstItem?.products?.unit || '-',
-        unitPrice: firstItem?.unit_price || 0,
+        subtotal,
+        taxAmount,
+        totalValue,
 
-        items: items.map((poItem: AnyObject) => ({
-          id: poItem.id,
-          productCode: poItem.products?.sku || '-',
-          productName: poItem.products?.name || '-',
-          category: poItem.products?.category || '-',
-          qty: poItem.qty || 0,
-          unit: poItem.unit || poItem.products?.unit || '-',
-          unitPrice: poItem.unit_price || 0,
-          subtotal: poItem.subtotal || 0,
-        })),
+        budgetAmount: budgetInfo.budgetAmount,
+        budgetVariance: budgetInfo.budgetVariance,
+        isOverBudget: budgetInfo.isOverBudget,
+        budgetStatus: budgetInfo.budgetStatus,
+        budget: {
+          amount: budgetInfo.budgetAmount,
+          variance: budgetInfo.budgetVariance,
+          isOverBudget: budgetInfo.isOverBudget,
+          status: budgetInfo.budgetStatus,
+        },
+
+        status,
+        approvalLevel: 'MANAGER_PURCHASING',
+        approver: approver?.full_name || approver?.username || '-',
+        approvedAt:
+          status === 'APPROVED' || status === 'RELEASED' || status === 'COMPLETED'
+            ? po.po_release_date || po.created_at
+            : null,
+        approvalNotes: isApprovalNote ? po.rejection_reason || '-' : '-',
+        rejectionReason: !isApprovalNote ? po.rejection_reason || '-' : '-',
+        releasedAt: po.po_release_date || null,
+        createdBy: 'Purchasing Staff',
+
+        productCode: firstItem?.productCode || quotation?.product_id || '-',
+        productName:
+          firstItem?.productName ||
+          productMap.get(quotation?.product_id)?.product_name ||
+          '-',
+        category:
+          firstItem?.category ||
+          productMap.get(quotation?.product_id)?.category ||
+          '-',
+        qty: firstItem?.qty || Number(quotation?.qty_requested || 0),
+        unit:
+          firstItem?.unit ||
+          productMap.get(quotation?.product_id)?.uom ||
+          '-',
+        unitPrice:
+          firstItem?.unitPrice ||
+          Number(quotation?.final_price || quotation?.accepted_price || 0),
+
+        items,
       }
     })
 
@@ -274,7 +473,7 @@ export async function POST(request: Request) {
     }
 
     const subtotal = items.reduce(
-      (total: number, item: AnyObject) =>
+      (total: number, item: any) =>
         total + Number(item.qty || 0) * Number(item.unitPrice || 0),
       0
     )
@@ -383,13 +582,27 @@ export async function POST(request: Request) {
     )
   }
 }
+
 export async function PATCH(request: Request) {
   try {
     const body = await request.json()
 
-    const { poNo, poId, status } = body
+    const {
+      poNo,
+      poId,
+      id,
+      status,
+      action,
+      approvalAction,
+      managerAction,
+      approvedBy,
+      managerId,
+      approvalNotes,
+      rejectionReason,
+      notes,
+    } = body
 
-    const targetPO = poId || poNo
+    const targetPO = poId || poNo || id
 
     if (!targetPO) {
       return NextResponse.json(
@@ -400,21 +613,113 @@ export async function PATCH(request: Request) {
       )
     }
 
-    if (!status) {
+    const { data: poData, error: poError } = await supabase
+      .from('tr_purchase_order')
+      .select(
+        'po_id, pr_id, supplier_id, quotation_id, approved_by, total_value, status, rejection_reason, created_at, po_release_date'
+      )
+      .eq('po_id', targetPO)
+      .maybeSingle()
+
+    if (poError || !poData) {
       return NextResponse.json(
         {
-          message: 'Status is required',
+          message: 'Purchase order not found',
+          error: poError?.message || `PO ${targetPO} does not exist`,
+        },
+        { status: 404 }
+      )
+    }
+
+    const { data: prData } = await supabase
+      .from('tr_purchase_requisition')
+      .select('pr_id, notes')
+      .eq('pr_id', poData.pr_id)
+      .maybeSingle()
+
+    const totalValue = Number(poData.total_value || 0)
+    const budgetInfo = getBudgetInfo(totalValue, prData?.notes)
+
+    let patchAction =
+      normalizePatchAction(action) ||
+      normalizePatchAction(approvalAction) ||
+      normalizePatchAction(managerAction)
+
+    const requestedStatus = status ? normalizeStatus(status) : null
+
+    if (!patchAction && requestedStatus === 'RELEASED') {
+      patchAction = 'APPROVE_OVER_BUDGET'
+    }
+
+    if (!patchAction && requestedStatus === 'REVISION_REQUIRED') {
+      patchAction = 'REJECT_OVER_BUDGET'
+    }
+
+    if (!patchAction && !requestedStatus) {
+      return NextResponse.json(
+        {
+          message: 'Action or status is required',
         },
         { status: 400 }
       )
     }
 
-    const updatePayload: Record<string, any> = {
-      status,
-    }
+    const now = new Date().toISOString()
+    const managerUserId = approvedBy || managerId || null
 
-    if (status === 'RELEASED') {
-      updatePayload.po_release_date = new Date().toISOString()
+    let updatePayload: Record<string, any> = {}
+    let responseMessage = 'Purchase order status updated successfully'
+    let shouldNotifyPurchasing = false
+
+    if (patchAction === 'APPROVE_OVER_BUDGET') {
+      updatePayload = {
+        status: 'RELEASED',
+        po_release_date: now,
+        rejection_reason:
+          approvalNotes ||
+          notes ||
+          `Over-budget approval completed. PO total is ${totalValue}. Approved budget is ${
+            budgetInfo.budgetAmount ?? 'not available'
+          }.`,
+      }
+
+      if (managerUserId) {
+        updatePayload.approved_by = managerUserId
+      }
+
+      responseMessage = 'Over-budget purchase order approved successfully'
+    } else if (patchAction === 'REJECT_OVER_BUDGET') {
+      updatePayload = {
+        status: 'REVISION_REQUIRED',
+        po_release_date: null,
+        rejection_reason:
+          rejectionReason ||
+          notes ||
+          `Over-budget purchase order rejected. PO total is ${totalValue}. Approved budget is ${
+            budgetInfo.budgetAmount ?? 'not available'
+          }. Please renegotiate or create a revised quotation.`,
+      }
+
+      if (managerUserId) {
+        updatePayload.approved_by = managerUserId
+      }
+
+      responseMessage = 'Over-budget purchase order rejected successfully'
+      shouldNotifyPurchasing = true
+    } else {
+      const nextStatus = denormalizeStatus(requestedStatus)
+
+      updatePayload = {
+        status: nextStatus,
+      }
+
+      if (nextStatus === 'RELEASED') {
+        updatePayload.po_release_date = now
+      }
+
+      if (rejectionReason || notes) {
+        updatePayload.rejection_reason = rejectionReason || notes
+      }
     }
 
     const { data, error } = await supabase
@@ -434,9 +739,24 @@ export async function PATCH(request: Request) {
       )
     }
 
+    if (shouldNotifyPurchasing) {
+      await createNotification({
+        title: 'PO Revision Required',
+        message: `PO ${targetPO} was rejected due to over-budget value. Please renegotiate or run RFQ again.`,
+        referenceId: String(targetPO),
+        recipientRole: 'PURCHASING',
+      })
+    }
+
     return NextResponse.json({
-      message: 'Purchase order status updated successfully',
-      data,
+      message: responseMessage,
+      data: {
+        ...data,
+        budgetAmount: budgetInfo.budgetAmount,
+        budgetVariance: budgetInfo.budgetVariance,
+        isOverBudget: budgetInfo.isOverBudget,
+        budgetStatus: budgetInfo.budgetStatus,
+      },
     })
   } catch (error) {
     return NextResponse.json(

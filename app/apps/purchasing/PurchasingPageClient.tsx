@@ -60,6 +60,8 @@ type DashboardData = {
   alerts: AlertItem[]
 }
 
+type PurchasingWorkspaceRole = 'PURCHASING' | 'MANAGER_PURCHASING'
+
 const emptySummary: DashboardSummary = {
   totalSuppliers: 0,
   totalPurchaseRequisitions: 0,
@@ -80,6 +82,9 @@ const poStatusClassMap: Record<string, string> = {
   'Pending Approval': 'bg-orange-500',
   Approved: 'bg-blue-500',
   Released: 'bg-green-500',
+  'Revision Required': 'bg-yellow-500',
+  Completed: 'bg-emerald-500',
+  Cancelled: 'bg-red-500',
 }
 
 function formatNumber(value: number) {
@@ -105,10 +110,24 @@ function getSafeKey(...values: Array<string | number | null | undefined>) {
     .join('-')
 }
 
-export function PurchasingPageClient() {
+function getWorkspaceLabel(role: PurchasingWorkspaceRole) {
+  if (role === 'MANAGER_PURCHASING') return 'Manager Purchasing'
+
+  return 'Purchasing Staff'
+}
+
+export function PurchasingPageClient({
+  workspaceRole = 'PURCHASING',
+}: {
+  workspaceRole?: PurchasingWorkspaceRole
+}) {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
+
+  useEffect(() => {
+    localStorage.setItem('erp_role', workspaceRole)
+  }, [workspaceRole])
 
   const fetchDashboard = async () => {
     try {
@@ -158,7 +177,10 @@ export function PurchasingPageClient() {
         href: '/apps/purchasing/purchase-requisition',
         icon: ClipboardText,
         count: summary.totalPurchaseRequisitions,
-        description: 'Purchase requests',
+        description:
+          workspaceRole === 'MANAGER_PURCHASING'
+            ? 'Review PR and input approved budget'
+            : 'View approved PR for purchasing process',
         trend: 'Live data',
         chartData: [1, 2, 3, 5, 7, summary.totalPurchaseRequisitions],
       },
@@ -185,7 +207,10 @@ export function PurchasingPageClient() {
         href: '/apps/purchasing/purchase-orders',
         icon: ShoppingCart,
         count: summary.totalPurchaseOrders,
-        description: 'Purchase orders',
+        description:
+          workspaceRole === 'MANAGER_PURCHASING'
+            ? 'Review over-budget PO approval'
+            : 'Monitor and process purchase orders',
         trend: 'Live data',
         chartData: [1, 2, 4, 5, 6, summary.totalPurchaseOrders],
       },
@@ -217,7 +242,7 @@ export function PurchasingPageClient() {
         chartData: [1, 1, 2, 2, 3, summary.totalThreeWayMatchings],
       },
     ],
-    [summary]
+    [summary, workspaceRole]
   )
 
   const totalPOStatus = poStatusOverview.reduce(
@@ -244,6 +269,20 @@ export function PurchasingPageClient() {
           title="Purchasing Dashboard"
           description="Monitor purchasing activities, supplier readiness, purchase orders, delivery status, and document matching."
         />
+
+        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-slate-600">
+          Current workspace:{' '}
+          <span className="font-semibold text-slate-900">
+            {getWorkspaceLabel(workspaceRole)}
+          </span>
+          . Need to switch role?{' '}
+          <Link
+            href="/apps/purchasing/role-selector"
+            className="font-semibold text-red-600 hover:underline"
+          >
+            Open Role Selector
+          </Link>
+        </div>
 
         {errorMessage && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -310,31 +349,37 @@ export function PurchasingPageClient() {
                 </p>
 
                 <div className="mt-6 space-y-4">
-                  {poStatusOverview.map((item, index) => {
-                    const percentage = getPercentage(item.value, totalPOStatus)
+                  {poStatusOverview.length > 0 ? (
+                    poStatusOverview.map((item, index) => {
+                      const percentage = getPercentage(item.value, totalPOStatus)
 
-                    return (
-                      <div key={getSafeKey('po-status', item.label, index)}>
-                        <div className="mb-2 flex items-center justify-between text-sm">
-                          <span className="font-medium text-slate-700">
-                            {item.label || '-'}
-                          </span>
-                          <span className="font-semibold text-slate-900">
-                            {item.value} PO
-                          </span>
-                        </div>
+                      return (
+                        <div key={getSafeKey('po-status', item.label, index)}>
+                          <div className="mb-2 flex items-center justify-between text-sm">
+                            <span className="font-medium text-slate-700">
+                              {item.label || '-'}
+                            </span>
+                            <span className="font-semibold text-slate-900">
+                              {item.value} PO
+                            </span>
+                          </div>
 
-                        <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className={`h-full rounded-full ${
-                              poStatusClassMap[item.label] || 'bg-red-600'
-                            }`}
-                            style={{ width: `${percentage}%` }}
-                          />
+                          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className={`h-full rounded-full ${
+                                poStatusClassMap[item.label] || 'bg-red-600'
+                              }`}
+                              style={{ width: `${percentage}%` }}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })
+                  ) : (
+                    <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+                      No purchase order status data available.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -349,32 +394,40 @@ export function PurchasingPageClient() {
                 </p>
 
                 <div className="mt-6 space-y-5">
-                  {supplierStatusOverview.map((item, index) => {
-                    const percentage = getPercentage(
-                      item.value,
-                      totalSupplierStatus
-                    )
+                  {supplierStatusOverview.length > 0 ? (
+                    supplierStatusOverview.map((item, index) => {
+                      const percentage = getPercentage(
+                        item.value,
+                        totalSupplierStatus
+                      )
 
-                    return (
-                      <div key={getSafeKey('supplier-status', item.label, index)}>
-                        <div className="mb-2 flex items-center justify-between text-sm">
-                          <span className="font-medium text-slate-700">
-                            {item.label || '-'}
-                          </span>
-                          <span className="font-semibold text-slate-900">
-                            {item.value} suppliers
-                          </span>
-                        </div>
+                      return (
+                        <div
+                          key={getSafeKey('supplier-status', item.label, index)}
+                        >
+                          <div className="mb-2 flex items-center justify-between text-sm">
+                            <span className="font-medium text-slate-700">
+                              {item.label || '-'}
+                            </span>
+                            <span className="font-semibold text-slate-900">
+                              {item.value} suppliers
+                            </span>
+                          </div>
 
-                        <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className="h-full rounded-full bg-red-600"
-                            style={{ width: `${percentage}%` }}
-                          />
+                          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-red-600"
+                              style={{ width: `${percentage}%` }}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })
+                  ) : (
+                    <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+                      No supplier status data available.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -395,35 +448,41 @@ export function PurchasingPageClient() {
                 </div>
 
                 <div className="space-y-3">
-                  {alerts.map((alert, index) => {
-                    const AlertIcon =
-                      alert.value > 0 ? WarningCircle : CheckCircle
+                  {alerts.length > 0 ? (
+                    alerts.map((alert, index) => {
+                      const AlertIcon =
+                        alert.value > 0 ? WarningCircle : CheckCircle
 
-                    return (
-                      <div
-                        key={getSafeKey(
-                          'alert',
-                          alert.title,
-                          alert.description,
-                          index
-                        )}
-                        className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4"
-                      >
-                        <div className="rounded-lg bg-white p-2 text-red-600">
-                          <AlertIcon size={20} weight="bold" />
-                        </div>
+                      return (
+                        <div
+                          key={getSafeKey(
+                            'alert',
+                            alert.title,
+                            alert.description,
+                            index
+                          )}
+                          className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4"
+                        >
+                          <div className="rounded-lg bg-white p-2 text-red-600">
+                            <AlertIcon size={20} weight="bold" />
+                          </div>
 
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">
-                            {alert.value} {alert.title}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {alert.description}
-                          </p>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">
+                              {alert.value} {alert.title}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {alert.description}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })
+                  ) : (
+                    <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+                      No purchasing alerts available.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
