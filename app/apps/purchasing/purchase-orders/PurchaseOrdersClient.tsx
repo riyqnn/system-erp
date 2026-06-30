@@ -22,6 +22,7 @@ type POStatus =
   | 'REVISION_REQUIRED'
   | 'APPROVED'
   | 'RELEASED'
+  | 'COMPLETED'
   | 'REJECTED'
   | 'CANCELLED'
   | string
@@ -36,6 +37,8 @@ type PurchaseOrderItem = {
   unitPrice: number
   subtotal: number
 }
+
+type BudgetStatus = 'NO_BUDGET' | 'WITHIN_BUDGET' | 'OVER_BUDGET' | string
 
 type PurchaseOrder = {
   id: string
@@ -52,6 +55,10 @@ type PurchaseOrder = {
   subtotal: number
   taxAmount: number
   totalValue: number
+  budgetAmount?: number | null
+  budgetVariance?: number | null
+  isOverBudget?: boolean
+  budgetStatus?: BudgetStatus
   status: POStatus
   approvalLevel: string
   approver: string
@@ -71,8 +78,16 @@ type PurchaseOrder = {
 
 type UserRole = 'PURCHASING' | 'MANAGER_PURCHASING' | 'DIRECTOR'
 
-function formatCurrency(value: number) {
-  return `Rp ${new Intl.NumberFormat('id-ID').format(value || 0)}`
+function formatCurrency(value?: number | null) {
+  const numericValue = Number(value || 0)
+
+  return `Rp ${new Intl.NumberFormat('id-ID').format(numericValue)}`
+}
+
+function formatOptionalCurrency(value?: number | null) {
+  if (value === null || value === undefined) return '-'
+
+  return formatCurrency(value)
 }
 
 function formatDate(value?: string | null) {
@@ -96,6 +111,7 @@ function formatStatus(status: POStatus) {
     REVISION_REQUIRED: 'Revision Required',
     APPROVED: 'Approved',
     RELEASED: 'Released',
+    COMPLETED: 'Completed',
     REJECTED: 'Rejected',
     CANCELLED: 'Cancelled',
   }
@@ -110,6 +126,7 @@ function getStatusClass(status: POStatus) {
     REVISION_REQUIRED: 'bg-yellow-100 text-yellow-700',
     APPROVED: 'bg-green-100 text-green-700',
     RELEASED: 'bg-blue-100 text-blue-700',
+    COMPLETED: 'bg-emerald-100 text-emerald-700',
     REJECTED: 'bg-red-100 text-red-700',
     CANCELLED: 'bg-red-100 text-red-700',
   }
@@ -117,10 +134,34 @@ function getStatusClass(status: POStatus) {
   return statusClassMap[status] || 'bg-slate-100 text-slate-600'
 }
 
+function formatBudgetStatus(status?: BudgetStatus | null) {
+  const statusMap: Record<string, string> = {
+    NO_BUDGET: 'No Budget',
+    WITHIN_BUDGET: 'Within Budget',
+    OVER_BUDGET: 'Over Budget',
+  }
+
+  return statusMap[String(status || 'NO_BUDGET')] || String(status || 'No Budget')
+}
+
+function getBudgetStatusClass(status?: BudgetStatus | null) {
+  const statusClassMap: Record<string, string> = {
+    NO_BUDGET: 'bg-slate-100 text-slate-600',
+    WITHIN_BUDGET: 'bg-green-100 text-green-700',
+    OVER_BUDGET: 'bg-orange-100 text-orange-700',
+  }
+
+  return statusClassMap[String(status || 'NO_BUDGET')] || 'bg-slate-100 text-slate-600'
+}
+
 function getItemSummary(items: PurchaseOrderItem[]) {
   if (!items || items.length === 0) return '-'
 
   return items.map((item) => item.productName).join(', ')
+}
+
+function isPendingOverBudgetApproval(order: PurchaseOrder) {
+  return order.status === 'PENDING_APPROVAL' && Boolean(order.isOverBudget)
 }
 
 export function PurchaseOrdersClient() {
@@ -133,12 +174,22 @@ export function PurchaseOrdersClient() {
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
-  const [releasingPOId, setReleasingPOId] = useState<string | null>(null)
+  const [processingPOId, setProcessingPOId] = useState<string | null>(null)
 
-  // Simulasi role sementara.
-  // Kalau mau tombol approve/reject muncul, pakai MANAGER_PURCHASING.
-  // Kalau mau mode staff biasa, ganti ke PURCHASING.
-  const [currentUserRole] = useState<UserRole>('MANAGER_PURCHASING')
+  const [currentUserRole, setCurrentUserRole] =
+    useState<UserRole>('PURCHASING')
+
+  useEffect(() => {
+    const savedRole = localStorage.getItem('erp_role') as UserRole | null
+
+    if (
+      savedRole === 'PURCHASING' ||
+      savedRole === 'MANAGER_PURCHASING' ||
+      savedRole === 'DIRECTOR'
+    ) {
+      setCurrentUserRole(savedRole)
+    }
+  }, [])
 
   const canApprovePO = currentUserRole === 'MANAGER_PURCHASING'
 
@@ -147,7 +198,9 @@ export function PurchaseOrdersClient() {
       setIsLoading(true)
       setErrorMessage('')
 
-      const response = await fetch('/api/purchasing/purchase-orders')
+      const response = await fetch('/api/purchasing/purchase-orders', {
+        cache: 'no-store',
+      })
       const result = await response.json()
 
       if (!response.ok) {
@@ -197,68 +250,111 @@ export function PurchaseOrdersClient() {
     (order) => order.status === 'PENDING_APPROVAL'
   ).length
 
+  const overBudgetApprovalCount = purchaseOrders.filter((order) =>
+    isPendingOverBudgetApproval(order)
+  ).length
+
   const releasedCount = purchaseOrders.filter(
     (order) => order.status === 'RELEASED'
   ).length
 
-  const handleApprovePO = () => {
-    if (!selectedPO) return
+  const handleApproveOverBudgetPO = async (order: PurchaseOrder) => {
+    const confirmed = window.confirm('Approve this over-budget purchase order?')
 
-    setPurchaseOrders((currentOrders) =>
-      currentOrders.map((order) =>
-        order.id === selectedPO.id
-          ? {
-              ...order,
-              status: 'APPROVED',
-              approver: 'Manager Purchasing',
-              approvalNotes: 'Approved by Manager Purchasing.',
-            }
-          : order
+    if (!confirmed) return
+
+    try {
+      setErrorMessage('')
+      setProcessingPOId(order.id)
+
+      const response = await fetch('/api/purchasing/purchase-orders', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          poId: order.id,
+          action: 'APPROVE_OVER_BUDGET',
+          approvalNotes: 'Over-budget approved by Manager Purchasing.',
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error || result?.message || 'Failed to approve purchase order'
+        )
+      }
+
+      window.alert('Purchase order approved successfully')
+      setSelectedPO(null)
+      await fetchPurchaseOrders()
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Failed to approve purchase order'
       )
-    )
-
-    setSelectedPO((currentPO) =>
-      currentPO
-        ? {
-            ...currentPO,
-            status: 'APPROVED',
-            approver: 'Manager Purchasing',
-            approvalNotes: 'Approved by Manager Purchasing.',
-          }
-        : currentPO
-    )
+    } finally {
+      setProcessingPOId(null)
+    }
   }
 
-  const handleRejectPO = () => {
-    if (!selectedPO) return
+  const handleRejectOverBudgetPO = async (order: PurchaseOrder) => {
+    const revisionReason = window.prompt('Enter revision reason')
 
-    setPurchaseOrders((currentOrders) =>
-      currentOrders.map((order) =>
-        order.id === selectedPO.id
-          ? {
-              ...order,
-              status: 'REVISION_REQUIRED',
-              rejectionReason: 'Revision required by Manager Purchasing.',
-            }
-          : order
+    if (revisionReason === null) return
+
+    const cleanReason = revisionReason.trim()
+
+    if (!cleanReason) {
+      setErrorMessage('Revision reason is required')
+      return
+    }
+
+    try {
+      setErrorMessage('')
+      setProcessingPOId(order.id)
+
+      const response = await fetch('/api/purchasing/purchase-orders', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          poId: order.id,
+          action: 'REJECT_OVER_BUDGET',
+          rejectionReason: cleanReason,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error || result?.message || 'Failed to reject purchase order'
+        )
+      }
+
+      window.alert('Purchase order rejected successfully')
+      setSelectedPO(null)
+      await fetchPurchaseOrders()
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Failed to reject purchase order'
       )
-    )
-
-    setSelectedPO((currentPO) =>
-      currentPO
-        ? {
-            ...currentPO,
-            status: 'REVISION_REQUIRED',
-            rejectionReason: 'Revision required by Manager Purchasing.',
-          }
-        : currentPO
-    )
+    } finally {
+      setProcessingPOId(null)
+    }
   }
 
   const handleReleasePO = async (order: PurchaseOrder) => {
     try {
       setErrorMessage('')
-      setReleasingPOId(order.id)
+      setProcessingPOId(order.id)
 
       const response = await fetch('/api/purchasing/purchase-orders', {
         method: 'PATCH',
@@ -277,29 +373,9 @@ export function PurchaseOrdersClient() {
         throw new Error(result?.error || result?.message || 'Failed to release PO')
       }
 
-      setPurchaseOrders((currentOrders) =>
-        currentOrders.map((currentOrder) =>
-          currentOrder.id === order.id
-            ? {
-                ...currentOrder,
-                status: 'RELEASED',
-                releasedAt: new Date().toISOString(),
-              }
-            : currentOrder
-        )
-      )
-
-      if (selectedPO?.id === order.id) {
-        setSelectedPO((currentPO) =>
-          currentPO
-            ? {
-                ...currentPO,
-                status: 'RELEASED',
-                releasedAt: new Date().toISOString(),
-              }
-            : currentPO
-        )
-      }
+      window.alert('Purchase order released successfully')
+      setSelectedPO(null)
+      await fetchPurchaseOrders()
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -307,7 +383,7 @@ export function PurchaseOrdersClient() {
           : 'Failed to release purchase order'
       )
     } finally {
-      setReleasingPOId(null)
+      setProcessingPOId(null)
     }
   }
 
@@ -370,7 +446,12 @@ export function PurchaseOrdersClient() {
                 <h3 className="mt-2 text-4xl font-bold text-slate-900">
                   {pendingApprovalCount}
                 </h3>
-                <p className="mt-1 text-xs text-slate-400">Pending approval</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Pending approval
+                  {overBudgetApprovalCount > 0
+                    ? `, ${overBudgetApprovalCount} over budget`
+                    : ''}
+                </p>
               </div>
 
               <div className="rounded-xl bg-orange-50 p-3">
@@ -429,6 +510,7 @@ export function PurchaseOrdersClient() {
                 <option>Revision Required</option>
                 <option>Approved</option>
                 <option>Released</option>
+                <option>Completed</option>
                 <option>Rejected</option>
                 <option>Cancelled</option>
               </select>
@@ -462,7 +544,7 @@ export function PurchaseOrdersClient() {
 
           <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[950px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-semibold">PO No</th>
@@ -470,6 +552,7 @@ export function PurchaseOrdersClient() {
                     <th className="px-4 py-3 font-semibold">Supplier</th>
                     <th className="px-4 py-3 font-semibold">Item</th>
                     <th className="px-4 py-3 font-semibold">Total Value</th>
+                    <th className="px-4 py-3 font-semibold">Budget</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
                     <th className="px-4 py-3 font-semibold">Approver</th>
                     <th className="px-4 py-3 text-right font-semibold">
@@ -482,7 +565,7 @@ export function PurchaseOrdersClient() {
                   {isLoading ? (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={9}
                         className="px-4 py-8 text-center text-sm text-slate-500"
                       >
                         Loading purchase order data...
@@ -509,6 +592,24 @@ export function PurchaseOrdersClient() {
 
                         <td className="px-4 py-4 font-semibold text-slate-900">
                           {formatCurrency(order.totalValue)}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <div className="space-y-1">
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-semibold ${getBudgetStatusClass(
+                                order.budgetStatus
+                              )}`}
+                            >
+                              {formatBudgetStatus(order.budgetStatus)}
+                            </span>
+
+                            {order.isOverBudget && (
+                              <p className="text-xs font-medium text-orange-600">
+                                Over by {formatCurrency(order.budgetVariance)}
+                              </p>
+                            )}
+                          </div>
                         </td>
 
                         <td className="px-4 py-4">
@@ -551,7 +652,7 @@ export function PurchaseOrdersClient() {
                               <button
                                 type="button"
                                 onClick={() => handleReleasePO(order)}
-                                disabled={releasingPOId === order.id}
+                                disabled={processingPOId === order.id}
                                 className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                                 title="Send PO to Supplier"
                               >
@@ -567,7 +668,7 @@ export function PurchaseOrdersClient() {
                   {!isLoading && filteredOrders.length === 0 && (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={9}
                         className="px-4 py-8 text-center text-sm text-slate-500"
                       >
                         No purchase order data found.
@@ -629,8 +730,8 @@ export function PurchaseOrdersClient() {
           <div className="rounded-xl bg-slate-900 p-5 text-white shadow-sm">
             <h3 className="font-semibold">Smart Insight</h3>
             <p className="mt-2 text-sm text-slate-300">
-              Prioritize PO with pending approval status and monitor approved PO
-              before sending to supplier.
+              Prioritize over-budget PO that requires manager approval before
+              sending it to supplier.
             </p>
 
             <button className="mt-6 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-slate-100">
@@ -657,6 +758,14 @@ export function PurchaseOrdersClient() {
                   >
                     {formatStatus(selectedPO.status)}
                   </span>
+
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${getBudgetStatusClass(
+                      selectedPO.budgetStatus
+                    )}`}
+                  >
+                    {formatBudgetStatus(selectedPO.budgetStatus)}
+                  </span>
                 </div>
 
                 <p className="mt-1 text-sm text-slate-500">
@@ -674,6 +783,13 @@ export function PurchaseOrdersClient() {
             </div>
 
             <div className="max-h-[75vh] overflow-y-auto px-6 py-5">
+              {isPendingOverBudgetApproval(selectedPO) && (
+                <div className="mb-5 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-700">
+                  This purchase order exceeds the approved PR budget and
+                  requires manager approval.
+                </div>
+              )}
+
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div className="rounded-xl border border-red-100 bg-red-50 p-4">
                   <p className="text-xs font-semibold uppercase text-slate-500">
@@ -700,6 +816,45 @@ export function PurchaseOrdersClient() {
                   <p className="mt-1 text-sm font-bold text-slate-900">
                     {formatCurrency(selectedPO.totalValue)}
                   </p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    PR Budget
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">
+                    {formatOptionalCurrency(selectedPO.budgetAmount)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    Budget Variance
+                  </p>
+                  <p
+                    className={`mt-1 text-sm font-bold ${
+                      selectedPO.isOverBudget
+                        ? 'text-orange-700'
+                        : 'text-green-700'
+                    }`}
+                  >
+                    {formatOptionalCurrency(selectedPO.budgetVariance)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    Budget Status
+                  </p>
+                  <span
+                    className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getBudgetStatusClass(
+                      selectedPO.budgetStatus
+                    )}`}
+                  >
+                    {formatBudgetStatus(selectedPO.budgetStatus)}
+                  </span>
                 </div>
               </div>
 
@@ -751,9 +906,15 @@ export function PurchaseOrdersClient() {
                     </p>
                     <p>
                       <span className="font-medium text-slate-700">
-                        Notes:
+                        Approval Notes:
                       </span>{' '}
                       {selectedPO.approvalNotes || '-'}
+                    </p>
+                    <p>
+                      <span className="font-medium text-slate-700">
+                        Revision Reason:
+                      </span>{' '}
+                      {selectedPO.rejectionReason || '-'}
                     </p>
                   </div>
                 </div>
@@ -825,7 +986,7 @@ export function PurchaseOrdersClient() {
                 <button
                   type="button"
                   onClick={() => handleReleasePO(selectedPO)}
-                  disabled={releasingPOId === selectedPO.id}
+                  disabled={processingPOId === selectedPO.id}
                   className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <PaperPlaneTilt size={16} weight="bold" />
@@ -833,23 +994,25 @@ export function PurchaseOrdersClient() {
                 </button>
               )}
 
-              {selectedPO.status === 'PENDING_APPROVAL' && canApprovePO && (
+              {isPendingOverBudgetApproval(selectedPO) && canApprovePO && (
                 <>
                   <button
                     type="button"
-                    onClick={handleRejectPO}
-                    className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                    onClick={() => handleRejectOverBudgetPO(selectedPO)}
+                    disabled={processingPOId === selectedPO.id}
+                    className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Request Revision
+                    Reject and Request Revision
                   </button>
 
                   <button
                     type="button"
-                    onClick={handleApprovePO}
-                    className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700"
+                    onClick={() => handleApproveOverBudgetPO(selectedPO)}
+                    disabled={processingPOId === selectedPO.id}
+                    className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <CheckCircle size={16} />
-                    Approve PO
+                    Approve Over-Budget PO
                   </button>
                 </>
               )}
