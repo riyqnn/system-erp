@@ -1,10 +1,10 @@
-import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables')
@@ -31,11 +31,6 @@ function createAPNumber() {
   const random = String(Math.floor(Math.random() * 999)).padStart(3, '0')
 
   return `AP-${year}${month}-${timestamp}${random}`
-}
-
-function createInvoiceNumber(poId: string) {
-  const cleanPo = String(poId || '').replace(/[^a-zA-Z0-9]/g, '')
-  return `INV-${cleanPo}-${String(Date.now()).slice(-5)}`
 }
 
 function createFinanceInvoiceNumber({
@@ -82,12 +77,47 @@ function addDays(date: Date, days: number) {
   return next
 }
 
+function getNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value)
+
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+function getString(value: unknown, fallback = '') {
+  if (value === null || value === undefined) return fallback
+
+  const parsed = String(value).trim()
+
+  return parsed || fallback
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message?: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message
+  }
+
+  return String(error || 'Unknown error')
+}
+
 function getReceiptId(receipt: any) {
   return receipt?.receipt_id || '-'
 }
 
 function getReceivedQty(receipt: any) {
-  return Number(receipt?.quantity || 0)
+  const status = normalizeStatus(receipt?.status)
+  const quantity = getNumber(receipt?.quantity || receipt?.received_qty, 0)
+  const rejectQty = getNumber(receipt?.reject_qty, 0)
+
+  if (status === 'REJECTED') return 0
+
+  return Math.max(quantity - rejectQty, 0)
 }
 
 function getReceiptProductId(receipt: any) {
@@ -103,7 +133,7 @@ function getAPStatus(ap: any) {
 }
 
 function getAPAmount(ap: any) {
-  return Number(ap?.ap_amount || 0)
+  return getNumber(ap?.ap_amount, 0)
 }
 
 function getAPDate(ap: any) {
@@ -115,15 +145,15 @@ function getDueDate(ap: any) {
 }
 
 function getPOQty(poItem: any) {
-  return Number(poItem?.qty_order || 0)
+  return getNumber(poItem?.qty_order || poItem?.ordered_qty || poItem?.quantity, 0)
 }
 
 function getUnitPrice(poItem: any) {
-  return Number(poItem?.unit_price || 0)
+  return getNumber(poItem?.unit_price, 0)
 }
 
 function getSubtotal(poItem: any) {
-  const subtotal = Number(poItem?.subtotal || 0)
+  const subtotal = getNumber(poItem?.subtotal, 0)
 
   if (subtotal > 0) return subtotal
 
@@ -134,19 +164,24 @@ function getPOSubtotal(poItems: any[]) {
   return poItems.reduce((total, item) => total + getSubtotal(item), 0)
 }
 
-function getPOReceivedQty(poItems: any[], receipts: any[]) {
-  return poItems.reduce((total, item) => {
-    const receipt = receipts.find(
-      (row: any) =>
-        String(getReceiptProductId(row) || '') === String(item.product_id || '')
-    )
-
-    return total + getReceivedQty(receipt)
-  }, 0)
-}
-
 function getPOOrderedQty(poItems: any[]) {
   return poItems.reduce((total, item) => total + getPOQty(item), 0)
+}
+
+function getPOReceivedQty(poItems: any[], receipts: any[]) {
+  return poItems.reduce((total, item) => {
+    const matchingReceipts = receipts.filter((row: any) => {
+      return (
+        String(getReceiptProductId(row) || '') === String(item.product_id || '')
+      )
+    })
+
+    const itemReceivedQty = matchingReceipts.reduce((subtotal, receipt) => {
+      return subtotal + getReceivedQty(receipt)
+    }, 0)
+
+    return total + itemReceivedQty
+  }, 0)
 }
 
 function normalizeFinanceSupplierId(value?: string | number | null) {
@@ -313,7 +348,7 @@ async function createOrUpdateAccountPayable({
       .update({
         supplier_id: supplierId,
         inv_supp_no: existingAP.inv_supp_no || invoiceNo,
-        ap_amount: Number(existingAP.ap_amount || poTotal || 0),
+        ap_amount: getNumber(existingAP.ap_amount || poTotal, 0),
         ap_status: 'PENDING_VERIFICATION',
         invoice_date: existingAP.invoice_date || invoiceDate,
         due_date: existingAP.due_date || dueDate,
@@ -447,19 +482,26 @@ export async function GET() {
     ].filter(Boolean)
 
     if (errors.length > 0) {
+      const firstError = errors[0]
+
       return NextResponse.json(
         {
           message: 'Failed to fetch three-way matchings',
-          error: error instanceof Error ? error.message : String(error),
+          error:
+            firstError && 'message' in firstError
+              ? String(firstError.message)
+              : 'Unknown database error',
         },
         { status: 500 }
       )
     }
 
-    const matchings = (data || []).map((item: AnyObject) => {
-      const po = item.purchasing_purchase_orders
-      const gr = item.purchasing_goods_receipts
-      const invoice = item.purchasing_supplier_invoices
+    const purchaseOrders = poResult.data || []
+    const poDetails = poDetailResult.data || []
+    const suppliers = supplierResult.data || []
+    const products = productResult.data || []
+    const receipts = receiptResult.data || []
+    const accountPayables = apResult.data || []
 
     const supplierMap = new Map(
       suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
@@ -469,80 +511,31 @@ export async function GET() {
       products.map((product: any) => [product.product_id, product])
     )
 
-      return {
-        id: item.id,
-        matchingNo: item.matching_number,
-        matchStatus: item.match_status,
-        sentToFinance: item.sent_to_finance,
-        sentToFinanceAt: item.sent_to_finance_at,
-        createdAt: item.created_at,
+    const detailsByPO = new Map<string, any[]>()
+    const receiptsByPO = new Map<string, any[]>()
+    const apByPO = new Map<string, any>()
 
-        poNo: po?.po_number || '-',
-        poDate: po?.po_date || null,
-        poStatus: po?.status || '-',
-        poSubtotal: po?.subtotal || 0,
-        poTaxAmount: po?.tax_amount || 0,
-        poTotalValue: po?.total_value || 0,
+    poDetails.forEach((detail: any) => {
+      const poId = String(detail.po_id || '')
+      const currentDetails = detailsByPO.get(poId) || []
 
-        grNo: gr?.gr_number || '-',
-        receiptDate: gr?.receipt_date || null,
-        grStatus: gr?.status || '-',
+      currentDetails.push(detail)
+      detailsByPO.set(poId, currentDetails)
+    })
 
-        invoiceNo: invoice?.invoice_number || '-',
-        invoiceDate: invoice?.invoice_date || null,
-        dueDate: invoice?.due_date || null,
-        invoiceSubtotal: invoice?.subtotal || 0,
-        invoiceTaxAmount: invoice?.tax_amount || 0,
-        invoiceGrandTotal: invoice?.grand_total || 0,
-        paymentStatus: invoice?.payment_status || '-',
+    receipts.forEach((receipt: any) => {
+      const poId = String(receipt.po_id || '')
+      const currentReceipts = receiptsByPO.get(poId) || []
 
-        supplierId: po?.ms_suppliers?.supplier_code || '-',
-        supplierName: po?.ms_suppliers?.supplier_name || '-',
-        supplierContact: po?.ms_suppliers?.contact || '-',
-        supplierAddress: po?.ms_suppliers?.address || '-',
+      currentReceipts.push(receipt)
+      receiptsByPO.set(poId, currentReceipts)
+    })
 
-        productCode:
-          firstPoItem?.products?.sku || firstGrItem?.products?.sku || '-',
-        productName:
-          firstPoItem?.products?.name || firstGrItem?.products?.name || '-',
-        category:
-          firstPoItem?.products?.category ||
-          firstGrItem?.products?.category ||
-          '-',
+    accountPayables.forEach((ap: any) => {
+      const poId = String(ap.po_id || '')
 
-        poQty: firstPoItem?.qty || 0,
-        grReceivedQty: firstGrItem?.received_qty || 0,
-        unit: firstPoItem?.unit || firstGrItem?.unit || '-',
-        unitPrice: firstPoItem?.unit_price || 0,
-
-        poItems: poItems.map((poItem: AnyObject) => ({
-          id: poItem.id,
-          productCode: poItem.products?.sku || '-',
-          productName: poItem.products?.name || '-',
-          category: poItem.products?.category || '-',
-          qty: poItem.qty || 0,
-          unit: poItem.unit || poItem.products?.unit || '-',
-          unitPrice: poItem.unit_price || 0,
-          subtotal: poItem.subtotal || 0,
-        })),
-
-        grItems: grItems.map((grItem: AnyObject) => ({
-          id: grItem.id,
-          productCode: grItem.products?.sku || '-',
-          productName: grItem.products?.name || '-',
-          category: grItem.products?.category || '-',
-          orderedQty: grItem.ordered_qty || 0,
-          receivedQty: grItem.received_qty || 0,
-          unit: grItem.unit || grItem.products?.unit || '-',
-          condition: grItem.condition || '-',
-        })),
-
-        results: matchingResults.map((result: AnyObject) => ({
-          id: result.id,
-          checkItem: result.check_item,
-          checkResult: result.check_result,
-          detail: result.detail || '-',
-        })),
+      if (!apByPO.has(poId)) {
+        apByPO.set(poId, ap)
       }
     })
 
@@ -558,8 +551,8 @@ export async function GET() {
         const poItems = detailsByPO.get(poId) || []
         const receiptRows = receiptsByPO.get(poId) || []
         const ap = apByPO.get(poId)
-        const firstPoItem = poItems[0]
-        const firstReceipt = receiptRows[0]
+        const firstPoItem = poItems[0] || null
+        const firstReceipt = receiptRows[0] || null
         const product = productMap.get(firstPoItem?.product_id)
 
         const orderedQty = getPOOrderedQty(poItems)
@@ -568,7 +561,7 @@ export async function GET() {
         const hasAP = Boolean(ap)
 
         const poSubtotal = getPOSubtotal(poItems)
-        const poTotalValue = Number(po.total_value || poSubtotal || 0)
+        const poTotalValue = getNumber(po.total_value || poSubtotal, 0)
         const poTaxAmount = Math.max(poTotalValue - poSubtotal, 0)
         const apAmount = getAPAmount(ap)
 
@@ -583,23 +576,26 @@ export async function GET() {
 
         const apStatus = normalizeStatus(getAPStatus(ap))
 
+        const sentToFinance = [
+          'PENDING_VERIFICATION',
+          'VERIFIED',
+          'APPROVED',
+          'PAID',
+          'OUTSTANDING',
+          'OVERDUE',
+          'BELUM_LUNAS',
+          'LUNAS',
+        ].includes(apStatus)
+
         return {
           id: poId,
           matchingNo: `TWM-${poId}`,
           matchStatus,
-          sentToFinance: [
-            'PENDING_VERIFICATION',
-            'VERIFIED',
-            'APPROVED',
-            'PAID',
-            'OUTSTANDING',
-            'OVERDUE',
-            'BELUM_LUNAS',
-            'LUNAS',
-          ].includes(apStatus),
+          sentToFinance,
           sentToFinanceAt: ap?.created_at || ap?.invoice_date || null,
           createdAt:
             firstReceipt?.created_at ||
+            firstReceipt?.receipt_date ||
             po.po_release_date ||
             po.created_at ||
             new Date().toISOString(),
@@ -613,9 +609,7 @@ export async function GET() {
 
           grNo: firstReceipt ? String(getReceiptId(firstReceipt)) : '-',
           receiptDate:
-            firstReceipt?.receipt_date ||
-            firstReceipt?.created_at ||
-            null,
+            firstReceipt?.receipt_date || firstReceipt?.created_at || null,
           grStatus: firstReceipt?.status || '-',
 
           invoiceNo: ap?.inv_supp_no || (ap ? String(getAPId(ap)) : '-'),
@@ -640,6 +634,38 @@ export async function GET() {
           unit: product?.uom || '-',
           unitPrice: getUnitPrice(firstPoItem),
 
+          poItems: poItems.map((poItem: any) => {
+            const itemProduct = productMap.get(poItem.product_id)
+
+            return {
+              id: `${poId}-${poItem.product_id}`,
+              productCode: itemProduct?.product_id || poItem.product_id || '-',
+              productName: itemProduct?.product_name || '-',
+              category: itemProduct?.category || '-',
+              qty: getPOQty(poItem),
+              unit: itemProduct?.uom || '-',
+              unitPrice: getUnitPrice(poItem),
+              subtotal: getSubtotal(poItem),
+            }
+          }),
+
+          grItems: receiptRows.map((receipt: any) => {
+            const itemProduct = productMap.get(receipt.product_id)
+
+            return {
+              id: receipt.receipt_id,
+              productCode: itemProduct?.product_id || receipt.product_id || '-',
+              productName: itemProduct?.product_name || '-',
+              category: itemProduct?.category || '-',
+              orderedQty: poItems
+                .filter((item: any) => item.product_id === receipt.product_id)
+                .reduce((total: number, item: any) => total + getPOQty(item), 0),
+              receivedQty: getReceivedQty(receipt),
+              unit: itemProduct?.uom || '-',
+              condition: receipt.condition || '-',
+            }
+          }),
+
           results: buildResults({
             orderedQty,
             receivedQty,
@@ -662,7 +688,7 @@ export async function GET() {
     return NextResponse.json(
       {
         message: 'Unexpected error while fetching three-way matchings',
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: getErrorMessage(error),
       },
       { status: 500 }
     )
@@ -750,7 +776,7 @@ export async function PATCH(request: Request) {
     const receivedQty = getPOReceivedQty(poItems, receipts)
     const hasReceipt = receipts.length > 0 && receivedQty > 0
     const poSubtotal = getPOSubtotal(poItems)
-    const poTotalValue = Number(po.total_value || poSubtotal || 0)
+    const poTotalValue = getNumber(po.total_value || poSubtotal, 0)
     const existingAPAmount = getAPAmount(existingAP)
 
     if (!hasReceipt) {
@@ -849,7 +875,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json(
       {
         message: 'Unexpected error while sending three-way matching to Finance',
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: getErrorMessage(error),
       },
       { status: 500 }
     )
