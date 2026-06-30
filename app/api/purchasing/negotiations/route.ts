@@ -42,44 +42,6 @@ function getDisplayStatus(value?: string | null) {
   return status
 }
 
-function generateNegotiationNo(quotationId: string) {
-  if (!quotationId) return '-'
-
-  return String(quotationId).startsWith('NEG-')
-    ? quotationId
-    : `NEG-${quotationId}`
-}
-
-function generateRFQNo(quotationId: string) {
-  if (!quotationId) return '-'
-
-  return String(quotationId).startsWith('RFQ-')
-    ? quotationId
-    : `RFQ-${quotationId}`
-}
-
-function getReferencePrice(priceData: any, quotation: any) {
-  return Number(
-    priceData?.unit_price_estimate ||
-      priceData?.estimated_price ||
-      priceData?.price ||
-      priceData?.unit_price ||
-      priceData?.supplier_price ||
-      quotation?.proposed_price ||
-      0
-  )
-}
-
-function getQuotationIdCandidates(negotiationNumber: string) {
-  const value = String(negotiationNumber || '').trim()
-
-  if (!value) return []
-
-  const withoutNegPrefix = value.replace(/^NEG-/, '')
-
-  return Array.from(new Set([value, withoutNegPrefix, `NEG-${withoutNegPrefix}`]))
-}
-
 function generatePONumber() {
   const now = new Date()
   const year = now.getFullYear()
@@ -90,86 +52,11 @@ function generatePONumber() {
   return `PO-${year}${month}-${timestamp}${random}`
 }
 
-function parseBudgetFromPRNotes(notes?: string | null) {
-  const value = String(notes || '')
-  const budgetMatch = value.match(/\[BUDGET_AMOUNT:(\d+)\]/)
-
-  return budgetMatch ? Number(budgetMatch[1] || 0) : 0
-}
-
-function parsePRIdFromQuotationNotes(notes?: string | null) {
-  const value = String(notes || '')
-
-  const tokenMatch =
-    value.match(/\[PR_NO:([^\]]+)\]/) ||
-    value.match(/\[PR_ID:([^\]]+)\]/) ||
-    value.match(/\[PR_NUMBER:([^\]]+)\]/)
-
-  if (tokenMatch?.[1]) return tokenMatch[1].trim()
-
-  const loosePRMatch = value.match(/\bPR[-_/A-Z0-9]*\d[A-Z0-9\-_/]*/i)
-
-  return loosePRMatch ? loosePRMatch[0].trim() : null
-}
-
-function appendSystemNote(existingNotes?: string | null, systemNote?: string | null) {
-  const cleanExisting = String(existingNotes || '').trim()
-
-  if (!systemNote) return cleanExisting || null
-  if (!cleanExisting) return systemNote
-  if (cleanExisting.includes(systemNote)) return cleanExisting
-
-  return `${cleanExisting}\n${systemNote}`
-}
-
-async function createNotification({
-  title,
-  message,
-  recipientRole,
-  sourceRefId,
-  sourceRefType,
-  actionUrl,
-  priority = 'MEDIUM',
-}: {
-  title: string
-  message: string
-  recipientRole: string
-  sourceRefId: string
-  sourceRefType: string
-  actionUrl: string
-  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
-}) {
-  const { error } = await supabase.from('notifications').insert({
-    title,
-    message,
-    type: 'INFORMATION',
-    priority,
-    status: 'UNREAD',
-    recipient_role: recipientRole,
-    source_module: 'PURCHASING',
-    source_ref_id: sourceRefId,
-    source_ref_type: sourceRefType,
-    action_url: actionUrl,
-  })
-
-  if (error) {
-    console.warn('Failed to create notification:', error.message)
-  }
-}
-
-async function getPRBudget(prId: string | null) {
-  if (!prId) {
-    return {
-      prId: null,
-      budgetAmount: 0,
-      prFound: false,
-    }
-  }
-
-  const { data, error } = await supabase
-    .from('tr_purchase_requisition')
-    .select('pr_id, notes, status')
-    .eq('pr_id', prId)
+async function createPurchaseOrderFromNegotiation(quotationId: string, quotation: AnyObject) {
+  const { data: existingPO, error: existingPOError } = await supabase
+    .from('tr_purchase_order')
+    .select('po_id')
+    .eq('quotation_id', quotationId)
     .maybeSingle()
 
   if (error) {
@@ -428,75 +315,43 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch price negotiations',
-          error: errors[0]?.message,
+          error: errors[0] instanceof Error ? errors[0].message : String(errors[0]),
         },
         { status: 500 }
       )
     }
 
-    const quotations = quotationResult.data || []
-    const suppliers = supplierResult.data || []
-    const products = productResult.data || []
-    const supplierPrices = supplierPriceResult.data || []
+    const negotiations = (quotationResult.data || []).map((item: AnyObject) => ({
+      id: item.id,
+      negotiationNo: item.negotiation_number,
 
-    const supplierMap = new Map(
-      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
-    )
+      rfqNo: item.purchasing_rfq_sourcing?.rfq_number || '-',
+      rfqStatus: item.purchasing_rfq_sourcing?.status || '-',
+      quotationDeadline:
+        item.purchasing_rfq_sourcing?.quotation_deadline || null,
+      specificationNotes:
+        item.purchasing_rfq_sourcing?.specification_notes || '-',
 
-    const productMap = new Map(
-      products.map((product: any) => [product.product_id, product])
-    )
+      supplierId: item.ms_suppliers?.supplier_code || '-',
+      supplierName: item.ms_suppliers?.supplier_name || '-',
+      supplierContact: item.ms_suppliers?.contact || '-',
+      supplierAddress: item.ms_suppliers?.address || '-',
 
-    const supplierPriceMap = new Map<string, any>()
+      productCode: item.products?.sku || '-',
+      productName: item.products?.name || '-',
+      category: item.products?.category || '-',
 
-    supplierPrices.forEach((price: any) => {
-      supplierPriceMap.set(`${price.supplier_id}-${price.product_id}`, price)
-    })
-
-    const negotiations = quotations.map((item: any) => {
-      const supplier = supplierMap.get(item.supplier_id)
-      const product = productMap.get(item.product_id)
-      const supplierPrice = supplierPriceMap.get(
-        `${item.supplier_id}-${item.product_id}`
-      )
-
-      const referencePrice = getReferencePrice(supplierPrice, item)
-      const proposedPrice = Number(item.proposed_price || 0)
-      const supplierResponsePrice = Number(item.accepted_price || 0)
-      const finalPrice = Number(item.final_price || 0)
-
-      return {
-        id: String(item.quotation_id),
-        negotiationNo: generateNegotiationNo(String(item.quotation_id)),
-
-        rfqNo: generateRFQNo(String(item.quotation_id)),
-        rfqStatus: getDisplayStatus(item.status),
-        quotationDeadline: item.expiry_date || null,
-        specificationNotes: item.notes || '-',
-
-        supplierId: supplier?.supplier_id || item.supplier_id || '-',
-        supplierName: supplier?.supplier_name || '-',
-        supplierContact: supplier?.contact || '-',
-        supplierAddress: supplier?.address || '-',
-
-        productCode: product?.product_id || item.product_id || '-',
-        productName: product?.product_name || '-',
-        category: product?.category || '-',
-
-        referencePrice,
-        proposedPrice,
-        supplierResponsePrice,
-        finalPrice,
-        qty: Number(item.qty_requested || 0),
-        unit: product?.uom || '-',
-        confirmationDeadline: item.expiry_date || null,
-
-        status: getDisplayStatus(item.status),
-        dbStatus: normalizeQuotationStatus(item.status),
-        notes: item.notes || '-',
-        createdAt: item.quotation_date || null,
-      }
-    })
+      referencePrice: item.reference_price || 0,
+      proposedPrice: item.proposed_price || 0,
+      supplierResponsePrice: item.supplier_response_price || 0,
+      finalPrice: item.final_price || 0,
+      qty: item.qty || 0,
+      unit: item.unit || item.products?.unit || '-',
+      confirmationDeadline: item.confirmation_deadline,
+      status: item.status,
+      notes: item.notes || '-',
+      createdAt: item.created_at,
+    }))
 
     return NextResponse.json({
       message: 'Price negotiations fetched successfully',
@@ -731,7 +586,7 @@ export async function PATCH(request: Request) {
     const { data, error } = await supabase
       .from('tr_price_quotation')
       .update(updatePayload)
-      .eq('quotation_id', quotationId)
+      .eq('quotation_id', negotiationNumber)
       .select()
       .single()
 
@@ -750,7 +605,7 @@ export async function PATCH(request: Request) {
 
     if (normalizedStatus === 'AGREED') {
       try {
-        generatedPO = await createPurchaseOrderFromNegotiation(quotationId, data)
+        generatedPO = await createPurchaseOrderFromNegotiation(negotiationNumber, data)
       } catch (poError) {
         return NextResponse.json(
           {

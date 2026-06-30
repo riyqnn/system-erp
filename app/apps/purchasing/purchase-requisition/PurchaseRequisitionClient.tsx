@@ -97,6 +97,10 @@ function getStatusLabel(status: PRStatus) {
   return statusMap[status] || status
 }
 
+function isPendingSourcing(status: string) {
+  return status === 'PENDING_PO_CREATION' || status === 'PENDING_SOURCING'
+}
+
 function getStatusClass(status: PRStatus) {
   const statusMap: Record<string, string> = {
     PENDING_REVIEW: 'bg-amber-100 text-amber-700',
@@ -298,8 +302,8 @@ export function PurchaseRequisitionClient() {
     })
   }, [purchaseRequisitions, search, statusFilter])
 
-  const pendingReviewCount = purchaseRequisitions.filter((item) =>
-    isPendingReview(item.status)
+  const pendingSourcingCount = purchaseRequisitions.filter(
+    (item: AnyObject) => isPendingSourcing(item.status)
   ).length
 
   const approvedCount = purchaseRequisitions.filter((item) =>

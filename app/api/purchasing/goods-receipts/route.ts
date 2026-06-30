@@ -24,26 +24,23 @@ function generateReceiptId() {
   return `GR-${year}${month}-${timestamp}${random}`
 }
 
-function generateStockMovementId() {
-  const timestamp = String(Date.now()).slice(-8)
-  const random = String(Math.floor(Math.random() * 999)).padStart(3, '0')
-
-  return `SM-${timestamp}${random}`
+function getReceiptId(receipt: AnyObject) {
+  return receipt?.receipt_id || receipt?.gr_id || receipt?.goods_receipt_id || receipt?.id || '-'
 }
 
-function normalizeReceiptStatus(value?: string | null): GoodsReceiptStatus {
-  const status = String(value || '').toUpperCase()
-
-  if (status === 'REJECTED') return 'REJECTED'
-  if (status === 'PARTIAL') return 'PARTIAL'
-
-  return 'ACCEPTED'
+function getReceivedQty(receipt: AnyObject) {
+  return Number(
+    receipt?.received_qty ||
+      receipt?.qty_received ||
+      receipt?.qty ||
+      receipt?.quantity ||
+      receipt?.received_quantity ||
+      0
+  )
 }
 
-function getNumber(value: unknown, fallback = 0) {
-  const parsed = Number(value)
-
-  return Number.isNaN(parsed) ? fallback : parsed
+function getReceiptProductId(receipt: AnyObject) {
+  return receipt?.product_id || receipt?.item_id || receipt?.sku || null
 }
 
 function getString(value: unknown, fallback = '') {
@@ -54,37 +51,18 @@ function getString(value: unknown, fallback = '') {
   return parsed || fallback
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message
-
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'message' in error &&
-    typeof (error as { message?: unknown }).message === 'string'
-  ) {
-    return (error as { message: string }).message
-  }
-
-  return String(error || 'Unknown error')
-}
-
-async function createNotification({
-  title,
-  message,
-  recipientRole,
-  sourceRefId,
-  sourceRefType,
-  actionUrl,
-  priority = 'MEDIUM',
+function buildReceiptRows({
+  items,
+  grNumber,
+  poId,
+  receiptDate,
+  qtyColumn,
 }: {
-  title: string
-  message: string
-  recipientRole: string
-  sourceRefId: string
-  sourceRefType: string
-  actionUrl: string
-  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  items: AnyObject[]
+  grNumber: string
+  poId: string
+  receiptDate?: string
+  qtyColumn: 'qty_received' | 'received_qty' | 'qty' | 'quantity' | 'received_quantity'
 }) {
   const { error } = await supabase.from('notifications').insert({
     title,
@@ -107,35 +85,27 @@ async function createNotification({
 async function insertStockMovement({
   receiptId,
   poId,
-  productId,
-  warehouseId,
-  quantity,
+  receiptDate,
 }: {
-  receiptId: string
+  items: AnyObject[]
+  grNumber: string
   poId: string
-  productId: string
-  warehouseId: string
-  quantity: number
+  receiptDate?: string
 }) {
-  if (quantity <= 0) return
+  const qtyColumns: Array<
+    'qty_received' | 'received_qty' | 'qty' | 'quantity' | 'received_quantity'
+  > = ['qty_received', 'received_qty', 'qty', 'quantity', 'received_quantity']
 
-  const movementPayload = {
-    movement_id: generateStockMovementId(),
-    product_id: productId,
-    warehouse_id: warehouseId,
-    movement_type: 'IN',
-    quantity,
-    reference_id: receiptId,
-    reference_type: 'GOODS_RECEIPT',
-    source_ref_id: poId,
-    source_ref_type: 'PO',
-    movement_date: new Date().toISOString(),
-    notes: `Stock in from goods receipt ${receiptId}`,
-  }
+  let lastError: AnyObject = null
 
-  const { error } = await supabase
-    .from('tr_stock_movement')
-    .insert(movementPayload)
+  for (const qtyColumn of qtyColumns) {
+    const rows = buildReceiptRows({
+      items,
+      grNumber,
+      poId,
+      receiptDate,
+      qtyColumn,
+    })
 
   if (error) {
     console.warn('Failed to insert stock movement:', error.message)
@@ -309,90 +279,81 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch goods receipts',
-          error:
-            firstError && 'message' in firstError
-              ? String(firstError.message)
-              : 'Unknown database error',
+          error: errors[0] instanceof Error ? errors[0].message : String(errors[0]),
         },
         { status: 500 }
       )
     }
 
-    const receipts = receiptResult.data || []
     const purchaseOrders = poResult.data || []
-    const poDetails = poDetailResult.data || []
     const suppliers = supplierResult.data || []
     const products = productResult.data || []
-    const warehouses = warehouseResult.data || []
 
     const supplierMap = new Map(
-      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
+      suppliers.map((supplier: AnyObject) => [supplier.supplier_id, supplier])
     )
-
     const productMap = new Map(
-      products.map((product: any) => [product.product_id, product])
+      products.map((product: AnyObject) => [product.product_id, product])
     )
 
-    const warehouseMap = new Map(
-      warehouses.map((warehouse: any) => [warehouse.warehouse_id, warehouse])
-    )
-
-    const detailsByPO = new Map<string, any[]>()
-    const receiptsByPO = new Map<string, any[]>()
-
-    poDetails.forEach((detail: any) => {
-      const poId = String(detail.po_id || '')
-      const currentDetails = detailsByPO.get(poId) || []
-
-      currentDetails.push(detail)
-      detailsByPO.set(poId, currentDetails)
+    const receiptsByPO = new Map()
+    ;(receiptResult.data || []).forEach((r: AnyObject) => {
+      const poId = String(r.po_id || '')
+      if (!receiptsByPO.has(poId)) receiptsByPO.set(poId, [])
+      receiptsByPO.get(poId).push(r)
     })
 
-    receipts.forEach((receipt: any) => {
-      const poId = String(receipt.po_id || '')
-      const currentReceipts = receiptsByPO.get(poId) || []
-
-      currentReceipts.push(receipt)
-      receiptsByPO.set(poId, currentReceipts)
+    const detailsByPO = new Map()
+    ;(poDetailResult.data || []).forEach((d: AnyObject) => {
+      const poId = String(d.po_id || '')
+      if (!detailsByPO.has(poId)) detailsByPO.set(poId, [])
+      detailsByPO.get(poId).push(d)
     })
 
     const goodsReceipts = purchaseOrders
-      .filter((po: any) => {
+      .filter((po: AnyObject) => {
         const poId = String(po.po_id || '')
         const poStatus = String(po.status || '').toUpperCase()
 
         return receiptsByPO.has(poId) || ['RELEASED', 'COMPLETED'].includes(poStatus)
       })
-      .map((po: any) => {
-        const poId = String(po.po_id || '')
-        const poItems = detailsByPO.get(poId) || []
-        const poReceipts = receiptsByPO.get(poId) || []
-
-        const firstDetail = poItems[0] || null
-        const firstReceipt = poReceipts[0] || null
-
-        const productId = String(
-          firstReceipt?.product_id || firstDetail?.product_id || ''
-        )
-
+      .map((po: AnyObject) => {
         const supplier = supplierMap.get(po.supplier_id)
-        const product = productMap.get(productId)
-        const warehouse = firstReceipt?.warehouse_id
-          ? warehouseMap.get(firstReceipt.warehouse_id)
-          : null
+        const receiptRows = receiptsByPO.get(String(po.po_id || '')) || []
+        const firstReceipt = receiptRows[0]
+        const hasReceipt = Boolean(firstReceipt)
 
-        const orderedQty = poItems.reduce((total: number, item: any) => {
-          return (
-            total + getNumber(item.qty_order || item.ordered_qty || item.quantity, 0)
-          )
-        }, 0)
+        const poItems = detailsByPO.get(String(po.po_id || '')) || []
 
-        const receivedQty = poReceipts.reduce((total: number, receipt: any) => {
-          const status = String(receipt.status || '').toUpperCase()
-          const quantity = getNumber(receipt.quantity || receipt.received_qty, 0)
-          const rejectQty = getNumber(receipt.reject_qty, 0)
+        const items = poItems.map((poItem: AnyObject) => {
+          const product = productMap.get(poItem.product_id)
 
-          if (status === 'REJECTED') return total
+          const matchingReceipt =
+            receiptRows.find(
+              (receipt: AnyObject) =>
+                String(getReceiptProductId(receipt) || '') === String(poItem.product_id || '')
+            ) || firstReceipt
+
+          return {
+            id: String(poItem.po_detail_id || poItem.id || `${po.po_id}-${poItem.product_id}`),
+            productCode: product?.product_id || poItem.product_id || '-',
+            productName: product?.product_name || '-',
+            category: product?.category || '-',
+            orderedQty: Number(
+              poItem.qty_order ||
+                poItem.order_qty ||
+                poItem.qty ||
+                poItem.quantity ||
+                poItem.qty_requested ||
+                0
+            ),
+            receivedQty: hasReceipt ? getReceivedQty(matchingReceipt) : 0,
+            unit: product?.uom || '-',
+            expiryDate: matchingReceipt?.expiry_date || null,
+            batchNumber: matchingReceipt?.batch_number || '-',
+            condition: matchingReceipt?.condition || 'GOOD',
+          }
+        })
 
           return total + Math.max(quantity - rejectQty, 0)
         }, 0)
@@ -498,32 +459,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
 
-    const poId = getString(body.poId || body.po_id || body.poNo || body.po_no)
-    const productId = getString(
-      body.productId || body.product_id || body.productCode || body.product_code
-    )
-    const warehouseId = getString(
-      body.warehouseId || body.warehouse_id || body.warehouseCode
-    )
-
-    const quantity = getNumber(
-      body.quantity || body.receivedQty || body.received_qty || body.qty,
-      0
-    )
-
-    const rejectQty = getNumber(body.rejectQty || body.reject_qty, 0)
-    const status = normalizeReceiptStatus(body.status)
-    const acceptedQuantity =
-      status === 'REJECTED' ? 0 : Math.max(quantity - rejectQty, 0)
-
-    if (!poId) {
-      return NextResponse.json(
-        {
-          message: 'Purchase order is required.',
-        },
-        { status: 400 }
-      )
-    }
+    const { grNumber, poNumber, receiptDate, items } = body
 
     if (!productId) {
       return NextResponse.json(
@@ -610,11 +546,16 @@ export async function POST(request: Request) {
       reject_reason: body.rejectReason || body.reject_reason || null,
     }
 
-    const { data: receiptData, error: receiptError } = await supabase
-      .from('tr_goods_receipt')
-      .insert(insertPayload)
-      .select()
-      .single()
+    const finalGRNumber = grNumber?.startsWith('DRAFT-GR-')
+      ? createGRNumber()
+      : grNumber || createGRNumber()
+
+    const { data, error, qtyColumn } = await insertGoodsReceiptWithFallback({
+      items: normalizedItems,
+      grNumber: finalGRNumber,
+      poId: poData.po_id,
+      receiptDate,
+    })
 
     if (receiptError) {
       return NextResponse.json(

@@ -107,7 +107,7 @@ export default function ShipmentConfirmationPage() {
       });
 
       if (res.ok) {
-        setSuccessMsg(status === "Delivered" ? "Shipment Confirmed! Stock Deducted." : "Delivery Order Voided.");
+        setSuccessMsg(status === "Delivered" ? "Shipment Confirmed!" : "Delivery Order Voided.");
         fetchData();
       } else {
         const json = await res.json();
@@ -329,7 +329,7 @@ export default function ShipmentConfirmationPage() {
 
                     <div className="bg-amber-50 border border-amber-100 p-3 rounded-lg text-sm text-amber-800 flex gap-3">
                       <CheckCircle2 className="w-5 h-5 text-amber-600 shrink-0" />
-                      <p>Confirming shipment will deduct <strong>{selectedDO.quantity}</strong> from physical stock immediately.</p>
+                      <p>Confirming shipment will finalize the delivery order.</p>
                     </div>
                   </div>
 

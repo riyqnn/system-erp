@@ -30,9 +30,6 @@ import {
   Handshake,
   Scales,
   CheckSquare,
-  FileText,
-  Handshake,
-  Scales,
 
   Bell,
 
@@ -80,7 +77,7 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
         ],
       },
       {
-        label: 'Production',
+        label: 'Operations',
         href: '/inventory/permintaan-produksi',
         icon: Wrench,
         children: [
@@ -91,7 +88,7 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
         ],
       },
       {
-        label: 'Sales & Outbound',
+        label: 'Outbound',
         href: '/inventory/sales-order-validation',
         icon: Truck,
         children: [
@@ -100,7 +97,7 @@ const getModuleNavigation = (activeModule?: string): MenuItem[] => {
         ],
       },
       {
-        label: 'Finance',
+        label: 'Invoice',
         href: '/inventory/invoice-verification',
         icon: Receipt,
         children: [

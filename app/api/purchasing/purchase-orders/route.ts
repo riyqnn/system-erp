@@ -228,154 +228,110 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch purchase orders',
-          error: errors[0]?.message,
+          error: errors[0] instanceof Error ? errors[0].message : String(errors[0]),
         },
         { status: 500 }
       )
     }
 
-    const purchaseOrders = poResult.data || []
-    const poDetails = poDetailResult.data || []
-    const purchaseRequisitions = prResult.data || []
-    const quotations = quotationResult.data || []
     const suppliers = supplierResult.data || []
     const products = productResult.data || []
-    const users = userResult.data || []
-
-    const prMap = new Map(purchaseRequisitions.map((pr: any) => [pr.pr_id, pr]))
-
-    const quotationMap = new Map(
-      quotations.map((quotation: any) => [quotation.quotation_id, quotation])
-    )
+    const prs = prResult.data || []
+    const quotations = quotationResult.data || []
 
     const supplierMap = new Map(
-      suppliers.map((supplier: any) => [supplier.supplier_id, supplier])
+      suppliers.map((s: AnyObject) => [s.supplier_id, s])
     )
-
     const productMap = new Map(
-      products.map((product: any) => [product.product_id, product])
+      products.map((p: AnyObject) => [p.product_id, p])
+    )
+    const prMap = new Map(
+      prs.map((p: AnyObject) => [p.pr_id, p])
+    )
+    const quotationMap = new Map(
+      quotations.map((q: AnyObject) => [q.quotation_id, q])
     )
 
-    const userMap = new Map(users.map((user: any) => [user.user_id, user]))
-
-    const detailsByPO = new Map<string, any[]>()
-
-    poDetails.forEach((detail: any) => {
-      const poId = String(detail.po_id || '')
-      const currentDetails = detailsByPO.get(poId) || []
-
-      currentDetails.push(detail)
-      detailsByPO.set(poId, currentDetails)
+    const detailsByPO = new Map()
+    ;(poDetailResult.data || []).forEach((d: AnyObject) => {
+      const poId = String(d.po_id || '')
+      if (!detailsByPO.has(poId)) detailsByPO.set(poId, [])
+      detailsByPO.get(poId).push(d)
     })
 
-    const data = purchaseOrders.map((po: any) => {
-      const pr = prMap.get(po.pr_id)
-      const quotation = quotationMap.get(po.quotation_id)
-      const supplier = supplierMap.get(po.supplier_id)
-      const approver = userMap.get(po.approved_by)
-      const requester = pr ? userMap.get(pr.requested_by) : null
+    const purchaseOrders = (poResult.data || []).map((item: AnyObject) => {
+      const poId = String(item.po_id || '')
+      const supplier = supplierMap.get(item.supplier_id)
+      const pr = prMap.get(item.pr_id)
+      const quotation = quotationMap.get(item.quotation_id)
 
-      const rawItems = detailsByPO.get(po.po_id) || []
+      const poItems = detailsByPO.get(poId) || []
+      const firstItem = poItems[0]
 
-      const items = rawItems.map((item: any) => {
-        const product = productMap.get(item.product_id)
-
-        return {
-          id: String(item.po_detail_id),
-          productCode: product?.product_id || item.product_id || '-',
-          productName: product?.product_name || '-',
-          category: product?.category || '-',
-          qty: Number(item.qty_order || 0),
-          unit: product?.uom || '-',
-          unitPrice: Number(item.unit_price || 0),
-          subtotal: Number(item.subtotal || 0),
-        }
-      })
-
-      const firstItem = items[0]
-
-      const subtotal = items.reduce(
-        (total: number, item: any) => total + Number(item.subtotal || 0),
+      const subtotal = poItems.reduce(
+        (total: number, pi: AnyObject) => total + Number(pi.subtotal || 0),
         0
       )
 
-      const totalValue = Number(po.total_value || subtotal || 0)
+      const totalValue = Number(item.total_value || subtotal || 0)
       const taxAmount = Math.max(totalValue - subtotal, 0)
-      const status = normalizeStatus(po.status)
-      const budgetInfo = getBudgetInfo(totalValue, pr?.notes)
+      const status = normalizeStatus(item.status)
 
-      const poNote = String(po.rejection_reason || '')
-      const isApprovalNote = poNote.toLowerCase().includes('approval')
+      const firstProduct = firstItem ? productMap.get(firstItem.product_id) : undefined
 
       return {
-        id: String(po.po_id),
-        poNo: String(po.po_id),
-        poDate: po.created_at || null,
+        id: poId,
+        poNo: poId,
+        poDate: item.created_at || null,
         expectedDeliveryDate: null,
 
-        supplierId: supplier?.supplier_id || po.supplier_id || '-',
+        supplierId: supplier?.supplier_id || item.supplier_id || '-',
         supplierName: supplier?.supplier_name || '-',
         supplierContact: supplier?.contact || '-',
         supplierAddress: supplier?.address || '-',
 
-        prNo: pr?.pr_id || po.pr_id || '-',
-        quotationNo: quotation?.quotation_id || po.quotation_id || '-',
-        requestedBy:
-          requester?.full_name || requester?.username || 'Inventory Staff',
-        department: requester?.role || 'Inventory',
-
+        prNo: pr?.pr_id || item.pr_id || '-',
+        quotationNo: quotation?.quotation_id || item.quotation_id || '-',
+        requestedBy: pr?.requested_by || '-',
+        department: pr?.department || '-',
         subtotal,
         taxAmount,
         totalValue,
-
-        budgetAmount: budgetInfo.budgetAmount,
-        budgetVariance: budgetInfo.budgetVariance,
-        isOverBudget: budgetInfo.isOverBudget,
-        budgetStatus: budgetInfo.budgetStatus,
-        budget: {
-          amount: budgetInfo.budgetAmount,
-          variance: budgetInfo.budgetVariance,
-          isOverBudget: budgetInfo.isOverBudget,
-          status: budgetInfo.budgetStatus,
-        },
-
         status,
-        approvalLevel: 'MANAGER_PURCHASING',
-        approver: approver?.full_name || approver?.username || '-',
-        approvedAt:
-          status === 'APPROVED' || status === 'RELEASED' || status === 'COMPLETED'
-            ? po.po_release_date || po.created_at
-            : null,
-        approvalNotes: isApprovalNote ? po.rejection_reason || '-' : '-',
-        rejectionReason: !isApprovalNote ? po.rejection_reason || '-' : '-',
-        releasedAt: po.po_release_date || null,
-        createdBy: 'Purchasing Staff',
+        approvalLevel: item.approval_level || '-',
+        approver: item.approved_by_name || '-',
+        approvedAt: item.approved_at,
+        approvalNotes: item.approval_notes || '-',
+        rejectionReason: item.rejection_reason || '-',
+        releasedAt: item.released_at,
+        createdBy: item.created_by_name || '-',
 
-        productCode: firstItem?.productCode || quotation?.product_id || '-',
-        productName:
-          firstItem?.productName ||
-          productMap.get(quotation?.product_id)?.product_name ||
-          '-',
-        category:
-          firstItem?.category ||
-          productMap.get(quotation?.product_id)?.category ||
-          '-',
-        qty: firstItem?.qty || Number(quotation?.qty_requested || 0),
-        unit:
-          firstItem?.unit ||
-          productMap.get(quotation?.product_id)?.uom ||
-          '-',
-        unitPrice:
-          firstItem?.unitPrice ||
-          Number(quotation?.final_price || quotation?.accepted_price || 0),
+        productCode: firstProduct?.product_id || firstItem?.product_id || '-',
+        productName: firstProduct?.product_name || '-',
+        category: firstProduct?.category || '-',
+        qty: firstItem?.qty_order || 0,
+        unit: firstProduct?.uom || '-',
+        unitPrice: firstItem?.unit_price || 0,
 
-        items,
+        items: poItems.map((poItem: AnyObject) => {
+          const prod = productMap.get(poItem.product_id)
+          return {
+            id: poItem.po_detail_id || poItem.id,
+            productCode: prod?.product_id || poItem.product_id || '-',
+            productName: prod?.product_name || '-',
+            category: prod?.category || '-',
+            qty: poItem.qty_order || 0,
+            unit: prod?.uom || '-',
+            unitPrice: poItem.unit_price || 0,
+            subtotal: poItem.subtotal || 0,
+          }
+        }),
       }
     })
 
     return NextResponse.json({
       message: 'Purchase orders fetched successfully',
-      data,
+      data: purchaseOrders,
     })
   } catch (error) {
     return NextResponse.json(
@@ -631,24 +587,8 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const { data: prData } = await supabase
-      .from('tr_purchase_requisition')
-      .select('pr_id, notes')
-      .eq('pr_id', poData.pr_id)
-      .maybeSingle()
-
-    const totalValue = Number(poData.total_value || 0)
-    const budgetInfo = getBudgetInfo(totalValue, prData?.notes)
-
-    let patchAction =
-      normalizePatchAction(action) ||
-      normalizePatchAction(approvalAction) ||
-      normalizePatchAction(managerAction)
-
-    const requestedStatus = status ? normalizeStatus(status) : null
-
-    if (!patchAction && requestedStatus === 'RELEASED') {
-      patchAction = 'APPROVE_OVER_BUDGET'
+    const updatePayload: AnyObject = {
+      status,
     }
 
     if (!patchAction && requestedStatus === 'REVISION_REQUIRED') {

@@ -1,4 +1,5 @@
 'use client'
+import { AnyObject } from '@/lib/any';
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -132,7 +133,7 @@ function getStatusClass(status: RFQStatus) {
   return statusClassMap[status] || 'bg-slate-100 text-slate-600'
 }
 
-function normalizePR(raw: any): PurchaseRequisition {
+function normalizePR(raw: AnyObject): PurchaseRequisition {
   const rawItems =
     raw.items ||
     raw.purchasing_purchase_requisition_items ||
@@ -140,7 +141,7 @@ function normalizePR(raw: any): PurchaseRequisition {
     []
 
   const items: PurchaseRequisitionItem[] = rawItems.map(
-    (item: any, index: number) => {
+    (item: AnyObject, index: number) => {
       const product = item.products || item.product || {}
 
       const qty = Number(item.qty || item.quantity || item.qty_requested || 0)
@@ -208,7 +209,7 @@ function normalizePR(raw: any): PurchaseRequisition {
   }
 }
 
-function normalizeSupplier(raw: any): SupplierOption {
+function normalizeSupplier(raw: AnyObject): SupplierOption {
   return {
     supplierId: raw.supplierId || raw.supplier_id || '-',
     supplierName:
@@ -330,7 +331,7 @@ export function RFQSourcingClient() {
       }
 
       const normalizedSuppliers: SupplierOption[] = (supplierResult.data || [])
-        .map((item: any) => normalizeSupplier(item))
+        .map((item: AnyObject) => normalizeSupplier(item))
         .filter(
           (item: SupplierOption) => item.supplierId && item.supplierId !== '-'
         )
@@ -353,7 +354,7 @@ export function RFQSourcingClient() {
 
       if (prNoFromUrl && prResponse.ok) {
         const prList: PurchaseRequisition[] = (prResult.data || []).map(
-          (item: any) => normalizePR(item)
+          (item: AnyObject) => normalizePR(item)
         )
 
         const selectedPR = prList.find(
