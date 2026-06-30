@@ -8,7 +8,7 @@ import { redirect } from 'next/navigation'
 const ROLE_MODULE_MAP: Record<string, string> = {
   'INVENTORY': '/inventory',
   'FINANCE': '/finance',
-  'PURCHASING': '/apps/purchasing',
+  'PURCHASING': '/purchasing',
   'PRODUCTION': '/production',
   'SNM': '/snm',
   'SALES': '/snm',

@@ -16,7 +16,7 @@ export default function PurchasingRoleSelectorPage() {
   const handleSelectStaff = () => {
     localStorage.setItem('erp_role', 'PURCHASING')
     localStorage.removeItem('erp_manager_access_granted')
-    router.push('/apps/purchasing/staff')
+    router.push('/purchasing/staff')
   }
 
   const handleOpenManagerAccess = () => {
@@ -53,7 +53,7 @@ export default function PurchasingRoleSelectorPage() {
 
       localStorage.setItem('erp_role', 'MANAGER_PURCHASING')
       localStorage.setItem('erp_manager_access_granted', 'true')
-      router.push('/apps/purchasing/manager')
+      router.push('/purchasing/manager')
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Invalid manager access code'
@@ -69,7 +69,7 @@ export default function PurchasingRoleSelectorPage() {
       moduleTitle="Purchasing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Purchasing', href: '/apps/purchasing' },
+        { label: 'Purchasing', href: '/purchasing' },
         { label: 'Role Selector' },
       ]}
     >

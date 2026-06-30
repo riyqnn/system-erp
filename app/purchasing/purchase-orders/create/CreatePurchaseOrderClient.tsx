@@ -503,16 +503,16 @@ export function CreatePurchaseOrderClient() {
     )
 
     if (isConfirmed) {
-      router.push('/apps/purchasing/purchase-orders')
+      router.push('/purchasing/purchase-orders')
     }
   }
 
   const handleSaveDraft = () => {
-    router.push('/apps/purchasing/purchase-orders')
+    router.push('/purchasing/purchase-orders')
   }
 
   const handleSubmitForApproval = () => {
-    router.push('/apps/purchasing/purchase-orders')
+    router.push('/purchasing/purchase-orders')
   }
 
   const subtotal = useMemo(() => {
@@ -580,8 +580,8 @@ export function CreatePurchaseOrderClient() {
       moduleTitle="Purchasing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Purchasing', href: '/apps/purchasing' },
-        { label: 'Purchase Orders', href: '/apps/purchasing/purchase-orders' },
+        { label: 'Purchasing', href: '/purchasing' },
+        { label: 'Purchase Orders', href: '/purchasing/purchase-orders' },
         { label: selectedPoNo ? 'Revise PO' : 'Create PO' },
       ]}
     >

@@ -10,7 +10,6 @@ import {
   PackageCheck,
   FileText,
   CheckCircle2,
-  
   AlertTriangle,
   Truck,
   AlertCircle,
@@ -43,18 +42,21 @@ interface GRData {
   ms_warehouses: { warehouse_name: string } | null;
 }
 
-interface ProductOption {
-  product_id: string | number;
-  product_code: string;
-  product_name: string;
-  category: string;
-  units: string;
-}
-
-interface SupplierOption {
-  supplier_id: string | number;
-  supplier_code: string;
-  supplier_name: string;
+interface PendingPO {
+  id: string;
+  poNo: string;
+  supplierCode: string;
+  supplierName: string;
+  warehouseId: string | null;
+  items: {
+    id: string;
+    productId: string;
+    productCode: string;
+    productName: string;
+    orderedQty: number;
+    receivedQty: number;
+    unit: string;
+  }[];
 }
 
 interface WarehouseOption {
@@ -79,8 +81,7 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: React.Ele
 /* ------------------------------------------------------------------ */
 export default function GoodsReceiptPage() {
   const [data, setData] = useState<GRData[]>([]);
-  const [products, setProducts] = useState<ProductOption[]>([]);
-  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [pendingPOs, setPendingPOs] = useState<PendingPO[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -93,18 +94,12 @@ export default function GoodsReceiptPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
 
-  // Form
-  const [form, setForm] = useState({
-    supplier_id: "",
-    product_id: "",
-    warehouse_id: "",
-    quantity: "",
-    batch_number: "",
-    expiry_date: "",
-    status: "Accepted",
-    reject_qty: "0",
-    reject_reason: "",
-  });
+  // Form for PO Selection
+  const [selectedPO, setSelectedPO] = useState<string>("");
+  const [warehouseId, setWarehouseId] = useState("");
+
+  // Items form state
+  const [itemsForm, setItemsForm] = useState<Record<string, { quantity: string; batch_number: string; expiry_date: string; status: string; reject_qty: string; reject_reason: string }>>({});
 
   /* ── Fetch data ───────────────────────────────────────────────── */
   const fetchData = useCallback(async () => {
@@ -124,14 +119,16 @@ export default function GoodsReceiptPage() {
 
   const fetchMaster = useCallback(async () => {
     try {
-      const [pRes, sRes, wRes] = await Promise.all([
-        fetch("/api/inventory/stock"),
-        fetch("/api/inventory/suppliers"),
+      const [wRes, poRes] = await Promise.all([
         fetch("/api/inventory/warehouses"),
+        fetch("/api/purchasing/goods-receipts?limit=100")
       ]);
-      if (pRes.ok) { const j = await pRes.json(); setProducts(j.data || []); }
-      if (sRes.ok) { const j = await sRes.json(); setSuppliers(j.data || []); }
       if (wRes.ok) { const j = await wRes.json(); setWarehouses(j.data || []); }
+      if (poRes.ok) { 
+        const j = await poRes.json(); 
+        const pos = (j.data || []).filter((p: { status: string; [key: string]: unknown }) => p.status === "WAITING_RECEIPT" || p.status === "PARTIAL");
+        setPendingPOs(pos); 
+      }
     } catch (err) {
       console.error("Failed to fetch master data:", err);
     }
@@ -142,47 +139,90 @@ export default function GoodsReceiptPage() {
     fetchMaster();
   }, [fetchData, fetchMaster]);
 
+  // Handle PO selection
+  useEffect(() => {
+    const po = pendingPOs.find((p) => p.poNo === selectedPO);
+    if (po) {
+      const newItemsForm: typeof itemsForm = {};
+      po.items.forEach((item) => {
+        if (item.orderedQty > item.receivedQty) {
+          newItemsForm[item.productId] = {
+            quantity: String(item.orderedQty - item.receivedQty),
+            batch_number: "",
+            expiry_date: "",
+            status: "Accepted",
+            reject_qty: "0",
+            reject_reason: ""
+          };
+        }
+      });
+      setItemsForm(newItemsForm);
+      if (po.warehouseId) {
+        setWarehouseId(po.warehouseId);
+      }
+    } else {
+      setItemsForm({});
+    }
+  }, [selectedPO, pendingPOs]);
+
   /* ── Create GR ────────────────────────────────────────────────── */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const po = pendingPOs.find((p) => p.poNo === selectedPO);
+    if (!po || !warehouseId) return;
+
     setIsSubmitting(true);
     try {
       const now = new Date();
       const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-      const existing = data.filter((d) => d.gr_code.includes(`GR-${ym}`)).length;
-      const grCode = `GR-${ym}-${String(existing + 1).padStart(3, "0")}`;
+      let existingCount = data.filter((d) => d.gr_code.includes(`GR-${ym}`)).length;
 
-      const payload = {
-        gr_code: grCode,
-        supplier_id: form.supplier_id,
-        product_id: form.product_id,
-        warehouse_id: form.warehouse_id,
-        quantity: Number(form.quantity),
-        batch_number: form.batch_number,
-        expiry_date: form.expiry_date || null,
-        receipt_date: now.toISOString(),
-        received_by: "user_inv01",
-        status: form.status,
-        reject_qty: Number(form.reject_qty) || 0,
-        reject_reason: form.reject_reason || null,
-      };
+      const promises = Object.keys(itemsForm).map(async (productId) => {
+        const itemForm = itemsForm[productId];
+        if (!itemForm.quantity || Number(itemForm.quantity) <= 0) return null;
 
-      const res = await fetch("/api/inventory/goods-receipts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        existingCount++;
+        const grCode = `GR-${ym}-${String(existingCount).padStart(3, "0")}`;
+
+        const payload = {
+          gr_code: grCode,
+          po_id: po.poNo,
+          supplier_id: po.supplierCode,
+          product_id: productId,
+          warehouse_id: warehouseId,
+          quantity: Number(itemForm.quantity),
+          batch_number: itemForm.batch_number,
+          expiry_date: itemForm.expiry_date || null,
+          receipt_date: now.toISOString(),
+          received_by: "user_inv01",
+          status: itemForm.status,
+          reject_qty: Number(itemForm.reject_qty) || 0,
+          reject_reason: itemForm.reject_reason || null,
+        };
+
+        const res = await fetch("/api/inventory/goods-receipts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        
+        if (!res.ok) throw new Error("Failed to process item");
+        return grCode;
       });
 
-      if (res.ok) {
-        setSubmitSuccess(grCode);
-        setForm({ supplier_id: "", product_id: "", warehouse_id: "", quantity: "", batch_number: "", expiry_date: "", status: "Accepted", reject_qty: "0", reject_reason: "" });
+      const results = await Promise.all(promises);
+      const validResults = results.filter(Boolean);
+
+      if (validResults.length > 0) {
+        setSubmitSuccess(validResults[0] as string);
+        setSelectedPO("");
         fetchData();
+        fetchMaster();
       } else {
-        const json = await res.json();
-        Swal.fire("Error", `Failed: ${json.error}`, "error");
+        Swal.fire("Warning", "No items were received.", "warning");
       }
     } catch {
-      Swal.fire("Error", "Network error", "error");
+      Swal.fire("Error", "Failed to process receipt. Please check your inputs.", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -228,13 +268,13 @@ export default function GoodsReceiptPage() {
       <div className="flex items-end justify-between pt-2">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Goods Receipt</h1>
-          <p className="text-sm text-slate-500 mt-1">Record incoming materials from suppliers into warehouse</p>
+          <p className="text-sm text-slate-500 mt-1">Record incoming materials from suppliers based on Purchase Orders</p>
         </div>
         <Button
           onClick={() => { setShowCreateModal(true); setSubmitSuccess(null); }}
           className="bg-red-600 hover:bg-red-700 text-white shadow-sm h-10 px-5 gap-2"
         >
-          <Plus className="w-4 h-4" /> New Receipt
+          <Plus className="w-4 h-4" /> Receive PO
         </Button>
       </div>
 
@@ -277,7 +317,7 @@ export default function GoodsReceiptPage() {
             >{st}</button>
           ))}
         </div>
-        <Button variant="outline" size="icon" onClick={fetchData} className="ml-auto h-10 w-10 text-slate-500" disabled={loading}>
+        <Button variant="outline" size="icon" onClick={() => { fetchData(); fetchMaster(); }} className="ml-auto h-10 w-10 text-slate-500" disabled={loading}>
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
       </div>
@@ -337,7 +377,7 @@ export default function GoodsReceiptPage() {
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          <span className="font-mono text-xs text-slate-600">{gr.batch_number}</span>
+                          <span className="font-mono text-xs text-slate-600">{gr.batch_number || "—"}</span>
                           {gr.expiry_date && (
                             <p className="text-[10px] text-slate-400 mt-0.5">Exp: {new Date(gr.expiry_date).toLocaleDateString("id-ID")}</p>
                           )}
@@ -360,18 +400,18 @@ export default function GoodsReceiptPage() {
         </CardContent>
       </Card>
 
-      {/* ── Create GR Modal ── */}
+      {/* ── Auto GR Modal ── */}
       {showCreateModal && (
         <>
           <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm z-40" onClick={() => setShowCreateModal(false)} />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg pointer-events-auto flex flex-col max-h-[90vh]">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl pointer-events-auto flex flex-col max-h-[90vh]">
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center">
                     <PackageCheck className="w-4 h-4 text-red-600" />
                   </div>
-                  <h2 className="font-semibold text-slate-900">Record Goods Receipt</h2>
+                  <h2 className="font-semibold text-slate-900">Receive Released Purchase Order</h2>
                 </div>
                 <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600">
                   <X className="w-5 h-5" />
@@ -383,49 +423,41 @@ export default function GoodsReceiptPage() {
                   <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mb-5">
                     <CheckCircle2 className="w-8 h-8 text-green-500" />
                   </div>
-                  <h3 className="text-xl font-semibold text-slate-900">{submitSuccess} Recorded!</h3>
-                  <p className="text-slate-500 mt-2 text-sm">Stock balance has been updated.</p>
+                  <h3 className="text-xl font-semibold text-slate-900">Receipt Recorded Successfully!</h3>
+                  <p className="text-slate-500 mt-2 text-sm">Stock balance has been updated and purchasing has been notified.</p>
                   <div className="flex gap-3 mt-6">
                     <Button variant="outline" onClick={() => setShowCreateModal(false)}>Close</Button>
-                    <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={() => setSubmitSuccess(null)}>Record Another</Button>
+                    <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={() => { setSubmitSuccess(null); setSelectedPO(""); }}>Receive Another PO</Button>
                   </div>
                 </div>
               ) : (
-                <form onSubmit={handleSubmit} className="flex flex-col overflow-hidden">
-                  <div className="p-6 space-y-4 overflow-y-auto">
+                <form onSubmit={handleSubmit} className="flex flex-col overflow-hidden min-h-0">
+                  <div className="p-6 space-y-6 overflow-y-auto">
                     <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-3 flex gap-3 text-sm text-blue-800">
                       <AlertCircle className="w-5 h-5 shrink-0 text-blue-600" />
-                      <p>Enter the details from the supplier&apos;s delivery note and inspection results.</p>
+                      <p>Select a pending Purchase Order to automatically load items to be received.</p>
                     </div>
 
-                    {/* Supplier */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Supplier</label>
-                      <select required className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-slate-300 bg-white"
-                        value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}>
-                        <option value="">— Select supplier —</option>
-                        {suppliers.map((s) => (
-                          <option key={s.supplier_id} value={s.supplier_id}>[{s.supplier_code}] {s.supplier_name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Product + Warehouse */}
                     <div className="grid grid-cols-2 gap-4">
+                      {/* PO Selection */}
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Product</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Purchase Order</label>
                         <select required className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-slate-300 bg-white"
-                          value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })}>
-                          <option value="">— Select —</option>
-                          {products.filter((p) => p.category === "RM" || p.category === "PM").map((p) => (
-                            <option key={p.product_id} value={p.product_id}>[{p.product_code}] {p.product_name}</option>
+                          value={selectedPO} onChange={(e) => setSelectedPO(e.target.value)}>
+                          <option value="">— Select Pending PO —</option>
+                          {pendingPOs.map((po) => (
+                            <option key={po.poNo} value={po.poNo}>
+                              {po.poNo} - {po.supplierName}
+                            </option>
                           ))}
                         </select>
                       </div>
+
+                      {/* Warehouse */}
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Warehouse</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Receiving Warehouse</label>
                         <select required className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-slate-300 bg-white"
-                          value={form.warehouse_id} onChange={(e) => setForm({ ...form, warehouse_id: e.target.value })}>
+                          value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
                           <option value="">— Select —</option>
                           {warehouses.map((w) => (
                             <option key={w.warehouse_id} value={w.warehouse_id}>[{w.warehouse_code}] {w.warehouse_name}</option>
@@ -434,47 +466,83 @@ export default function GoodsReceiptPage() {
                       </div>
                     </div>
 
-                    {/* Qty + Batch + Expiry */}
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Quantity</label>
-                        <Input required type="number" min="1" placeholder="0" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Batch No.</label>
-                        <Input required placeholder="BT-XXX" value={form.batch_number} onChange={(e) => setForm({ ...form, batch_number: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Expiry Date</label>
-                        <Input type="date" value={form.expiry_date} onChange={(e) => setForm({ ...form, expiry_date: e.target.value })} />
-                      </div>
-                    </div>
+                    {selectedPO && (
+                      <div className="space-y-4 pt-4 border-t border-slate-100">
+                        <h3 className="font-medium text-slate-900">Items to Receive</h3>
+                        <div className="space-y-4">
+                          {pendingPOs.find(p => p.poNo === selectedPO)?.items.filter(i => i.orderedQty > i.receivedQty).map((item) => (
+                            <div key={item.productId} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-4">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <p className="font-semibold text-slate-900">{item.productName}</p>
+                                  <p className="text-xs text-slate-500">{item.productCode} • Ordered: {item.orderedQty} {item.unit} • Pending: {item.orderedQty - item.receivedQty} {item.unit}</p>
+                                </div>
+                              </div>
+                              
+                              <div className="grid grid-cols-4 gap-3">
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-500 mb-1">Receive Qty</label>
+                                  <Input 
+                                    type="number" min="0" max={item.orderedQty - item.receivedQty}
+                                    value={itemsForm[item.productId]?.quantity || ""}
+                                    onChange={(e) => setItemsForm({...itemsForm, [item.productId]: {...itemsForm[item.productId], quantity: e.target.value}})}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-500 mb-1">Batch No</label>
+                                  <Input 
+                                    placeholder="Optional"
+                                    value={itemsForm[item.productId]?.batch_number || ""}
+                                    onChange={(e) => setItemsForm({...itemsForm, [item.productId]: {...itemsForm[item.productId], batch_number: e.target.value}})}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-500 mb-1">Expiry Date</label>
+                                  <Input 
+                                    type="date"
+                                    value={itemsForm[item.productId]?.expiry_date || ""}
+                                    onChange={(e) => setItemsForm({...itemsForm, [item.productId]: {...itemsForm[item.productId], expiry_date: e.target.value}})}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
+                                  <select 
+                                    className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white"
+                                    value={itemsForm[item.productId]?.status || "Accepted"}
+                                    onChange={(e) => setItemsForm({...itemsForm, [item.productId]: {...itemsForm[item.productId], status: e.target.value}})}
+                                  >
+                                    <option value="Accepted">Accepted</option>
+                                    <option value="Partial">Partial</option>
+                                    <option value="Rejected">Rejected</option>
+                                  </select>
+                                </div>
+                              </div>
 
-                    {/* Status + Reject */}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Receipt Status</label>
-                      <div className="flex gap-3">
-                        {["Accepted", "Partial", "Rejected"].map((s) => (
-                          <button key={s} type="button" onClick={() => setForm({ ...form, status: s })}
-                            className={`flex-1 py-2 rounded-lg text-xs font-medium border transition-colors ${form.status === s
-                              ? s === "Accepted" ? "bg-emerald-50 border-emerald-300 text-emerald-700"
-                              : s === "Partial" ? "bg-amber-50 border-amber-300 text-amber-700"
-                              : "bg-red-50 border-red-300 text-red-700"
-                              : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"}`}
-                          >{s}</button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {(form.status === "Partial" || form.status === "Rejected") && (
-                      <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1.5">Reject Qty</label>
-                          <Input required type="number" min="0" value={form.reject_qty} onChange={(e) => setForm({ ...form, reject_qty: e.target.value })} />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1.5">Reject Reason</label>
-                          <Input required placeholder="e.g. Damaged packaging" value={form.reject_reason} onChange={(e) => setForm({ ...form, reject_reason: e.target.value })} />
+                              {(itemsForm[item.productId]?.status === "Partial" || itemsForm[item.productId]?.status === "Rejected") && (
+                                <div className="grid grid-cols-2 gap-3 mt-3 animate-in fade-in">
+                                  <div>
+                                    <label className="block text-xs font-medium text-red-600 mb-1">Reject Qty</label>
+                                    <Input 
+                                      type="number" min="0" required
+                                      value={itemsForm[item.productId]?.reject_qty || ""}
+                                      onChange={(e) => setItemsForm({...itemsForm, [item.productId]: {...itemsForm[item.productId], reject_qty: e.target.value}})}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs font-medium text-red-600 mb-1">Reject Reason</label>
+                                    <Input 
+                                      placeholder="Required" required
+                                      value={itemsForm[item.productId]?.reject_reason || ""}
+                                      onChange={(e) => setItemsForm({...itemsForm, [item.productId]: {...itemsForm[item.productId], reject_reason: e.target.value}})}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          {pendingPOs.find(p => p.poNo === selectedPO)?.items.every(i => i.orderedQty <= i.receivedQty) && (
+                            <p className="text-sm text-slate-500 text-center py-4">All items in this PO have been fully received.</p>
+                          )}
                         </div>
                       </div>
                     )}
@@ -482,7 +550,7 @@ export default function GoodsReceiptPage() {
 
                   <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 shrink-0">
                     <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>Cancel</Button>
-                    <Button type="submit" className="bg-red-600 hover:bg-red-700 text-white gap-2" disabled={isSubmitting}>
+                    <Button type="submit" className="bg-red-600 hover:bg-red-700 text-white gap-2" disabled={isSubmitting || !selectedPO}>
                       <PackageCheck className="w-4 h-4" />
                       {isSubmitting ? "Processing..." : "Confirm Receipt"}
                     </Button>

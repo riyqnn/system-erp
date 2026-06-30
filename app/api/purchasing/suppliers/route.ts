@@ -1,4 +1,3 @@
-import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -12,7 +11,7 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const [supplierPriceResult, supplierResult, productResult] =
       await Promise.all([
@@ -41,25 +40,54 @@ export async function GET() {
       )
     }
 
-    const suppliers = (supplierResult.data || []).map((item: AnyObject) => ({
-      id: item.id,
-      supplierId: item.ms_suppliers?.supplier_code || '-',
-      supplierName: item.ms_suppliers?.supplier_name || '-',
-      contact: item.ms_suppliers?.contact || '-',
-      address: item.ms_suppliers?.address || '-',
-      productCode: item.products?.sku || '-',
-      product: item.products?.name || '-',
-      category: item.products?.category || '-',
-      unit: item.products?.unit || '-',
-      estimatedPrice: item.estimated_price || 0,
-      leadTime: item.lead_time_days || 0,
-      termOfPayment: item.payment_term || '-',
-      status: item.status || 'ACTIVE',
-    }))
+    const supplierPrices = supplierPriceResult.data || []
+    const products = productResult.data || []
+    
+    const priceMap = new Map()
+    supplierPrices.forEach((sp: { supplier_id: string; product_id: string; unit_price_estimate: number; uom: string; [key: string]: unknown }) => {
+      if (!priceMap.has(sp.supplier_id)) priceMap.set(sp.supplier_id, sp)
+    })
+    
+    const productMap = new Map()
+    products.forEach((p: { product_id: string; product_name: string; category: string; uom: string; [key: string]: unknown }) => productMap.set(p.product_id, p))
+
+    const suppliers = (supplierResult.data || []).map((item: { supplier_id: string; supplier_name: string; contact: string; address: string; lead_time: string; top: string; status: string; [key: string]: unknown }) => {
+      const sp = priceMap.get(item.supplier_id)
+      const p = sp ? productMap.get(sp.product_id) : null
+
+      return {
+        id: item.supplier_id,
+        supplierId: item.supplier_id || '-',
+        supplierName: item.supplier_name || '-',
+        contact: item.contact || '-',
+        address: item.address || '-',
+        productCode: p?.product_id || '-',
+        product: p?.product_name || '-',
+        category: p?.category || '-',
+        unit: p?.uom || sp?.uom || '-',
+        estimatedPrice: sp?.unit_price_estimate || 0,
+        leadTime: item.lead_time || 0,
+        termOfPayment: item.top || '-',
+        status: item.status || 'ACTIVE',
+      }
+    })
+
+    const url = new URL(request.url)
+    const page = parseInt(url.searchParams.get('page') || '1', 10)
+    const limit = parseInt(url.searchParams.get('limit') || '10', 10)
+    
+    const total = suppliers.length
+    const paginatedData = suppliers.slice((page - 1) * limit, page * limit)
 
     return NextResponse.json({
       message: 'Suppliers fetched successfully',
-      data: suppliers,
+      data: paginatedData,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
     })
   } catch (error) {
     return NextResponse.json(

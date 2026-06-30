@@ -55,9 +55,10 @@ export async function POST(request: NextRequest) {
 
     // 1. Aksi: Verifikasi Three-way matching & Catat Hutang
     if (action === 'match') {
-      const { no_invoice, no_po, gr_code, supplier_id, jumlah, tanggal_invoice, due_date } = body;
+      const { no_invoice, no_po, gr_code, supplier_id, supplier_code, supplier_name, jumlah, tanggal_invoice, due_date } = body;
+      const normalizedSupplierId = String(supplier_id ?? supplier_code ?? supplier_name ?? '').trim();
 
-      if (!no_invoice || !no_po || !gr_code || !supplier_id || !jumlah || !tanggal_invoice || !due_date) {
+      if (!no_invoice || !no_po || !gr_code || !normalizedSupplierId || !jumlah || !tanggal_invoice || !due_date) {
         return NextResponse.json(
           { error: 'Input matching tidak lengkap. Diperlukan no_invoice, no_po, gr_code, supplier_id, jumlah, tanggal_invoice, dan due_date.' },
           { status: 400 }
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
         no_invoice,
         no_po,
         gr_code,
-        Number(supplier_id),
+        normalizedSupplierId,
         Number(jumlah),
         tanggal_invoice,
         due_date,

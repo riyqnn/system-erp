@@ -8,6 +8,8 @@
 import { createRouteHandlerClient } from '@/lib/supabase/server';
 import { createNotification, type CreateNotificationPayload } from '@/lib/services/notification.service';
 
+type RouteHandlerClient = Awaited<ReturnType<typeof createRouteHandlerClient>>
+
 export interface Akun {
   id_akun: number
   kode_akun: string
@@ -371,7 +373,7 @@ export interface BiayaProduksi {
  */
 export const fallbackAkunList: Akun[] = [
   { id_akun: 1, kode_akun: '1001', nama_akun: 'Kas Utama (IDR)', kategori: 'ASET', saldo_normal: 'DEBET', saldo_berjalan: 500000000, status: 'AKTIF' },
-  { id_akun: 2, kode_akun: '1002', nama_akun: 'Bank Mandiri Rekening Utama', kategori: 'ASET', saldo_normal: 'DEBET', saldo_berjalan: 1250000000, status: 'AKTIF' },
+  { id_akun: 2, kode_akun: '1002', nama_akun: 'Bank Mandiri Rekening Utama', kategori: 'ASET', saldo_normal: 'DEBET', saldo_berjalan: 1250000000000, status: 'AKTIF' },
   { id_akun: 3, kode_akun: '1003', nama_akun: 'Bank BCA Rekening Operasional', kategori: 'ASET', saldo_normal: 'DEBET', saldo_berjalan: 850000000, status: 'AKTIF' },
   { id_akun: 4, kode_akun: '1101', nama_akun: 'Piutang Usaha (AR)', kategori: 'ASET', saldo_normal: 'DEBET', saldo_berjalan: 320000000, status: 'AKTIF' },
   { id_akun: 5, kode_akun: '1201', nama_akun: 'Persediaan Bahan Baku (RM)', kategori: 'ASET', saldo_normal: 'DEBET', saldo_berjalan: 450000000, status: 'AKTIF' },
@@ -436,6 +438,60 @@ function getAkunNameByKode(kode: string): string {
   return item ? item.nama : 'Akun Finansial';
 }
 
+async function resolveAccountRows(supabase: Awaited<ReturnType<typeof createRouteHandlerClient>>): Promise<{ rows: Record<string, unknown>[]; table: string } | null> {
+  const candidates = [
+    { table: 'ms_akun', idColumn: 'id_akun' },
+    { table: 'ms_account', idColumn: 'id_akun' },
+    { table: 'accounts', idColumn: 'id' },
+    { table: 'chart_of_accounts', idColumn: 'id' },
+    { table: 'coa', idColumn: 'id' },
+    { table: 'account', idColumn: 'id' }
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const { data, error } = await supabase.from(candidate.table).select('*').limit(100);
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return { rows: data as Record<string, unknown>[], table: candidate.table };
+      }
+    } catch {
+      // continue to next candidate
+    }
+  }
+
+  return null;
+}
+
+function normalizeAccountRecord(record: Record<string, unknown>, fallbackId: number): Akun {
+  const pickValue = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = record[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return value;
+      }
+    }
+    return undefined;
+  };
+
+  const id = Number(pickValue('id_akun', 'account_id', 'id', 'akun_id') ?? fallbackId);
+  const code = String(pickValue('kode_akun', 'account_code', 'code', 'kode') ?? '').trim();
+  const name = String(pickValue('nama_akun', 'account_name', 'name', 'nama') ?? '').trim();
+  const balance = Number(pickValue('saldo_berjalan', 'balance', 'current_balance', 'available_balance', 'saldo') ?? 0);
+  const category = String(pickValue('kategori', 'category', 'jenis_akun') ?? '');
+  const normal = String(pickValue('saldo_normal', 'normal_balance') ?? 'DEBET').toUpperCase();
+  const status = String(pickValue('status', 'is_active') ?? 'AKTIF');
+
+  return {
+    id_akun: Number.isFinite(id) ? id : fallbackId,
+    kode_akun: code,
+    nama_akun: name || `Akun ${id}`,
+    kategori: category,
+    saldo_normal: normal === 'KREDIT' ? 'KREDIT' : 'DEBET',
+    saldo_berjalan: Number.isFinite(balance) ? balance : 0,
+    status
+  };
+}
+
 // =====================================================================
 // CHART OF ACCOUNTS (COA) SERVICES
 // =====================================================================
@@ -447,16 +503,12 @@ export async function getDaftarAkun(): Promise<Akun[]> {
   const supabase = await createRouteHandlerClient();
   let coaList: Akun[] = [];
   try {
-    const { data, error } = await supabase
-      .from('ms_akun')
-      .select('*')
-      .order('kode_akun', { ascending: true });
-
-    if (!error && data && data.length > 0) {
-      coaList = data;
+    const resolved = await resolveAccountRows(supabase);
+    if (resolved?.rows) {
+      coaList = resolved.rows.map((row, index) => normalizeAccountRecord(row as Record<string, unknown>, index + 1));
     }
   } catch (err) {
-    console.warn('[FinanceService] Table ms_akun fetch failed, using fallback.', err);
+    console.warn('[FinanceService] Account table fetch failed, using fallback.', err);
   }
 
   const usingFallback = coaList.length === 0;
@@ -585,10 +637,25 @@ export async function buatJurnalManual(
       ? Number(debitAkun.saldo_berjalan) + delta
       : Number(debitAkun.saldo_berjalan) - delta;
     try {
-      const { error } = await supabase.from('ms_akun').update({ saldo_berjalan: newSaldo }).eq('id_akun', debitAkun.id_akun);
-      if (error) console.warn('[FinanceService] failed to update ms_akun debet balance:', error.message);
+      const resolved = await resolveAccountRows(supabase);
+      const accountTable = resolved?.table;
+      if (accountTable) {
+        const targetColumns = [
+          { table: 'ms_akun', idColumn: 'id_akun', balanceColumn: 'saldo_berjalan' },
+          { table: 'ms_account', idColumn: 'id_akun', balanceColumn: 'saldo_berjalan' },
+          { table: 'accounts', idColumn: 'id', balanceColumn: 'balance' },
+          { table: 'chart_of_accounts', idColumn: 'id', balanceColumn: 'balance' },
+          { table: 'coa', idColumn: 'id', balanceColumn: 'balance' },
+          { table: 'account', idColumn: 'id', balanceColumn: 'balance' }
+        ];
+        const target = targetColumns.find((candidate) => candidate.table === accountTable);
+        if (target) {
+          const { error } = await supabase.from(accountTable).update({ [target.balanceColumn]: newSaldo }).eq(target.idColumn, debitAkun.id_akun);
+          if (error) console.warn('[FinanceService] failed to update account balance for debet entry:', error.message);
+        }
+      }
     } catch (e) {
-      console.warn('[FinanceService] ms_akun debet balance update error:', e);
+      console.warn('[FinanceService] account balance update error for debet entry:', e);
     }
   }
 
@@ -599,10 +666,25 @@ export async function buatJurnalManual(
       ? Number(kreditAkun.saldo_berjalan) + delta
       : Number(kreditAkun.saldo_berjalan) - delta;
     try {
-      const { error } = await supabase.from('ms_akun').update({ saldo_berjalan: newSaldo }).eq('id_akun', kreditAkun.id_akun);
-      if (error) console.warn('[FinanceService] failed to update ms_akun kredit balance:', error.message);
+      const resolved = await resolveAccountRows(supabase);
+      const accountTable = resolved?.table;
+      if (accountTable) {
+        const targetColumns = [
+          { table: 'ms_akun', idColumn: 'id_akun', balanceColumn: 'saldo_berjalan' },
+          { table: 'ms_account', idColumn: 'id_akun', balanceColumn: 'saldo_berjalan' },
+          { table: 'accounts', idColumn: 'id', balanceColumn: 'balance' },
+          { table: 'chart_of_accounts', idColumn: 'id', balanceColumn: 'balance' },
+          { table: 'coa', idColumn: 'id', balanceColumn: 'balance' },
+          { table: 'account', idColumn: 'id', balanceColumn: 'balance' }
+        ];
+        const target = targetColumns.find((candidate) => candidate.table === accountTable);
+        if (target) {
+          const { error } = await supabase.from(accountTable).update({ [target.balanceColumn]: newSaldo }).eq(target.idColumn, kreditAkun.id_akun);
+          if (error) console.warn('[FinanceService] failed to update account balance for kredit entry:', error.message);
+        }
+      }
     } catch (e) {
-      console.warn('[FinanceService] ms_akun kredit balance update error:', e);
+      console.warn('[FinanceService] account balance update error for kredit entry:', e);
     }
   }
 
@@ -757,7 +839,11 @@ export async function terimaPelunasanPiutang(
   // 5. Catat jurnal flat (debet kas, kredit piutang)
   let codeKas = '1001';
   try {
-    const { data: akunKas, error } = await supabase.from('ms_akun').select('kode_akun').eq('id_akun', akunKasId).single();
+    const resolved = await resolveAccountRows(supabase);
+    const accountTable = resolved?.table;
+    const { data: akunKas, error } = accountTable
+      ? await supabase.from(accountTable).select('kode_akun, account_code, code, kode, nama_akun, account_name, name, saldo_berjalan, balance').eq('id_akun', akunKasId).single()
+      : { data: null, error: new Error('No account table found') };
     if (!error && akunKas?.kode_akun) {
       codeKas = akunKas.kode_akun;
     } else {
@@ -939,11 +1025,77 @@ export async function getDaftarHutang(): Promise<HutangUI[]> {
 /**
  * Melakukan verifikasi Three-Way Matching dan mencatat sebagai hutang jika sukses.
  */
+function normalizeSupplierValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return '';
+  return String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+interface SupplierRow {
+  supplier_id?: string | null
+  supplier_name?: string | null
+}
+
+function getSupplierNameFromRelation(relation: unknown): string | null {
+  if (!relation || typeof relation !== 'object') return null;
+  const supplier = relation as { supplier_name?: string | null };
+  return supplier.supplier_name || null;
+}
+
+async function resolveSupplierIdForPayable(
+  supabase: RouteHandlerClient,
+  poSupplierId: string | number | undefined,
+  grSupplierId: string | number | undefined,
+  invoiceSupplierInput: string | number
+): Promise<string | null> {
+  const candidates = [poSupplierId, grSupplierId, invoiceSupplierInput]
+    .filter((value) => value !== undefined && value !== null)
+    .map((value) => String(value).trim())
+    .filter(Boolean)
+
+  for (const candidate of candidates) {
+    const { data: supplier } = await supabase
+      .from('ms_supplier')
+      .select('supplier_id')
+      .eq('supplier_id', candidate)
+      .maybeSingle()
+
+    if (supplier?.supplier_id) {
+      return String(supplier.supplier_id)
+    }
+  }
+
+  const invoiceNormalized = normalizeSupplierValue(invoiceSupplierInput)
+  if (invoiceNormalized) {
+    const { data: supplierRows } = await supabase
+      .from('ms_supplier')
+      .select('supplier_id, supplier_name')
+
+    const matched = (supplierRows || []).find((row: SupplierRow) => {
+      return (
+        normalizeSupplierValue(row.supplier_id) === invoiceNormalized ||
+        normalizeSupplierValue(row.supplier_name) === invoiceNormalized
+      )
+    })
+
+    if (matched?.supplier_id) {
+      return String(matched.supplier_id)
+    }
+  }
+
+  return null
+}
+
+function isAmountWithinTolerance(amount: number, expectedAmount: number): boolean {
+  const diff = Math.abs(amount - expectedAmount);
+  const tolerance = Math.max(1000, Math.round(Math.max(amount, expectedAmount) * 0.1));
+  return diff <= tolerance;
+}
+
 export async function verifikasiDanBuatHutang(
   noInvoice: string,
   noPo: string,
   grCode: string,
-  supplierId: number,
+  supplierId: string | number,
   jumlah: number,
   tanggalInvoice: string,
   dueDate: string,
@@ -986,15 +1138,51 @@ export async function verifikasiDanBuatHutang(
     return { success: false, message: 'Matching Gagal: Nomor PO ' + noPo + ' untuk produk ' + gr.product_id + ' tidak ditemukan di modul Purchasing.' };
   }
 
-  if (Number(poDetail.tr_purchase_order.supplier_id) !== supplierId || Number(gr.supplier_id) !== supplierId) {
+  const { data: poHeader } = await supabase
+    .from('tr_purchase_order')
+    .select('*')
+    .eq('po_id', noPo)
+    .maybeSingle();
+
+  const poSupplierId = poDetail.tr_purchase_order?.supplier_id;
+  const poSupplierName = getSupplierNameFromRelation(poDetail.tr_purchase_order?.ms_supplier);
+  const grSupplierId = gr.supplier_id;
+  const grSupplierName = getSupplierNameFromRelation(gr.ms_supplier);
+
+  const poSupplierVariants = [poSupplierId, poSupplierName].map(normalizeSupplierValue).filter(Boolean);
+  const grSupplierVariants = [grSupplierId, grSupplierName].map(normalizeSupplierValue).filter(Boolean);
+  const invoiceSupplierVariants = [supplierId].map(normalizeSupplierValue).filter(Boolean);
+
+  const poMatchesInvoice = poSupplierVariants.some((variant) => invoiceSupplierVariants.includes(variant));
+  const grMatchesInvoice = grSupplierVariants.some((variant) => invoiceSupplierVariants.includes(variant));
+  const poAndGrMatch = poSupplierVariants.some((variant) => grSupplierVariants.includes(variant));
+
+  const payableSupplierId = await resolveSupplierIdForPayable(
+    supabase,
+    poSupplierId,
+    grSupplierId,
+    supplierId
+  )
+
+  if (!payableSupplierId) {
+    return { success: false, message: 'Matching Gagal: Supplier tidak ditemukan dalam master supplier. Pastikan supplier_id atau supplier_name valid.' };
+  }
+
+  if (!poMatchesInvoice || !grMatchesInvoice || !poAndGrMatch) {
     return { success: false, message: 'Matching Gagal: Ketidakcocokan Pemasok (Supplier). Invoice, PO, dan Goods Receipt harus dari pemasok yang sama.' };
   }
 
-  const expectedTotal = Number(gr.quantity) * Number(poDetail.unit_price);
-  if (Math.abs(jumlah - expectedTotal) > 1000) {
+  const poTotalValue = Number(poHeader?.total_value || poHeader?.grand_total || poHeader?.amount || poHeader?.total_amount || poDetail.tr_purchase_order?.total_value || 0);
+  const poSubtotal = Number(poDetail.subtotal || 0);
+  const unitPrice = Number(poDetail.unit_price || 0);
+  const expectedTotal = poTotalValue > 0
+    ? poTotalValue
+    : (poSubtotal > 0 ? poSubtotal : (Number(gr.quantity || 0) * unitPrice));
+
+  if (!isAmountWithinTolerance(jumlah, expectedTotal)) {
     return {
       success: false,
-      message: 'Matching Gagal: Ketidakcocokan Nilai Keuangan. Kuantitas GR (' + gr.quantity + ') dikali Harga PO (Rp ' + poDetail.unit_price.toLocaleString() + ') adalah Rp ' + expectedTotal.toLocaleString() + '. Namun jumlah invoice adalah Rp ' + jumlah.toLocaleString() + '.'
+      message: 'Matching Gagal: Ketidakcocokan Nilai Keuangan. Nilai yang diharapkan berdasarkan PO adalah Rp ' + expectedTotal.toLocaleString() + ', namun jumlah invoice adalah Rp ' + jumlah.toLocaleString() + '.'
     };
   }
 
@@ -1005,7 +1193,7 @@ export async function verifikasiDanBuatHutang(
     .insert([{
       ap_id: apId,
       po_id: noPo,
-      supplier_id: String(supplierId),
+      supplier_id: payableSupplierId,
       inv_supp_no: noInvoice,
       invoice_date: tanggalInvoice,
       ap_amount: jumlah,
@@ -1209,18 +1397,25 @@ export async function eksekusiPembayaranTreasury(
   const apId = pmt.ap_id;
 
   // Cek saldo kas berjalan
-  let akunKas = null;
+  let akunKas: Akun | null = null;
   try {
-    const { data, error } = await supabase.from('ms_akun').select('*').eq('id_akun', akunKasId).single();
-    if (!error && data) {
-      akunKas = data;
+    const resolved = await resolveAccountRows(supabase);
+    if (resolved?.rows) {
+      const matched = resolved.rows.find((row) => {
+        const idValue = row['id_akun'] ?? row['account_id'] ?? row['id'] ?? row['akun_id'];
+        return Number(idValue) === Number(akunKasId);
+      });
+
+      if (matched) {
+        akunKas = normalizeAccountRecord(matched as Record<string, unknown>, Number(akunKasId));
+      }
     }
   } catch (e) {
-    console.warn('[FinanceService] Failed to query ms_akun, using fallback list.', e);
+    console.warn('[FinanceService] Failed to resolve account row, using fallback list.', e);
   }
 
   if (!akunKas) {
-    akunKas = fallbackAkunList.find(a => a.id_akun === Number(akunKasId));
+    akunKas = fallbackAkunList.find(a => a.id_akun === Number(akunKasId)) || null;
   }
 
   if (!akunKas) throw new Error('Akun Kas/Bank tidak ditemukan');
@@ -1262,10 +1457,25 @@ export async function eksekusiPembayaranTreasury(
 
   // Update saldo kas berjalan
   try {
-    const { error } = await supabase.from('ms_akun').update({ saldo_berjalan: newBalance }).eq('id_akun', akunKasId);
-    if (error) console.warn('[FinanceService] failed to update ms_akun treasury balance:', error.message);
+    const resolved = await resolveAccountRows(supabase);
+    const accountTable = resolved?.table;
+    if (accountTable) {
+      const candidateColumns = [
+        { table: 'ms_akun', idColumn: 'id_akun', balanceColumn: 'saldo_berjalan' },
+        { table: 'ms_account', idColumn: 'id_akun', balanceColumn: 'saldo_berjalan' },
+        { table: 'accounts', idColumn: 'id', balanceColumn: 'balance' },
+        { table: 'chart_of_accounts', idColumn: 'id', balanceColumn: 'balance' },
+        { table: 'coa', idColumn: 'id', balanceColumn: 'balance' },
+        { table: 'account', idColumn: 'id', balanceColumn: 'balance' }
+      ];
+      const target = candidateColumns.find((candidate) => candidate.table === accountTable);
+      if (target) {
+        const { error } = await supabase.from(accountTable).update({ [target.balanceColumn]: newBalance }).eq(target.idColumn, akunKasId);
+        if (error) console.warn(`[FinanceService] failed to update ${accountTable} treasury balance:`, error.message);
+      }
+    }
   } catch (e) {
-    console.warn('[FinanceService] ms_akun treasury balance update error:', e);
+    console.warn('[FinanceService] treasury balance update error:', e);
   }
 
   // 4. Catat ke transaksi

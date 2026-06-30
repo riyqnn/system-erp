@@ -11,7 +11,7 @@ import {
   ArrowRight,
   Target,
 } from '@phosphor-icons/react'
-import { TrackingReportModal } from '@/app/apps/purchasing/_components/TrackingReportModal'
+import { TrackingReportModal } from '@/app/purchasing/_components/TrackingReportModal'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
 
@@ -243,7 +243,7 @@ export function PriceNegotiationClient() {
           result.message ||
             'Negotiation has been agreed and purchase order has been updated.'
         )
-        router.push(`/apps/purchasing/purchase-orders/create?poNo=${poId}`)
+        router.push(`/purchasing/purchase-orders/create?poNo=${poId}`)
         return
       }
 
@@ -263,7 +263,7 @@ export function PriceNegotiationClient() {
       moduleTitle="Purchasing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Purchasing', href: '/apps/purchasing' },
+        { label: 'Purchasing', href: '/purchasing' },
         { label: 'Price Negotiation' },
       ]}
     >
@@ -567,7 +567,7 @@ export function PriceNegotiationClient() {
               </p>
 
               <Link
-                href={`/apps/purchasing/purchase-orders/create?negotiationNo=${
+                href={`/purchasing/purchase-orders/create?negotiationNo=${
                   selectedNegotiation?.negotiationNo || ''
                 }`}
                 className="mt-5 inline-flex items-center gap-2 rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800"

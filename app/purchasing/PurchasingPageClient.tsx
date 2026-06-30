@@ -165,7 +165,7 @@ export function PurchasingPageClient({
     () => [
       {
         label: 'Suppliers',
-        href: '/apps/purchasing/suppliers',
+        href: '/purchasing/suppliers',
         icon: Users,
         count: summary.totalSuppliers,
         description: 'Supplier product profiles',
@@ -174,7 +174,7 @@ export function PurchasingPageClient({
       },
       {
         label: 'Purchase Requisition',
-        href: '/apps/purchasing/purchase-requisition',
+        href: '/purchasing/purchase-requisition',
         icon: ClipboardText,
         count: summary.totalPurchaseRequisitions,
         description:
@@ -186,7 +186,7 @@ export function PurchasingPageClient({
       },
       {
         label: 'RFQ / Sourcing',
-        href: '/apps/purchasing/rfq-sourcing',
+        href: '/purchasing/rfq-sourcing',
         icon: FileText,
         count: summary.totalRFQ,
         description: 'Supplier quotations',
@@ -195,7 +195,7 @@ export function PurchasingPageClient({
       },
       {
         label: 'Price Negotiation',
-        href: '/apps/purchasing/negotiation',
+        href: '/purchasing/negotiation',
         icon: Handshake,
         count: summary.totalNegotiations,
         description: 'Price negotiations',
@@ -204,7 +204,7 @@ export function PurchasingPageClient({
       },
       {
         label: 'Purchase Order',
-        href: '/apps/purchasing/purchase-orders',
+        href: '/purchasing/purchase-orders',
         icon: ShoppingCart,
         count: summary.totalPurchaseOrders,
         description:
@@ -216,7 +216,7 @@ export function PurchasingPageClient({
       },
       {
         label: 'Monitoring',
-        href: '/apps/purchasing/delivery-monitoring',
+        href: '/purchasing/delivery-monitoring',
         icon: Truck,
         count: summary.totalTrackingReports,
         description: 'Tracking reports',
@@ -225,7 +225,7 @@ export function PurchasingPageClient({
       },
       {
         label: 'Goods Receipt',
-        href: '/apps/purchasing/goods-receipt',
+        href: '/purchasing/goods-receipt',
         icon: Package,
         count: summary.totalGoodsReceipts,
         description: 'Received goods',
@@ -234,7 +234,7 @@ export function PurchasingPageClient({
       },
       {
         label: 'Three-Way Matching',
-        href: '/apps/purchasing/three-way-matching',
+        href: '/purchasing/three-way-matching',
         icon: Scales,
         count: summary.totalThreeWayMatchings,
         description: 'PO, GR, and invoice match',
@@ -277,7 +277,7 @@ export function PurchasingPageClient({
           </span>
           . Need to switch role?{' '}
           <Link
-            href="/apps/purchasing/role-selector"
+            href="/purchasing/role-selector"
             className="font-semibold text-red-600 hover:underline"
           >
             Open Role Selector

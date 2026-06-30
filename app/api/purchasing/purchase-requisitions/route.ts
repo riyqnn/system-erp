@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createNotification as createGlobalNotification } from '@/lib/services/notification.service'
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -11,35 +12,118 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-export async function GET() {
+interface DBUser {
+  user_id: number
+  username: string
+  full_name: string
+  email: string
+  role: string
+}
+
+interface DBProduct {
+  product_id: string
+  product_name: string
+  category: string
+  uom: string
+  minimum_stock: number
+}
+
+interface DBPRDetail {
+  pr_detail_id: string
+  pr_id: string
+  product_id: string
+  qty_requested: number
+}
+
+interface DBPurchaseRequisition {
+  pr_id: string
+  requested_by: number
+  request_date: string
+  status: string
+  notes: string
+  created_at: string
+}
+
+async function createNotification({
+  title,
+  message,
+  recipientRole,
+  sourceRefId,
+  actionUrl,
+  priority = 'MEDIUM',
+}: {
+  title: string
+  message: string
+  recipientRole: string
+  sourceRefId: string
+  actionUrl: string
+  priority?: string
+}) {
+  try {
+    await createGlobalNotification({
+      title,
+      message,
+      type: 'INFORMATION',
+      priority: (priority as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL') || 'MEDIUM',
+      recipientRole,
+      sourceModule: 'PURCHASING',
+      sourceRefId,
+      sourceRefType: 'PR',
+      actionUrl,
+    })
+  } catch (error) {
+    console.warn('Failed to create notification:', error)
+  }
+}
+
+function buildApprovedNotes({
+  existingNotes,
+  budgetAmount,
+  budgetNote,
+}: {
+  existingNotes?: string | null
+  budgetAmount: number
+  budgetNote?: string
+}) {
+  const base = existingNotes ? `${existingNotes}\n\n` : ''
+  const budgetStr = `[BUDGET_AMOUNT:${budgetAmount}]`
+  const noteStr = budgetNote ? `\nNote: ${budgetNote}` : ''
+  return `${base}Approved by Manager Purchasing\n${budgetStr}${noteStr}`
+}
+
+function buildRejectedNotes({
+  existingNotes,
+  rejectionReason,
+}: {
+  existingNotes?: string | null
+  rejectionReason?: string
+}) {
+  const base = existingNotes ? `${existingNotes}\n\n` : ''
+  const noteStr = rejectionReason ? `\nReason: ${rejectionReason}` : ''
+  return `${base}Rejected by Manager Purchasing${noteStr}`
+}
+
+export async function GET(request: Request) {
   try {
     const [
       prResult,
       prDetailResult,
       productResult,
       userResult,
-      supplierPriceResult,
     ] = await Promise.all([
       supabase
         .from('tr_purchase_requisition')
         .select('pr_id, requested_by, request_date, status, notes, created_at')
         .order('request_date', { ascending: false }),
-
       supabase
         .from('tr_pr_detail')
         .select('pr_detail_id, pr_id, product_id, qty_requested'),
-
       supabase
         .from('ms_product')
         .select('product_id, product_name, category, uom, minimum_stock'),
-
       supabase
         .from('ms_user')
         .select('user_id, username, full_name, email, role'),
-
-      supabase
-        .from('ms_supplier_price')
-        .select('supplier_price_id, product_id, unit_price_estimate, uom'),
     ])
 
     const errors = [
@@ -47,7 +131,6 @@ export async function GET() {
       prDetailResult.error,
       productResult.error,
       userResult.error,
-      supplierPriceResult.error,
     ].filter(Boolean)
 
     if (errors.length > 0) {
@@ -60,12 +143,72 @@ export async function GET() {
       )
     }
 
+    const prs: DBPurchaseRequisition[] = prResult.data || []
+    const prDetails: DBPRDetail[] = prDetailResult.data || []
+    const products: DBProduct[] = productResult.data || []
+    const users: DBUser[] = userResult.data || []
+
+    const userMap = new Map<number, DBUser>(users.map((u) => [u.user_id, u]))
+    const productMap = new Map<string, DBProduct>(products.map((p) => [p.product_id, p]))
+
+    const detailsByPR = new Map<string, DBPRDetail[]>()
+    prDetails.forEach((d) => {
+      const prId = String(d.pr_id || '')
+      if (!detailsByPR.has(prId)) detailsByPR.set(prId, [])
+      detailsByPR.get(prId)!.push(d)
+    })
+
+    const data = prs.map((pr) => {
+      const requestedBy = userMap.get(pr.requested_by)
+      const items = detailsByPR.get(pr.pr_id) || []
+      
+      let budgetAmount = 0
+      const notesStr = pr.notes || ''
+      const budgetMatch = notesStr.match(/\[BUDGET_AMOUNT:([^\]]+)\]/i)
+      if (budgetMatch && budgetMatch[1]) {
+        budgetAmount = Number(budgetMatch[1].replace(/[^\d.,-]/g, ''))
+      }
+
+      return {
+        id: pr.pr_id,
+        prNo: pr.pr_id,
+        requestDate: pr.request_date || pr.created_at,
+        requestedBy: requestedBy?.full_name || requestedBy?.username || pr.requested_by || '-',
+        department: requestedBy?.role || '-',
+        notes: notesStr || '-',
+        status: pr.status || 'PENDING',
+        budgetAmount: budgetAmount || null,
+        items: items.map((item) => {
+          const product = productMap.get(item.product_id)
+          return {
+            id: item.pr_detail_id || item.product_id,
+            productCode: product?.product_id || item.product_id || '-',
+            productName: product?.product_name || '-',
+            category: product?.category || '-',
+            qty: item.qty_requested || 0,
+            unit: product?.uom || '-',
+            minimumStock: product?.minimum_stock || 0
+          }
+        })
+      }
+    })
+
+    const url = new URL(request.url)
+    const page = parseInt(url.searchParams.get('page') || '1', 10)
+    const limit = parseInt(url.searchParams.get('limit') || '10', 10)
+    
+    const total = data.length
+    const paginatedData = data.slice((page - 1) * limit, page * limit)
+
     return NextResponse.json({
       message: 'Purchase requisitions fetched successfully',
-      data,
+      data: paginatedData,
       meta: {
-        total: data.length,
-      },
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
     })
   } catch (error) {
     return NextResponse.json(
@@ -92,7 +235,7 @@ export async function PATCH(request: Request) {
     }: {
       prNo?: string
       prId?: string
-      action?: PRAction
+      action?: 'APPROVE' | 'REJECT'
       budgetAmount?: number | string
       budgetNote?: string
       rejectionReason?: string
@@ -199,9 +342,9 @@ export async function PATCH(request: Request) {
         message: `PR ${targetPR} has been approved with budget Rp ${new Intl.NumberFormat(
           'id-ID'
         ).format(numericBudget)} and is ready for RFQ/Sourcing.`,
-        recipientRole: 'PURCHASING',
+        recipientRole: 'INVENTORY',
         sourceRefId: targetPR,
-        actionUrl: `/apps/purchasing/purchase-requisition`,
+        actionUrl: `/inventory/purchase-requisition?highlight=${targetPR}`,
         priority: 'HIGH',
       })
 
@@ -241,7 +384,7 @@ export async function PATCH(request: Request) {
       message: `PR ${targetPR} has been rejected by Manager Purchasing.`,
       recipientRole: 'INVENTORY',
       sourceRefId: targetPR,
-      actionUrl: `/apps/purchasing/purchase-requisition`,
+      actionUrl: `/inventory/purchase-requisition?highlight=${targetPR}`,
       priority: 'HIGH',
     })
 

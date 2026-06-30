@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createNotification as createGlobalNotification } from '@/lib/services/notification.service'
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -10,6 +11,37 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey)
+
+interface DBSupplier {
+  supplier_id: string
+  supplier_name: string
+  contact: string
+  address: string
+  lead_time?: string
+  top?: string
+  status: string
+}
+
+interface DBProduct {
+  product_id: string
+  product_name: string
+  category: string
+  uom: string
+}
+
+interface DBPriceQuotation {
+  quotation_id: string
+  supplier_id: string
+  product_id: string
+  proposed_price: number | null
+  accepted_price: number | null
+  final_price: number | null
+  qty_requested: number
+  status: string
+  quotation_date: string
+  expiry_date: string | null
+  notes: string | null
+}
 
 type QuotationDBStatus = 'PROPOSED' | 'SENT' | 'AGREED' | 'REJECTED' | 'CANCELLED'
 
@@ -52,33 +84,75 @@ function generatePONumber() {
   return `PO-${year}${month}-${timestamp}${random}`
 }
 
-async function createPurchaseOrderFromNegotiation(quotationId: string, quotation: AnyObject) {
-  const { data: existingPO, error: existingPOError } = await supabase
-    .from('tr_purchase_order')
-    .select('po_id')
-    .eq('quotation_id', quotationId)
-    .maybeSingle()
+function parsePRIdFromQuotationNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null
+  const match = notes.match(/\[PR_NO:([^\]]+)\]/i)
+  return match ? match[1] : null
+}
 
-  if (error) {
-    throw new Error(`Failed to fetch PR budget: ${error.message}`)
-  }
+function parseBudgetAmount(notes: string | null | undefined): number | null {
+  if (!notes) return null
+  const match = notes.match(/\[BUDGET_AMOUNT:([^\]]+)\]/i)
+  if (!match?.[1]) return null
+  const rawValue = match[1].trim().replace(/[^\d.,-]/g, '')
+  if (!rawValue) return null
+  return Number(rawValue) || null
+}
 
-  if (!data) {
-    return {
-      prId,
-      budgetAmount: 0,
-      prFound: false,
-    }
-  }
+async function getPRBudget(prId: string | null): Promise<{ prFound: boolean, prId: string | null, budgetAmount: number }> {
+  if (!prId) return { prFound: false, prId: null, budgetAmount: 0 }
+  const { data } = await supabase.from('tr_purchase_requisition').select('pr_id, notes').eq('pr_id', prId).maybeSingle()
+  if (!data) return { prFound: false, prId, budgetAmount: 0 }
+  const budget = parseBudgetAmount(data.notes)
+  return { prFound: true, prId: data.pr_id, budgetAmount: budget || 0 }
+}
 
-  return {
-    prId: data.pr_id,
-    budgetAmount: parseBudgetFromPRNotes(data.notes),
-    prFound: true,
+function getQuotationIdCandidates(negotiationNumber: string): string[] {
+  return [negotiationNumber, `NEG-${negotiationNumber}`]
+}
+
+function appendSystemNote(existingNotes: string | null, newNote: string | null): string {
+  const base = existingNotes ? String(existingNotes).trim() : ''
+  if (!newNote) return base
+  if (base.includes(newNote)) return base
+  return base ? `${base}\n${newNote}` : newNote
+}
+
+async function createNotification({
+  title,
+  message,
+  recipientRole,
+  sourceRefId,
+  sourceRefType,
+  actionUrl,
+  priority = 'MEDIUM',
+}: {
+  title: string
+  message: string
+  recipientRole: string
+  sourceRefId: string
+  sourceRefType: string
+  actionUrl: string
+  priority?: string
+}) {
+  try {
+    await createGlobalNotification({
+      title,
+      message,
+      type: 'INFORMATION',
+      priority: (priority as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL') || 'MEDIUM',
+      recipientRole,
+      sourceModule: 'PURCHASING',
+      sourceRefId,
+      sourceRefType,
+      actionUrl,
+    })
+  } catch (error) {
+    console.warn('Failed to create notification:', error)
   }
 }
 
-async function createPurchaseOrderFromNegotiation(quotationId: string, quotation: any) {
+async function createPurchaseOrderFromNegotiation(quotationId: string, quotation: DBPriceQuotation) {
   const supplierId = quotation.supplier_id
   const productId = quotation.product_id
   const qty = Number(quotation.qty_requested || 0)
@@ -178,7 +252,7 @@ async function createPurchaseOrderFromNegotiation(quotationId: string, quotation
         recipientRole: 'MANAGER_PURCHASING',
         sourceRefId: updatedPO.po_id,
         sourceRefType: 'PO',
-        actionUrl: '/apps/purchasing/purchase-orders',
+        actionUrl: `/purchasing/purchase-orders?highlight=${updatedPO.po_id}`,
         priority: 'HIGH',
       })
     } else {
@@ -188,7 +262,7 @@ async function createPurchaseOrderFromNegotiation(quotationId: string, quotation
         recipientRole: 'INVENTORY',
         sourceRefId: updatedPO.po_id,
         sourceRefType: 'PO',
-        actionUrl: '/apps/purchasing/goods-receipt',
+        actionUrl: `/purchasing/goods-receipt?highlight=${updatedPO.po_id}`,
         priority: 'HIGH',
       })
     }
@@ -251,7 +325,7 @@ async function createPurchaseOrderFromNegotiation(quotationId: string, quotation
       recipientRole: 'MANAGER_PURCHASING',
       sourceRefId: poData.po_id,
       sourceRefType: 'PO',
-      actionUrl: '/apps/purchasing/purchase-orders',
+      actionUrl: `/purchasing/purchase-orders?highlight=${poData.po_id}`,
       priority: 'HIGH',
     })
   } else {
@@ -261,7 +335,7 @@ async function createPurchaseOrderFromNegotiation(quotationId: string, quotation
       recipientRole: 'INVENTORY',
       sourceRefId: poData.po_id,
       sourceRefType: 'PO',
-      actionUrl: '/apps/purchasing/goods-receipt',
+      actionUrl: `/purchasing/goods-receipt?highlight=${poData.po_id}`,
       priority: 'HIGH',
     })
   }
@@ -282,9 +356,9 @@ async function createPurchaseOrderFromNegotiation(quotationId: string, quotation
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const [quotationResult, supplierResult, productResult, supplierPriceResult] =
+    const [quotationResult, supplierResult, productResult] =
       await Promise.all([
         supabase
           .from('tr_price_quotation')
@@ -300,15 +374,12 @@ export async function GET() {
         supabase
           .from('ms_product')
           .select('product_id, product_name, category, uom'),
-
-        supabase.from('ms_supplier_price').select('*'),
       ])
 
     const errors = [
       quotationResult.error,
       supplierResult.error,
       productResult.error,
-      supplierPriceResult.error,
     ].filter(Boolean)
 
     if (errors.length > 0) {
@@ -321,41 +392,61 @@ export async function GET() {
       )
     }
 
-    const negotiations = (quotationResult.data || []).map((item: AnyObject) => ({
-      id: item.id,
-      negotiationNo: item.negotiation_number,
+    const suppliers: DBSupplier[] = supplierResult.data || []
+    const products: DBProduct[] = productResult.data || []
+    const supplierMap = new Map<string, DBSupplier>(suppliers.map((s) => [s.supplier_id, s]))
+    const productMap = new Map<string, DBProduct>(products.map((p) => [p.product_id, p]))
 
-      rfqNo: item.purchasing_rfq_sourcing?.rfq_number || '-',
-      rfqStatus: item.purchasing_rfq_sourcing?.status || '-',
-      quotationDeadline:
-        item.purchasing_rfq_sourcing?.quotation_deadline || null,
-      specificationNotes:
-        item.purchasing_rfq_sourcing?.specification_notes || '-',
+    const quotations: DBPriceQuotation[] = quotationResult.data || []
+    const negotiations = quotations.map((item) => {
+      const supplier = supplierMap.get(item.supplier_id)
+      const product = productMap.get(item.product_id)
+      return {
+        id: item.quotation_id,
+        negotiationNo: item.quotation_id,
+        rfqNo: '-',
+        rfqStatus: '-',
+        quotationDeadline: null,
+        specificationNotes: '-',
 
-      supplierId: item.ms_suppliers?.supplier_code || '-',
-      supplierName: item.ms_suppliers?.supplier_name || '-',
-      supplierContact: item.ms_suppliers?.contact || '-',
-      supplierAddress: item.ms_suppliers?.address || '-',
+        supplierId: supplier?.supplier_id || '-',
+        supplierName: supplier?.supplier_name || '-',
+        supplierContact: supplier?.contact || '-',
+        supplierAddress: supplier?.address || '-',
 
-      productCode: item.products?.sku || '-',
-      productName: item.products?.name || '-',
-      category: item.products?.category || '-',
+        productCode: product?.product_id || '-',
+        productName: product?.product_name || '-',
+        category: product?.category || '-',
 
-      referencePrice: item.reference_price || 0,
-      proposedPrice: item.proposed_price || 0,
-      supplierResponsePrice: item.supplier_response_price || 0,
-      finalPrice: item.final_price || 0,
-      qty: item.qty || 0,
-      unit: item.unit || item.products?.unit || '-',
-      confirmationDeadline: item.confirmation_deadline,
-      status: item.status,
-      notes: item.notes || '-',
-      createdAt: item.created_at,
-    }))
+        referencePrice: item.proposed_price || 0,
+        proposedPrice: item.proposed_price || 0,
+        supplierResponsePrice: item.accepted_price || 0,
+        finalPrice: item.final_price || 0,
+        qty: item.qty_requested || 0,
+        unit: product?.uom || '-',
+        confirmationDeadline: item.expiry_date,
+        status: getDisplayStatus(item.status),
+        notes: item.notes || '-',
+        createdAt: item.quotation_date,
+      }
+    })
+
+    const url = new URL(request.url)
+    const page = parseInt(url.searchParams.get('page') || '1', 10)
+    const limit = parseInt(url.searchParams.get('limit') || '10', 10)
+    
+    const total = negotiations.length
+    const paginatedData = negotiations.slice((page - 1) * limit, page * limit)
 
     return NextResponse.json({
-      message: 'Price negotiations fetched successfully',
-      data: negotiations,
+      message: 'Negotiations fetched successfully',
+      data: paginatedData,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
     })
   } catch (error) {
     return NextResponse.json(
@@ -550,7 +641,7 @@ export async function PATCH(request: Request) {
     }
 
     const quotationId = String(existingQuotation.quotation_id)
-    const updatePayload: Record<string, any> = {}
+    const updatePayload: Partial<DBPriceQuotation> = {}
 
     if (supplierResponsePrice !== undefined) {
       updatePayload.accepted_price =
@@ -586,7 +677,7 @@ export async function PATCH(request: Request) {
     const { data, error } = await supabase
       .from('tr_price_quotation')
       .update(updatePayload)
-      .eq('quotation_id', negotiationNumber)
+      .eq('quotation_id', quotationId)
       .select()
       .single()
 
@@ -600,12 +691,22 @@ export async function PATCH(request: Request) {
       )
     }
 
-    let generatedPO: any = null
+    let generatedPO: {
+      poCreated: boolean
+      poUpdated: boolean
+      poId: string
+      poStatus: string
+      prId: string | null
+      budgetAmount: number
+      totalValue: number
+      isOverBudget: boolean
+      message: string
+    } | null = null
     const normalizedStatus = normalizeQuotationStatus(data?.status)
 
     if (normalizedStatus === 'AGREED') {
       try {
-        generatedPO = await createPurchaseOrderFromNegotiation(negotiationNumber, data)
+        generatedPO = await createPurchaseOrderFromNegotiation(quotationId, data)
       } catch (poError) {
         return NextResponse.json(
           {

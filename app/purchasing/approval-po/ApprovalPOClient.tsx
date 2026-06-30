@@ -17,7 +17,7 @@ export function ApprovalPOClient() {
   const [approvalNotes, setApprovalNotes] = useState('')
 
   const goBackToPO = () => {
-    router.push('/apps/purchasing/purchase-orders')
+    router.push('/purchasing/purchase-orders')
   }
 
   return (
@@ -26,7 +26,7 @@ export function ApprovalPOClient() {
       moduleTitle="Purchasing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Purchasing', href: '/apps/purchasing' },
+        { label: 'Purchasing', href: '/purchasing' },
         { label: 'Approval PO' },
       ]}
     >

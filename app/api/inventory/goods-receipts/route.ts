@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
 
     const payload = {
       receipt_id: body.gr_code,
+      po_id: body.po_id || null,
       supplier_id: body.supplier_id,
       product_id: body.product_id,
       warehouse_id: String(body.warehouse_id),
@@ -154,7 +155,7 @@ export async function POST(request: NextRequest) {
       sourceModule: 'INVENTORY',
       sourceRefId: body.gr_code,
       sourceRefType: 'GOODS_RECEIPT',
-      actionUrl: `/apps/purchasing/goods-receipt`,
+      actionUrl: `/purchasing/goods-receipt`,
       createdBy: user.user_id,
     })
 

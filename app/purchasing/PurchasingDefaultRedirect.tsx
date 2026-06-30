@@ -18,13 +18,13 @@ export function PurchasingDefaultRedirect() {
       savedRole === 'MANAGER_PURCHASING' &&
       managerAccessGranted === 'true'
     ) {
-      router.replace('/apps/purchasing/manager')
+      router.replace('/purchasing/manager')
       return
     }
 
     localStorage.setItem('erp_role', 'PURCHASING')
     localStorage.removeItem('erp_manager_access_granted')
-    router.replace('/apps/purchasing/staff')
+    router.replace('/purchasing/staff')
   }, [router])
 
   return (

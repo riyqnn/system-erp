@@ -73,8 +73,8 @@ export function CreatePurchaseRequisitionClient() {
       moduleTitle="Purchasing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Purchasing', href: '/apps/purchasing' },
-        { label: 'Purchase Requisition', href: '/apps/purchasing/purchase-requisition' },
+        { label: 'Purchasing', href: '/purchasing' },
+        { label: 'Purchase Requisition', href: '/purchasing/purchase-requisition' },
         { label: 'Create PR' },
       ]}
     >
@@ -241,7 +241,7 @@ export function CreatePurchaseRequisitionClient() {
             </button>
 
             <Link
-              href="/apps/purchasing/purchase-requisition"
+              href="/purchasing/purchase-requisition"
               className="inline-flex h-10 items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700"
             >
               Submit PR →

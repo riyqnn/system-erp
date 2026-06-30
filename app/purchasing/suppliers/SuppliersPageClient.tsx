@@ -165,7 +165,7 @@ export function SuppliersPageClient() {
       moduleTitle="Purchasing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Purchasing', href: '/apps/purchasing' },
+        { label: 'Purchasing', href: '/purchasing' },
         { label: 'Suppliers' },
       ]}
     >

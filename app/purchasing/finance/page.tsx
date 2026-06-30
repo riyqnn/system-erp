@@ -10,7 +10,7 @@ export default function PurchasingFinancePage() {
       moduleTitle="Purchasing"
       breadcrumbs={[
         { label: 'Dashboard', href: '/dashboard' },
-        { label: 'Purchasing', href: '/apps/purchasing' },
+        { label: 'Purchasing', href: '/purchasing' },
         { label: 'Finance Handoff' },
       ]}
     >
@@ -102,14 +102,14 @@ export default function PurchasingFinancePage() {
 
         <div className="flex justify-end gap-3">
           <Link
-            href="/apps/purchasing/three-way-matching"
+            href="/purchasing/three-way-matching"
             className="rounded-lg border border-slate-200 px-5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
           >
             Back to Three-Way Matching
           </Link>
 
           <Link
-            href="/apps/purchasing"
+            href="/purchasing"
             className="rounded-lg bg-red-700 px-5 py-2 text-sm font-medium text-white hover:bg-red-800"
           >
             Back to Purchasing Dashboard

@@ -1,4 +1,3 @@
-import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
@@ -143,7 +142,7 @@ async function resolveSupplier(params: {
   )
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const [
       quotationResult,
@@ -200,42 +199,69 @@ export async function GET() {
       )
     }
 
-    const rfqSourcing = (quotationResult.data || []).map((item: AnyObject) => ({
-      id: item.id,
-      rfqNo: item.rfq_number,
-      requiredQty: item.required_qty || 0,
-      unit: item.unit || item.products?.unit || '-',
+    const quotations = quotationResult.data || []
+    const suppliers = supplierResult.data || []
+    const products = productResult.data || []
+    
+    const supplierMap = new Map()
+    suppliers.forEach((s: { supplier_id: string; supplier_name: string; contact: string; address: string }) => supplierMap.set(s.supplier_id, s))
 
-      productCode: item.products?.sku || '-',
-      productName: item.products?.name || '-',
-      category: item.products?.category || '-',
+    const productMap = new Map()
+    products.forEach((p: { product_id: string; product_name: string; category: string; uom: string }) => productMap.set(p.product_id, p))
 
-      prNo: item.purchasing_purchase_requisitions?.pr_number || '-',
-      requestDate: item.purchasing_purchase_requisitions?.request_date || null,
-      requestedBy:
-        item.purchasing_purchase_requisitions?.requested_by_name || '-',
-      department: item.purchasing_purchase_requisitions?.department || '-',
+    const rfqSourcing = quotations.map((item: { quotation_id: string; supplier_id: string; product_id: string; qty_requested: number; status: string; quotation_date: string; expiry_date: string; notes: string; [key: string]: unknown }) => {
+      const s = supplierMap.get(item.supplier_id)
+      const p = productMap.get(item.product_id)
+      
+      const prMatch = item.notes?.match(/PR Reference: (PR-[A-Z0-9-]+)/)
+      const prNo = prMatch ? prMatch[1] : '-'
 
-      supplierId: item.ms_suppliers?.supplier_code || '-',
-      supplierName:
-        item.ms_suppliers?.supplier_name ||
-        item.candidate_supplier_name ||
-        '-',
-      candidateSupplierName: item.candidate_supplier_name || '-',
-      picName: item.pic_name || '-',
-      email: item.email || item.ms_suppliers?.contact || '-',
-      phone: item.phone || '-',
-      address: item.address || item.ms_suppliers?.address || '-',
+      return {
+        id: item.quotation_id,
+        rfqNo: item.quotation_id,
+        requiredQty: item.qty_requested || 0,
+        unit: p?.uom || '-',
 
-      quotationDeadline: item.quotation_deadline,
-      specificationNotes: item.specification_notes || '-',
-      status: item.status,
-      createdAt: item.created_at,
-    }))
+        productCode: p?.product_id || '-',
+        productName: p?.product_name || '-',
+        category: p?.category || '-',
+
+        prNo: prNo,
+        requestDate: item.quotation_date || null,
+        requestedBy: '-',
+        department: '-',
+
+        supplierId: item.supplier_id || '-',
+        supplierName: s?.supplier_name || '-',
+        candidateSupplierName: s?.supplier_name || '-',
+        picName: s?.contact || '-',
+        email: '-',
+        phone: '-',
+        address: s?.address || '-',
+
+        quotationDeadline: item.expiry_date,
+        specificationNotes: item.notes || '-',
+        status: item.status,
+        createdAt: item.quotation_date,
+      }
+    })
+
+    const url = new URL(request.url)
+    const page = parseInt(url.searchParams.get('page') || '1', 10)
+    const limit = parseInt(url.searchParams.get('limit') || '10', 10)
+    
+    const total = rfqSourcing.length
+    const paginatedData = rfqSourcing.slice((page - 1) * limit, page * limit)
 
     return NextResponse.json({
       message: 'RFQ sourcing data fetched successfully',
-      data: rfqSourcing,
+      data: paginatedData,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
     })
   } catch (error) {
     return NextResponse.json(

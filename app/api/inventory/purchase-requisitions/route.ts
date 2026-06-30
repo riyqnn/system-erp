@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
       sourceModule: 'INVENTORY',
       sourceRefId: pr_code,
       sourceRefType: 'PURCHASE_REQUISITION',
-      actionUrl: `/apps/purchasing/purchase-requisition`,
+      actionUrl: `/purchasing/purchase-requisition`,
       createdBy: user.user_id,
     })
 

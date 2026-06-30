@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 interface GoodsReceipt {
   receipt_id: number;
   gr_code: string;
-  pr_id: number | null;
+  po_id: string | null;
   supplier_id: number;
   product_id: number;
   quantity: number;
@@ -84,7 +84,7 @@ export default function InvoiceVerificationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           receipt_id: selectedGR.receipt_id,
-          po_id: selectedGR.pr_id, // assuming pr_id holds po_id or is sent as po_id
+          po_id: selectedGR.po_id,
           supplier_id: selectedGR.supplier_id,
           invoice_amount: invoiceAmount,
           unit_price: unitPrice
@@ -177,8 +177,8 @@ export default function InvoiceVerificationPage() {
                   <h2 className="text-lg font-semibold text-slate-900">Verify Invoice</h2>
                   <p className="text-sm text-slate-500">GR Reference: <span className="font-mono">{selectedGR.gr_code}</span></p>
                 </div>
-                {selectedGR.pr_id && (
-                  <span className="bg-white border border-slate-200 px-3 py-1 rounded-md text-xs font-mono text-slate-600">PO Ref ID: {selectedGR.pr_id}</span>
+                {selectedGR.po_id && (
+                  <span className="bg-white border border-slate-200 px-3 py-1 rounded-md text-xs font-mono text-slate-600">PO Ref ID: {selectedGR.po_id}</span>
                 )}
               </div>
               

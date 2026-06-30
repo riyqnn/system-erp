@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createNotification as createGlobalNotification } from '@/lib/services/notification.service'
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -10,6 +11,54 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey)
+
+interface DBSupplier {
+  supplier_id: string
+  supplier_name: string
+  contact: string
+  address: string
+  lead_time?: string
+  top?: string
+  status: string
+}
+
+interface DBProduct {
+  product_id: string
+  product_name: string
+  category: string
+  uom: string
+}
+
+interface DBPurchaseRequisition {
+  pr_id: string
+  requested_by: string
+  request_date: string
+  status: string
+  notes: string
+  created_at: string
+}
+
+interface DBPurchaseOrder {
+  po_id: string
+  pr_id: string | null
+  supplier_id: string | null
+  quotation_id: string | null
+  approved_by: string | null
+  total_value: number
+  status: string
+  rejection_reason: string | null
+  created_at: string
+  po_release_date: string | null
+}
+
+interface DBPoDetail {
+  po_detail_id: string
+  po_id: string
+  product_id: string
+  qty_order: number
+  unit_price: number
+  subtotal: number
+}
 
 function normalizeStatus(value?: string | null) {
   const status = String(value || '').toUpperCase()
@@ -127,49 +176,26 @@ async function createNotification({
   referenceId: string
   recipientRole: string
 }) {
-  const now = new Date().toISOString()
-
-  const payloads = [
-    {
+  try {
+    await createGlobalNotification({
       title,
       message,
-      type: 'PURCHASE_ORDER',
-      module: 'PURCHASING',
-      reference_id: referenceId,
-      reference_type: 'PURCHASE_ORDER',
-      recipient_role: recipientRole,
-      is_read: false,
-      created_at: now,
-    },
-    {
-      title,
-      message,
-      notification_type: 'PURCHASE_ORDER',
-      module: 'PURCHASING',
-      reference_id: referenceId,
-      recipient_role: recipientRole,
-      is_read: false,
-      created_at: now,
-    },
-    {
-      message: `${title}: ${message}`,
-      type: 'PURCHASE_ORDER',
-      reference_id: referenceId,
-      is_read: false,
-      created_at: now,
-    },
-  ]
-
-  for (const payload of payloads) {
-    const { error } = await supabase.from('notifications').insert(payload)
-
-    if (!error) return true
+      type: 'INFORMATION',
+      priority: 'HIGH',
+      recipientRole,
+      sourceModule: 'PURCHASING',
+      sourceRefId: referenceId,
+      sourceRefType: 'PO',
+      actionUrl: `/purchasing/purchase-orders?highlight=${referenceId}`,
+    })
+    return true
+  } catch (error) {
+    console.warn('Failed to create notification:', error)
+    return false
   }
-
-  return false
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const [
       poResult,
@@ -234,50 +260,40 @@ export async function GET() {
       )
     }
 
-    const suppliers = supplierResult.data || []
-    const products = productResult.data || []
-    const prs = prResult.data || []
-    const quotations = quotationResult.data || []
+    const suppliers: DBSupplier[] = supplierResult.data || []
+    const products: DBProduct[] = productResult.data || []
+    const prs: DBPurchaseRequisition[] = prResult.data || []
 
-    const supplierMap = new Map(
-      suppliers.map((s: AnyObject) => [s.supplier_id, s])
+    const supplierMap = new Map<string, DBSupplier>(
+      suppliers.map((s) => [s.supplier_id, s])
     )
-    const productMap = new Map(
-      products.map((p: AnyObject) => [p.product_id, p])
+    const productMap = new Map<string, DBProduct>(
+      products.map((p) => [p.product_id, p])
     )
-    const prMap = new Map(
-      prs.map((p: AnyObject) => [p.pr_id, p])
-    )
-    const quotationMap = new Map(
-      quotations.map((q: AnyObject) => [q.quotation_id, q])
+    const prMap = new Map<string, DBPurchaseRequisition>(
+      prs.map((p) => [p.pr_id, p])
     )
 
-    const detailsByPO = new Map()
-    ;(poDetailResult.data || []).forEach((d: AnyObject) => {
+    const detailsByPO = new Map<string, DBPoDetail[]>()
+    ;(poDetailResult.data || []).forEach((d: DBPoDetail) => {
       const poId = String(d.po_id || '')
       if (!detailsByPO.has(poId)) detailsByPO.set(poId, [])
-      detailsByPO.get(poId).push(d)
+      detailsByPO.get(poId)!.push(d)
     })
 
-    const purchaseOrders = (poResult.data || []).map((item: AnyObject) => {
+    const purchaseOrders = ((poResult.data || []) as DBPurchaseOrder[]).map((item) => {
       const poId = String(item.po_id || '')
-      const supplier = supplierMap.get(item.supplier_id)
-      const pr = prMap.get(item.pr_id)
-      const quotation = quotationMap.get(item.quotation_id)
-
-      const poItems = detailsByPO.get(poId) || []
-      const firstItem = poItems[0]
-
-      const subtotal = poItems.reduce(
-        (total: number, pi: AnyObject) => total + Number(pi.subtotal || 0),
+      const supplier = supplierMap.get(item.supplier_id || '')
+      const pr = prMap.get(item.pr_id || '')
+      const poItems = detailsByPO.get(item.po_id) || []
+      const poSubtotal = poItems.reduce(
+        (total: number, pi: DBPoDetail) => total + Number(pi.subtotal || 0),
         0
       )
 
-      const totalValue = Number(item.total_value || subtotal || 0)
-      const taxAmount = Math.max(totalValue - subtotal, 0)
+      const totalValue = Number(item.total_value || poSubtotal || 0)
+      const taxAmount = Math.max(totalValue - poSubtotal, 0)
       const status = normalizeStatus(item.status)
-
-      const firstProduct = firstItem ? productMap.get(firstItem.product_id) : undefined
 
       return {
         id: poId,
@@ -290,34 +306,20 @@ export async function GET() {
         supplierContact: supplier?.contact || '-',
         supplierAddress: supplier?.address || '-',
 
-        prNo: pr?.pr_id || item.pr_id || '-',
-        quotationNo: quotation?.quotation_id || item.quotation_id || '-',
-        requestedBy: pr?.requested_by || '-',
-        department: pr?.department || '-',
-        subtotal,
-        taxAmount,
-        totalValue,
+        prNo: pr?.pr_id || '-',
+        prDate: pr?.request_date || pr?.created_at || null,
+        requester: pr?.requested_by || '-',
+        notes: item.rejection_reason || pr?.notes || '-',
+        totalValue: totalValue,
+        taxAmount: taxAmount,
+        subtotal: poSubtotal,
         status,
-        approvalLevel: item.approval_level || '-',
-        approver: item.approved_by_name || '-',
-        approvedAt: item.approved_at,
-        approvalNotes: item.approval_notes || '-',
-        rejectionReason: item.rejection_reason || '-',
-        releasedAt: item.released_at,
-        createdBy: item.created_by_name || '-',
 
-        productCode: firstProduct?.product_id || firstItem?.product_id || '-',
-        productName: firstProduct?.product_name || '-',
-        category: firstProduct?.category || '-',
-        qty: firstItem?.qty_order || 0,
-        unit: firstProduct?.uom || '-',
-        unitPrice: firstItem?.unit_price || 0,
-
-        items: poItems.map((poItem: AnyObject) => {
+        items: poItems.map((poItem: DBPoDetail) => {
           const prod = productMap.get(poItem.product_id)
           return {
-            id: poItem.po_detail_id || poItem.id,
-            productCode: prod?.product_id || poItem.product_id || '-',
+            id: poItem.po_detail_id || poItem.product_id,
+            productId: poItem.product_id,
             productName: prod?.product_name || '-',
             category: prod?.category || '-',
             qty: poItem.qty_order || 0,
@@ -329,9 +331,22 @@ export async function GET() {
       }
     })
 
+    const url = new URL(request.url)
+    const page = parseInt(url.searchParams.get('page') || '1', 10)
+    const limit = parseInt(url.searchParams.get('limit') || '10', 10)
+    
+    const total = purchaseOrders.length
+    const paginatedData = purchaseOrders.slice((page - 1) * limit, page * limit)
+
     return NextResponse.json({
       message: 'Purchase orders fetched successfully',
-      data: purchaseOrders,
+      data: paginatedData,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
     })
   } catch (error) {
     return NextResponse.json(
@@ -429,7 +444,7 @@ export async function POST(request: Request) {
     }
 
     const subtotal = items.reduce(
-      (total: number, item: any) =>
+      (total: number, item: Record<string, unknown>) =>
         total + Number(item.qty || 0) * Number(item.unitPrice || 0),
       0
     )
@@ -587,9 +602,8 @@ export async function PATCH(request: Request) {
       )
     }
 
-    const updatePayload: AnyObject = {
-      status,
-    }
+    let patchAction = normalizePatchAction(action || approvalAction || managerAction)
+    const requestedStatus = status
 
     if (!patchAction && requestedStatus === 'REVISION_REQUIRED') {
       patchAction = 'REJECT_OVER_BUDGET'
@@ -604,10 +618,18 @@ export async function PATCH(request: Request) {
       )
     }
 
+    const totalValue = Number(poData.total_value || 0)
+    let prNotes = ''
+    if (poData.pr_id) {
+       const { data: prData } = await supabase.from('tr_purchase_requisition').select('notes').eq('pr_id', poData.pr_id).maybeSingle()
+       if (prData) prNotes = prData.notes || ''
+    }
+    const budgetInfo = getBudgetInfo(totalValue, prNotes)
+
     const now = new Date().toISOString()
     const managerUserId = approvedBy || managerId || null
 
-    let updatePayload: Record<string, any> = {}
+    let updatePayload: Record<string, unknown> = {}
     let responseMessage = 'Purchase order status updated successfully'
     let shouldNotifyPurchasing = false
 
