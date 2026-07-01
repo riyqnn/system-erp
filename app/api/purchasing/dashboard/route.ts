@@ -1,10 +1,12 @@
-import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+type AnyObject = Record<string, any>
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables')
@@ -13,7 +15,53 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 function normalizeStatus(value?: string | null) {
-  return String(value || 'UNKNOWN').toUpperCase()
+  return String(value || 'UNKNOWN').trim().toUpperCase()
+}
+
+function formatStatusLabel(value?: string | null) {
+  const status = normalizeStatus(value)
+
+  const statusMap: Record<string, string> = {
+    DRAFT: 'Draft',
+    PENDING: 'Pending',
+    PENDING_APPROVAL: 'Pending Approval',
+    APPROVED: 'Approved',
+    RELEASED: 'Released',
+    REVISION_REQUIRED: 'Revision Required',
+    COMPLETED: 'Completed',
+    CANCELLED: 'Cancelled',
+    REJECTED: 'Rejected',
+    PROCESSED: 'Processed',
+    CLOSED: 'Closed',
+    SENT: 'Sent',
+    ISSUED: 'Issued',
+    ACTIVE: 'Active',
+    INACTIVE: 'Inactive',
+    SUSPENDED: 'Suspended',
+    UNKNOWN: 'Unknown',
+  }
+
+  return (
+    statusMap[status] ||
+    status
+      .toLowerCase()
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  )
+}
+
+function getMonthKey(value?: string | null) {
+  if (!value) return 'unknown'
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return 'unknown'
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
+    2,
+    '0'
+  )}`
 }
 
 function getMonthLabel(value?: string | null) {
@@ -33,13 +81,13 @@ function buildStatusOverview(rows: AnyObject[], statusKey: string) {
   const statusMap = new Map<string, number>()
 
   rows.forEach((row) => {
-    const status = normalizeStatus(row?.[statusKey])
-    statusMap.set(status, (statusMap.get(status) || 0) + 1)
+    const label = formatStatusLabel(row?.[statusKey])
+    statusMap.set(label, (statusMap.get(label) || 0) + 1)
   })
 
-  return Array.from(statusMap.entries()).map(([status, count]) => ({
-    status,
-    count,
+  return Array.from(statusMap.entries()).map(([label, value]) => ({
+    label,
+    value,
   }))
 }
 
@@ -62,10 +110,8 @@ export async function GET() {
         .select('pr_id, status, request_date, created_at'),
 
       supabase
-      .from('tr_price_quotation')
-      .select(
-        'quotation_id, supplier_id, product_id, status, quotation_date'
-      ),
+        .from('tr_price_quotation')
+        .select('quotation_id, supplier_id, product_id, status, quotation_date'),
 
       supabase
         .from('tr_purchase_order')
@@ -78,8 +124,8 @@ export async function GET() {
         .select('receipt_id, po_id, status, receipt_date, created_at'),
 
       supabase
-      .from('tr_account_payable')
-      .select('ap_id, po_id, ap_status, created_at'),
+        .from('tr_account_payable')
+        .select('ap_id, po_id, ap_status, created_at'),
     ])
 
     const errors = [
@@ -95,7 +141,7 @@ export async function GET() {
       return NextResponse.json(
         {
           message: 'Failed to fetch dashboard data',
-          error: errors[0]?.message,
+          error: errors[0]?.message || 'Unknown database error',
         },
         { status: 500 }
       )
@@ -114,6 +160,10 @@ export async function GET() {
       )
     )
 
+    const agreedNegotiations = quotations.filter((quotation: AnyObject) =>
+      ['AGREED', 'ACCEPTED', 'APPROVED'].includes(normalizeStatus(quotation.status))
+    ).length
+
     const receiptPOSet = new Set(
       goodsReceipts.map((receipt: AnyObject) => String(receipt.po_id || ''))
     )
@@ -124,74 +174,95 @@ export async function GET() {
 
     const threeWayMatchings = purchaseOrders.filter((po: AnyObject) => {
       const poId = String(po.po_id || '')
+
       return receiptPOSet.has(poId) || apPOSet.has(poId)
     })
 
+    const matchedDocuments = purchaseOrders.filter((po: AnyObject) => {
+      const poId = String(po.po_id || '')
+
+      return receiptPOSet.has(poId) && apPOSet.has(poId)
+    }).length
+
     const trackingReports = purchaseOrders.filter((po: AnyObject) =>
-      ['APPROVED', 'RELEASED', 'SENT', 'ISSUED'].includes(
+      ['APPROVED', 'RELEASED', 'SENT', 'ISSUED', 'COMPLETED'].includes(
         normalizeStatus(po.status)
       )
     )
 
-    const monthlyPOMap = new Map<string, { month: string; totalPO: number; totalValue: number }>()
+    const monthlyPOMap = new Map<
+      string,
+      {
+        month: string
+        count: number
+        value: number
+      }
+    >()
 
     purchaseOrders.forEach((po: AnyObject) => {
-      const month = getMonthLabel(po.created_at || po.po_release_date)
-      const current = monthlyPOMap.get(month) || {
-        month,
-        totalPO: 0,
-        totalValue: 0,
+      const sourceDate = po.created_at || po.po_release_date
+      const monthKey = getMonthKey(sourceDate)
+      const monthLabel = getMonthLabel(sourceDate)
+
+      const current = monthlyPOMap.get(monthKey) || {
+        month: monthLabel,
+        count: 0,
+        value: 0,
       }
 
-      current.totalPO += 1
-      current.totalValue += Number(po.total_value || 0)
+      current.count += 1
+      current.value += Number(po.total_value || 0)
 
-      monthlyPOMap.set(month, current)
+      monthlyPOMap.set(monthKey, current)
     })
 
-    const monthlyPurchaseOrders = Array.from(monthlyPOMap.values())
+    const monthlyPurchaseOrders = Array.from(monthlyPOMap.entries())
+      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
+      .map(([, value]) => value)
 
     const pendingPR = purchaseRequisitions.filter((pr: AnyObject) =>
       ['PENDING', 'DRAFT', 'REQUESTED'].includes(normalizeStatus(pr.status))
     ).length
 
-    const pendingPO = purchaseOrders.filter((po: AnyObject) =>
-      ['PENDING', 'PENDING_APPROVAL', 'DRAFT'].includes(normalizeStatus(po.status))
+    const pendingApprovalPO = purchaseOrders.filter((po: AnyObject) =>
+      ['PENDING_APPROVAL', 'PENDING', 'DRAFT'].includes(normalizeStatus(po.status))
     ).length
 
-    const delayedPO = purchaseOrders.filter((po: AnyObject) => {
-      const status = normalizeStatus(po.status)
-      return ['DELAYED', 'OVERDUE'].includes(status)
-    }).length
+    const releasedPO = purchaseOrders.filter((po: AnyObject) =>
+      ['RELEASED', 'COMPLETED'].includes(normalizeStatus(po.status))
+    ).length
+
+    const delayedPO = purchaseOrders.filter((po: AnyObject) =>
+      ['DELAYED', 'OVERDUE'].includes(normalizeStatus(po.status))
+    ).length
 
     const alerts = [
       ...(pendingPR > 0
         ? [
             {
-              id: 'pending-pr',
-              type: 'warning',
               title: 'Pending Purchase Requisition',
-              message: `${pendingPR} purchase requisition(s) still need to be processed.`,
+              value: pendingPR,
+              description: `${pendingPR} purchase requisition(s) still need to be processed.`,
             },
           ]
         : []),
-      ...(pendingPO > 0
+
+      ...(pendingApprovalPO > 0
         ? [
             {
-              id: 'pending-po',
-              type: 'warning',
               title: 'Pending Purchase Order',
-              message: `${pendingPO} purchase order(s) are still pending.`,
+              value: pendingApprovalPO,
+              description: `${pendingApprovalPO} purchase order(s) are still pending approval or processing.`,
             },
           ]
         : []),
+
       ...(delayedPO > 0
         ? [
             {
-              id: 'delayed-po',
-              type: 'danger',
               title: 'Delayed Purchase Order',
-              message: `${delayedPO} purchase order(s) are delayed or overdue.`,
+              value: delayedPO,
+              description: `${delayedPO} purchase order(s) are delayed or overdue.`,
             },
           ]
         : []),
@@ -209,10 +280,19 @@ export async function GET() {
           totalGoodsReceipts: goodsReceipts.length,
           totalThreeWayMatchings: threeWayMatchings.length,
           totalTrackingReports: trackingReports.length,
+
+          pendingApprovalPO,
+          releasedPO,
+          agreedNegotiations,
+          matchedDocuments,
         },
+
         monthlyPurchaseOrders,
+
         poStatusOverview: buildStatusOverview(purchaseOrders, 'status'),
+
         supplierStatusOverview: buildStatusOverview(suppliers, 'status'),
+
         alerts,
       },
     })

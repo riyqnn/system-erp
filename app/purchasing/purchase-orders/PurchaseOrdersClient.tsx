@@ -15,7 +15,6 @@ import {
 } from '@phosphor-icons/react'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
-import { TrackingReportModal } from '@/app/purchasing/_components/TrackingReportModal'
 
 type POStatus =
   | 'DRAFT'
@@ -152,7 +151,10 @@ function getBudgetStatusClass(status?: BudgetStatus | null) {
     OVER_BUDGET: 'bg-orange-100 text-orange-700',
   }
 
-  return statusClassMap[String(status || 'NO_BUDGET')] || 'bg-slate-100 text-slate-600'
+  return (
+    statusClassMap[String(status || 'NO_BUDGET')] ||
+    'bg-slate-100 text-slate-600'
+  )
 }
 
 function getItemSummary(items: PurchaseOrderItem[]) {
@@ -172,7 +174,6 @@ export function PurchaseOrdersClient() {
   const [status, setStatus] = useState('All Status')
   const [supplier, setSupplier] = useState('All Suppliers')
   const [dateRange, setDateRange] = useState('')
-  const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false)
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
@@ -212,12 +213,13 @@ export function PurchaseOrdersClient() {
       const orders = result.data || []
       setPurchaseOrders(orders)
 
-      // Auto-open detail modal from notification deep-link
       const highlightId = searchParams.get('highlight')
       if (highlightId) {
         const matched = orders.find(
-          (o: PurchaseOrder) => o.id === highlightId || o.poNo === highlightId
+          (order: PurchaseOrder) =>
+            order.id === highlightId || order.poNo === highlightId
         )
+
         if (matched) setSelectedPO(matched)
       }
     } catch (error) {
@@ -236,6 +238,7 @@ export function PurchaseOrdersClient() {
 
   const supplierOptions = useMemo(() => {
     const suppliers = purchaseOrders.map((order) => order.supplierName)
+
     return ['All Suppliers', ...Array.from(new Set(suppliers))]
   }, [purchaseOrders])
 
@@ -411,19 +414,10 @@ export function PurchaseOrdersClient() {
       ]}
     >
       <div className="space-y-6">
-        <div className="flex items-start justify-between gap-4">
-          <ModuleHeader
-            title="Purchase Order"
-            description="Manage purchase orders and monitor their processing status."
-          />
-
-          <Link
-            href="/purchasing/negotiation"
-            className="inline-flex h-10 items-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700"
-          >
-            Go to Price Negotiation
-          </Link>
-        </div>
+        <ModuleHeader
+          title="Purchase Order"
+          description="Manage purchase orders and monitor their processing status."
+        />
 
         {errorMessage && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -495,64 +489,54 @@ export function PurchaseOrdersClient() {
         </div>
 
         <div className="rounded-xl border border-red-100 bg-white p-4 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
-              <div className="relative">
-                <MagnifyingGlass
-                  size={16}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-
-                <input
-                  type="text"
-                  placeholder="Search PO number, PR, supplier, or item..."
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-red-300"
-                />
-              </div>
-
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-                className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
-              >
-                <option>All Status</option>
-                <option>Draft</option>
-                <option>Pending Approval</option>
-                <option>Revision Required</option>
-                <option>Approved</option>
-                <option>Released</option>
-                <option>Completed</option>
-                <option>Rejected</option>
-                <option>Cancelled</option>
-              </select>
-
-              <select
-                value={supplier}
-                onChange={(event) => setSupplier(event.target.value)}
-                className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
-              >
-                {supplierOptions.map((supplierOption) => (
-                  <option key={supplierOption}>{supplierOption}</option>
-                ))}
-              </select>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+            <div className="relative">
+              <MagnifyingGlass
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
 
               <input
-                type="date"
-                value={dateRange}
-                onChange={(event) => setDateRange(event.target.value)}
-                className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
+                type="text"
+                placeholder="Search PO number, PR, supplier, or item..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-red-300"
               />
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsTrackingModalOpen(true)}
-              className="h-10 rounded-lg border border-red-200 px-4 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+              className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
             >
-              Input Tracking Report
-            </button>
+              <option>All Status</option>
+              <option>Draft</option>
+              <option>Pending Approval</option>
+              <option>Revision Required</option>
+              <option>Approved</option>
+              <option>Released</option>
+              <option>Completed</option>
+              <option>Rejected</option>
+              <option>Cancelled</option>
+            </select>
+
+            <select
+              value={supplier}
+              onChange={(event) => setSupplier(event.target.value)}
+              className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
+            >
+              {supplierOptions.map((supplierOption) => (
+                <option key={supplierOption}>{supplierOption}</option>
+              ))}
+            </select>
+
+            <input
+              type="date"
+              value={dateRange}
+              onChange={(event) => setDateRange(event.target.value)}
+              className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-red-300"
+            />
           </div>
 
           <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
@@ -1033,13 +1017,6 @@ export function PurchaseOrdersClient() {
           </div>
         </div>
       )}
-
-      <TrackingReportModal
-        isOpen={isTrackingModalOpen}
-        onClose={() => setIsTrackingModalOpen(false)}
-        title="Input Tracking Report"
-        contextLabel="Purchase Order Monitoring"
-      />
     </ModuleLayout>
   )
 }
