@@ -223,6 +223,7 @@ interface PermintaanPembayaranDbRow {
     inv_supp_no: string;
     ms_supplier?: { supplier_name?: string } | null;
   } | null;
+  perintah_pembayaran?: { status: string }[] | { status: string } | null;
 }
 
 interface CatatanKasDbRow {
@@ -553,15 +554,22 @@ export async function getDaftarAkun(): Promise<Akun[]> {
 /**
  * Mengambil daftar jurnal umum (flat table) dan mentransformasikannya ke Header-Detail untuk UI.
  */
-export async function getDaftarJurnal(): Promise<JurnalUI[]> {
+export async function getDaftarJurnal(page?: number, limit?: number): Promise<{ data: JurnalUI[]; total: number }> {
   const supabase = await createRouteHandlerClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from('jurnal')
-    .select('*')
-    .order('jurnal_date', { ascending: false });
+    .select('*', { count: 'exact' });
+
+  if (page && limit) {
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+  }
+
+  const { data, error, count } = await query.order('jurnal_date', { ascending: false });
   if (error) throw error;
 
-  return (data || []).map((j: JurnalRow) => {
+  const mappedData = (data || []).map((j: JurnalRow) => {
     const details = [
       {
         id_jurnal_detail: Number(j.jurnal_id) * 2 - 1,
@@ -588,6 +596,8 @@ export async function getDaftarJurnal(): Promise<JurnalUI[]> {
       tr_jurnal_detail: details
     };
   });
+
+  return { data: mappedData, total: count || 0 };
 }
 
 /**
@@ -727,7 +737,7 @@ export async function buatJurnalManual(
 /**
  * Mengambil daftar piutang usaha (AR) beserta informasi pelanggan.
  */
-export async function getDaftarPiutang(): Promise<PiutangUI[]> {
+export async function getDaftarPiutang(page?: number, limit?: number): Promise<{ data: PiutangUI[]; total: number }> {
   const supabase = await createRouteHandlerClient();
 
   // Auto-update status overdue jika melewati due_date
@@ -738,17 +748,24 @@ export async function getDaftarPiutang(): Promise<PiutangUI[]> {
     .lt('due_date', today)
     .eq('status', 'OUTSTANDING');
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('piutang')
     .select(`
       *,
       ms_customer (cust_name)
-    `)
-    .order('due_date', { ascending: true });
+    `, { count: 'exact' });
+
+  if (page && limit) {
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+  }
+
+  const { data, error, count } = await query.order('due_date', { ascending: true });
 
   if (error) throw error;
 
-  return (data || []).map((p: PiutangDbRow) => ({
+  const mappedData = (data || []).map((p: PiutangDbRow) => ({
     id_piutang: p.piutang_id,
     sales_invoice_id: p.inv_id,
     inv_number: p.inv_id,
@@ -757,9 +774,11 @@ export async function getDaftarPiutang(): Promise<PiutangUI[]> {
     jumlah: Number(p.amount),
     sisa_pembayaran: p.status === 'PAID' ? 0 : Number(p.amount),
     due_date: p.due_date,
-    status: p.status === 'PAID' ? 'LUNAS' : (p.status === 'OVERDUE' ? 'OVERDUE' : 'BELUM_LUNAS'),
+    status: (p.status === 'PAID' ? 'LUNAS' : (p.status === 'OVERDUE' ? 'OVERDUE' : 'BELUM_LUNAS')) as 'LUNAS' | 'OVERDUE' | 'BELUM_LUNAS',
     created_at: p.created_date || new Date().toISOString()
   }));
+
+  return { data: mappedData, total: count || 0 };
 }
 
 /**
@@ -982,7 +1001,7 @@ export async function getPoAndGrList(): Promise<{ poList: PurchaseOrder[]; grLis
 /**
  * Mengambil daftar hutang usaha (AP).
  */
-export async function getDaftarHutang(): Promise<HutangUI[]> {
+export async function getDaftarHutang(page?: number, limit?: number): Promise<{ data: HutangUI[]; total: number }> {
   const supabase = await createRouteHandlerClient();
 
   // Auto-update status overdue jika melewati due_date
@@ -993,17 +1012,24 @@ export async function getDaftarHutang(): Promise<HutangUI[]> {
     .lt('due_date', today)
     .eq('ap_status', 'OUTSTANDING');
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('tr_account_payable')
     .select(`
       *,
       ms_supplier (supplier_name)
-    `)
-    .order('due_date', { ascending: true });
+    `, { count: 'exact' });
+
+  if (page && limit) {
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+  }
+
+  const { data, error, count } = await query.order('due_date', { ascending: true });
 
   if (error) throw error;
 
-  return (data || []).map((h: HutangDbRow) => ({
+  const mappedData = (data || []).map((h: HutangDbRow) => ({
     ap_id: h.ap_id,
     id_hutang: h.ap_id,
     po_id: h.po_id,
@@ -1017,9 +1043,11 @@ export async function getDaftarHutang(): Promise<HutangUI[]> {
     sisa_pembayaran: h.ap_status === 'PAID' ? 0 : Number(h.ap_amount),
     due_date: h.due_date,
     ap_status: h.ap_status,
-    status: h.ap_status === 'PAID' ? 'LUNAS' : (h.ap_status === 'OVERDUE' ? 'OVERDUE' : 'BELUM_LUNAS'),
+    status: (h.ap_status === 'PAID' ? 'LUNAS' : (h.ap_status === 'OVERDUE' ? 'OVERDUE' : 'BELUM_LUNAS')) as 'LUNAS' | 'OVERDUE' | 'BELUM_LUNAS',
     created_at: h.created_at || new Date().toISOString()
   }));
+
+  return { data: mappedData, total: count || 0 };
 }
 
 /**
@@ -1243,6 +1271,38 @@ export async function buatPermintaanPembayaran(
   userId: string
 ): Promise<PermintaanPembayaran> {
   const supabase = await createRouteHandlerClient();
+
+  // 1. Fetch AP invoice details
+  const { data: hutang, error: apErr } = await supabase
+    .from('tr_account_payable')
+    .select('*')
+    .eq('ap_id', String(hutangId))
+    .single();
+
+  if (apErr || !hutang) {
+    throw new Error('Invoice AP tidak ditemukan.');
+  }
+
+  if (hutang.ap_status === 'PAID') {
+    throw new Error('Invoice AP ini sudah lunas dibayarkan.');
+  }
+
+  // 2. Fetch existing pending/approved requests for this AP
+  const { data: existingRequests, error: reqErr } = await supabase
+    .from('permintaan_pembayaran')
+    .select('amount')
+    .eq('ap_id', String(hutangId))
+    .in('status', ['PENDING_APPROVAL', 'APPROVED']);
+
+  if (reqErr) throw reqErr;
+
+  const totalRequested = (existingRequests || []).reduce((sum, r) => sum + Number(r.amount), 0);
+  const remainingApAmount = Number(hutang.ap_amount) - totalRequested;
+
+  if (jumlahBayar > remainingApAmount) {
+    throw new Error(`Jumlah pengajuan (Rp ${jumlahBayar.toLocaleString()}) melebihi sisa limit pengajuan yang tersedia (Rp ${remainingApAmount.toLocaleString()}).`);
+  }
+
   const { data, error } = await supabase
     .from('permintaan_pembayaran')
     .insert([{
@@ -1286,37 +1346,78 @@ export async function buatPermintaanPembayaran(
 /**
  * Mengambil daftar pengajuan pembayaran AP (untuk Management & Treasury).
  */
-export async function getDaftarPermintaanPembayaran(): Promise<PermintaanPembayaranUI[]> {
+export async function getDaftarPermintaanPembayaran(
+  page?: number,
+  limit?: number,
+  statusFilter?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED'
+): Promise<{ data: PermintaanPembayaranUI[]; total: number }> {
   const supabase = await createRouteHandlerClient();
-  const { data, error } = await supabase
+  const useInner = statusFilter === 'PENDING_APPROVAL' || statusFilter === 'APPROVED';
+
+  let query = supabase
     .from('permintaan_pembayaran')
     .select(`
       *,
-      tr_account_payable (
+      tr_account_payable${useInner ? '!inner' : ''} (
         *,
         ms_supplier (supplier_name)
+      ),
+      perintah_pembayaran (
+        status
       )
-    `)
-    .order('created_at', { ascending: false });
+    `, { count: 'exact' });
+
+  if (statusFilter) {
+    if (statusFilter === 'EXECUTED') {
+      query = query.eq('status', 'APPROVED').eq('tr_account_payable.ap_status', 'PAID');
+    } else {
+      query = query.eq('status', statusFilter);
+      if (statusFilter === 'APPROVED') {
+        query = query.neq('tr_account_payable.ap_status', 'PAID');
+      }
+    }
+  }
+
+  if (page && limit) {
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+  }
+
+  const { data, error, count } = await query.order('created_at', { ascending: false });
   if (error) throw error;
 
-  return (data || []).map((p: PermintaanPembayaranDbRow) => ({
-    id_permintaan: p.request_id,
-    request_id: p.request_id,
-    no_permintaan: `PMT-${String(p.request_id).padStart(4, '0')}`,
-    hutang_id: p.ap_id,
-    ap_id: p.ap_id,
-    jumlah_bayar: Number(p.amount),
-    amount: Number(p.amount),
-    status: p.status === 'PENDING_APPROVAL' ? 'MENUNGGU_PERSETUJUAN' : (p.status === 'APPROVED' ? 'DISETUJUI' : (p.status === 'REJECTED' ? 'DITOLAK' : 'TEREKSEKUSI')),
-    metode_pembayaran: 'TRANSFER',
-    keterangan: p.rejection_note || 'Pengajuan pembayaran supplier',
-    created_at: p.created_at,
-    tr_hutang: p.tr_account_payable ? {
-      no_invoice: p.tr_account_payable.inv_supp_no,
-      supplier_name: p.tr_account_payable.ms_supplier?.supplier_name || 'Supplier'
-    } : null
-  }));
+  const mappedData = (data || []).map((p: PermintaanPembayaranDbRow) => {
+    const isExecuted = p.status === 'EXECUTED' || (p.perintah_pembayaran && (
+      Array.isArray(p.perintah_pembayaran)
+        ? p.perintah_pembayaran.some((pp: { status: string }) => pp.status === 'EXECUTED')
+        : (p.perintah_pembayaran as { status: string }).status === 'EXECUTED'
+    ));
+
+    const mappedStatus = isExecuted
+      ? 'TEREKSEKUSI'
+      : (p.status === 'PENDING_APPROVAL' ? 'MENUNGGU_PERSETUJUAN' : (p.status === 'APPROVED' ? 'DISETUJUI' : (p.status === 'REJECTED' ? 'DITOLAK' : 'TEREKSEKUSI')));
+
+    return {
+      id_permintaan: p.request_id,
+      request_id: p.request_id,
+      no_permintaan: `PMT-${String(p.request_id).padStart(4, '0')}`,
+      hutang_id: p.ap_id,
+      ap_id: p.ap_id,
+      jumlah_bayar: Number(p.amount),
+      amount: Number(p.amount),
+      status: mappedStatus as 'MENUNGGU_PERSETUJUAN' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI',
+      metode_pembayaran: 'TRANSFER' as 'TRANSFER' | 'KAS_KECIL' | 'GIRO',
+      keterangan: p.rejection_note || 'Pengajuan pembayaran supplier',
+      created_at: p.created_at,
+      tr_hutang: p.tr_account_payable ? {
+        no_invoice: p.tr_account_payable.inv_supp_no,
+        supplier_name: p.tr_account_payable.ms_supplier?.supplier_name || 'Supplier'
+      } : null
+    };
+  });
+
+  return { data: mappedData, total: count || 0 };
 }
 
 /**
@@ -1393,8 +1494,22 @@ export async function eksekusiPembayaranTreasury(
 
   const { data: pmt } = await supabase.from('permintaan_pembayaran').select('*').eq('request_id', permintaanId).single();
   if (!pmt) throw new Error('Permintaan pembayaran tidak ditemukan');
+
+  // Safety check 1: Check if related perintah_pembayaran is already EXECUTED
+  const { data: perintah } = await supabase.from('perintah_pembayaran').select('status').eq('request_id', permintaanId).single();
+  if (perintah && perintah.status === 'EXECUTED') {
+    throw new Error('Pembayaran untuk pengajuan ini sudah pernah dieksekusi sebelumnya.');
+  }
+
   const amountToPay = Number(pmt.amount);
   const apId = pmt.ap_id;
+
+  // Safety check 2: Check if tr_account_payable is already PAID
+  const { data: hutang } = await supabase.from('tr_account_payable').select('*').eq('ap_id', apId).single();
+  if (!hutang) throw new Error('Hutang supplier tidak ditemukan');
+  if (hutang.ap_status === 'PAID') {
+    throw new Error('Invoice AP ini sudah lunas dibayarkan.');
+  }
 
   // Cek saldo kas berjalan
   let akunKas: Akun | null = null;
@@ -1423,13 +1538,15 @@ export async function eksekusiPembayaranTreasury(
     throw new Error('Saldo rekening kas/bank tidak mencukupi untuk melakukan pembayaran ini.');
   }
 
-  // Ambil Hutang (tr_account_payable)
-  const { data: hutang } = await supabase.from('tr_account_payable').select('*').eq('ap_id', apId).single();
-  if (!hutang) throw new Error('Hutang supplier tidak ditemukan');
-
   // 1. Update status perintah_pembayaran
   await supabase
     .from('perintah_pembayaran')
+    .update({ status: 'EXECUTED' })
+    .eq('request_id', permintaanId);
+
+  // 1b. Update status permintaan_pembayaran
+  await supabase
+    .from('permintaan_pembayaran')
     .update({ status: 'EXECUTED' })
     .eq('request_id', permintaanId);
 

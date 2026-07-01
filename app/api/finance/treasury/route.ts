@@ -72,8 +72,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data: formatted });
     }
 
-    const data = await getDaftarPermintaanPembayaran();
-    return NextResponse.json({ data });
+    const page = searchParams.get('page') ? Number(searchParams.get('page')) : undefined;
+    const limit = searchParams.get('limit') ? Number(searchParams.get('limit')) : undefined;
+    const statusVal = searchParams.get('status') || undefined;
+
+    const result = await getDaftarPermintaanPembayaran(page, limit, statusVal as 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED');
+    return NextResponse.json({ data: result.data, total: result.total });
   } catch (error) {
     const err = error as { statusCode?: number; message?: string };
     console.error('[API Treasury GET Error]', err);

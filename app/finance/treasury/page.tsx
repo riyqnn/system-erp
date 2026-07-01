@@ -2,16 +2,16 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { 
-  Coins, 
-  Wallet, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  CheckCircle, 
-  XCircle, 
-  Play, 
-  Search, 
-  Filter, 
+import {
+  Coins,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownRight,
+  CheckCircle,
+  XCircle,
+  Play,
+  Search,
+  Filter,
   ShieldCheck,
   Briefcase,
   X,
@@ -123,15 +123,23 @@ function GlassCard({
 
 export default function TreasuryPage() {
   const [activeTab, setActiveTab] = useState<'approvals' | 'history'>('approvals')
-  
+
   // Mock Role Switcher for evaluation: MANAGEMENT vs TREASURY
   const [userRole, setUserRole] = useState<'MANAGEMENT' | 'TREASURY'>('TREASURY')
-  
-  const [permintaanList, setPermintaanList] = useState<PermintaanPembayaran[]>([])
+
+  const [pendingList, setPendingList] = useState<PermintaanPembayaran[]>([])
+  const [approvedList, setApprovedList] = useState<PermintaanPembayaran[]>([])
   const [historyKasList, setHistoryKasList] = useState<TransaksiKas[]>([])
   const [rekeningList, setRekeningList] = useState<Akun[]>([])
   const [loading, setLoading] = useState(false)
   const [notif, setNotif] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  // Pagination States
+  const [currentPagePending, setCurrentPagePending] = useState(1)
+  const [totalPending, setTotalPending] = useState(0)
+
+  const [currentPageApproved, setCurrentPageApproved] = useState(1)
+  const [totalApproved, setTotalApproved] = useState(0)
 
   // Filter states
   const [showFilterOptions, setShowFilterOptions] = useState(false)
@@ -193,21 +201,33 @@ export default function TreasuryPage() {
   const loadData = async () => {
     try {
       setLoading(true)
-      
+      const ts = Date.now()
+
       // Get COA (Rekening Kas/Bank)
       const coaRes = await fetch(`/api/finance/coa?mock_role=${userRole}`)
       const coaJson = await coaRes.json()
       if (coaJson.data) {
-        const cashRekening = coaJson.data.filter((a: Akun) => 
+        const cashRekening = coaJson.data.filter((a: Akun) =>
           a.kode_akun === '1001' || a.kode_akun === '1002' || a.kode_akun === '1003'
         )
         setRekeningList(cashRekening)
       }
 
-      // Get Payment Requests
-      const pmtRes = await fetch(`/api/finance/treasury?mock_role=${userRole}`)
-      const pmtJson = await pmtRes.json()
-      if (pmtJson.data) setPermintaanList(pmtJson.data)
+      // Fetch pending approvals for Management role
+      const pendingRes = await fetch(`/api/finance/treasury?status=PENDING_APPROVAL&page=${currentPagePending}&limit=10&mock_role=${userRole}&t=${ts}`)
+      const pendingJson = await pendingRes.json()
+      if (pendingJson.data) {
+        setPendingList(pendingJson.data)
+        setTotalPending(pendingJson.total || 0)
+      }
+
+      // Fetch approved payments for Treasury role
+      const approvedRes = await fetch(`/api/finance/treasury?status=APPROVED&page=${currentPageApproved}&limit=10&mock_role=${userRole}&t=${ts}`)
+      const approvedJson = await approvedRes.json()
+      if (approvedJson.data) {
+        setApprovedList(approvedJson.data)
+        setTotalApproved(approvedJson.total || 0)
+      }
 
       // Get Cash Flow History
       const histRes = await fetch(`/api/finance/treasury?mode=history&mock_role=${userRole}`)
@@ -250,8 +270,14 @@ export default function TreasuryPage() {
   }
 
   useEffect(() => {
+    setCurrentPagePending(1)
+    setCurrentPageApproved(1)
     loadData()
   }, [userRole])
+
+  useEffect(() => {
+    loadData()
+  }, [currentPagePending, currentPageApproved])
 
   useEffect(() => {
     if (reconcilingEntry) {
@@ -267,6 +293,7 @@ export default function TreasuryPage() {
 
   // Management Approve Action
   const handleApprove = async (pmtId: number) => {
+    if (loading) return
     try {
       setLoading(true)
       const res = await fetch(`/api/finance/treasury?mock_role=${userRole}`, {
@@ -295,6 +322,7 @@ export default function TreasuryPage() {
   // Management Reject Action
   const handleRejectSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading) return
     if (!rejectingPmt) return
     if (!alasanTolak.trim()) {
       showNotif('error', 'Alasan penolakan wajib diisi.')
@@ -332,6 +360,7 @@ export default function TreasuryPage() {
   // Treasury Single Execute Action with Safety Gate
   const handleExecuteSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading) return
     if (!executingPmt) return
     if (selectedRekeningBayar === 0) {
       showNotif('error', 'Pilih rekening kas/bank pembayar.')
@@ -382,9 +411,9 @@ export default function TreasuryPage() {
     }
 
     // Calculate total batch amount
-    const batchTotal = permintaanList
-      .filter(p => selectedIds.includes(p.id_permintaan))
-      .reduce((sum, p) => sum + p.jumlah_bayar, 0)
+    const batchTotal = approvedList
+      .filter((p: PermintaanPembayaran) => selectedIds.includes(p.id_permintaan))
+      .reduce((sum: number, p: PermintaanPembayaran) => sum + p.jumlah_bayar, 0)
 
     // Client-side Safety Gate: check balance sufficiency for total batch
     const selectedRekening = rekeningList.find(r => r.id_akun === selectedRekeningBayar)
@@ -397,7 +426,7 @@ export default function TreasuryPage() {
       setLoading(true)
       let successCount = 0
       const errors: string[] = []
-      
+
       for (const id of selectedIds) {
         const res = await fetch(`/api/finance/treasury?mock_role=${userRole}`, {
           method: 'POST',
@@ -487,7 +516,7 @@ export default function TreasuryPage() {
   }
 
   // Filter approved payments ready for execution (status: DISETUJUI)
-  const approvedPayments = permintaanList
+  const approvedPayments = approvedList
     .filter(p => p.status === 'DISETUJUI')
     .filter(p => {
       const supplierMatch = (p.tr_hutang?.supplier_name || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -498,7 +527,7 @@ export default function TreasuryPage() {
     })
 
   // Filter pending approvals (status: MENUNGGU_PERSETUJUAN)
-  const pendingPayments = permintaanList
+  const pendingPayments = pendingList
     .filter(p => p.status === 'MENUNGGU_PERSETUJUAN')
     .filter(p => {
       const supplierMatch = (p.tr_hutang?.supplier_name || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -526,9 +555,9 @@ export default function TreasuryPage() {
   }
 
   // Calculate Batch Total
-  const batchTotal = permintaanList
-    .filter(p => selectedIds.includes(p.id_permintaan))
-    .reduce((sum, p) => sum + p.jumlah_bayar, 0)
+  const batchTotal = approvedList
+    .filter((p: PermintaanPembayaran) => selectedIds.includes(p.id_permintaan))
+    .reduce((sum: number, p: PermintaanPembayaran) => sum + p.jumlah_bayar, 0)
 
   // Determine Priority (High vs Normal) based on amount
   function getPriority(amount: number) {
@@ -547,7 +576,7 @@ export default function TreasuryPage() {
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
-      
+
       {/* Header & Simulation Switcher Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between pt-2 gap-4">
         <div className="space-y-2">
@@ -571,14 +600,14 @@ export default function TreasuryPage() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 self-start md:self-auto">
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="flex items-center gap-1.5 border-slate-200 text-slate-700 font-semibold rounded-xl text-xs px-3 py-1.5 h-auto cursor-pointer"
               onClick={() => showNotif('success', 'Bank statement statement exported successfully!')}
             >
               <Download className="w-3.5 h-3.5" /> Export Statement
             </Button>
-            <Button 
+            <Button
               className="flex items-center gap-1.5 text-white bg-red-700 hover:bg-red-800 font-semibold rounded-xl text-xs px-3 py-1.5 h-auto cursor-pointer"
               onClick={() => {
                 if (selectedIds.length > 0) {
@@ -599,21 +628,19 @@ export default function TreasuryPage() {
             </span>
             <button
               onClick={() => setUserRole('MANAGEMENT')}
-              className={`px-2 py-1 text-[10px] font-semibold rounded-xl transition-all cursor-pointer ${
-                userRole === 'MANAGEMENT' 
-                  ? 'bg-white text-slate-800 shadow-sm' 
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
+              className={`px-2 py-1 text-[10px] font-semibold rounded-xl transition-all cursor-pointer ${userRole === 'MANAGEMENT'
+                ? 'bg-white text-slate-800 shadow-sm'
+                : 'text-slate-500 hover:text-slate-800'
+                }`}
             >
               Management
             </button>
             <button
               onClick={() => setUserRole('TREASURY')}
-              className={`px-2 py-1 text-[10px] font-semibold rounded-xl transition-all cursor-pointer ${
-                userRole === 'TREASURY' 
-                  ? 'bg-white text-slate-800 shadow-sm' 
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
+              className={`px-2 py-1 text-[10px] font-semibold rounded-xl transition-all cursor-pointer ${userRole === 'TREASURY'
+                ? 'bg-white text-slate-800 shadow-sm'
+                : 'text-slate-500 hover:text-slate-800'
+                }`}
             >
               Treasury
             </button>
@@ -623,11 +650,10 @@ export default function TreasuryPage() {
 
       {/* Notifications */}
       {notif && (
-        <div className={`p-4 rounded-2xl border flex items-center gap-3 transition-all animate-in fade-in duration-300 ${
-          notif.type === 'success' 
-            ? 'bg-emerald-50 text-emerald-900 border-emerald-200' 
-            : 'bg-red-50 text-red-900 border-red-200'
-        }`}>
+        <div className={`p-4 rounded-2xl border flex items-center gap-3 transition-all animate-in fade-in duration-300 ${notif.type === 'success'
+          ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+          : 'bg-red-50 text-red-900 border-red-200'
+          }`}>
           <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
           <span className="text-sm font-semibold">{notif.message}</span>
         </div>
@@ -748,7 +774,7 @@ export default function TreasuryPage() {
               <p className="text-[10px] text-slate-400 mt-1">Pending reconciliation confirmation</p>
             </div>
             <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center">
-              <button 
+              <button
                 onClick={() => {
                   const element = document.getElementById('recent-cash-entries-panel');
                   if (element) {
@@ -767,23 +793,21 @@ export default function TreasuryPage() {
       {/* Tabs Selector */}
       <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
         <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl border border-slate-200/50">
-          <button 
+          <button
             onClick={() => setActiveTab('approvals')}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-              activeTab === 'approvals' 
-                ? 'bg-white text-slate-800 shadow-sm' 
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
+            className={`px-4 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${activeTab === 'approvals'
+              ? 'bg-white text-slate-800 shadow-sm'
+              : 'text-slate-500 hover:text-slate-800'
+              }`}
           >
             Dashboard & Eksekusi
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('history')}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-              activeTab === 'history' 
-                ? 'bg-white text-slate-800 shadow-sm' 
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
+            className={`px-4 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${activeTab === 'history'
+              ? 'bg-white text-slate-800 shadow-sm'
+              : 'text-slate-500 hover:text-slate-800'
+              }`}
           >
             Buku Kas (Inflow & Outflow)
           </button>
@@ -799,7 +823,7 @@ export default function TreasuryPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column: Liquidity Forecast, Management approvals, Approved Payments Table */}
           <div className="lg:col-span-2 space-y-6">
-            
+
             {/* Liquidity Forecast Card */}
             <GlassCard className="border border-slate-100">
               <div className="px-6 py-4 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
@@ -807,28 +831,26 @@ export default function TreasuryPage() {
                   <h3 className="text-sm font-bold text-slate-800">30-Day Liquidity Forecast</h3>
                   <p className="text-[11px] text-slate-500 mt-0.5">Estimated cash flow trends for next 30 days.</p>
                 </div>
-                
+
                 {/* Chart Toggle Inflow / Outflow */}
                 <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200/50">
                   <button
                     onClick={() => setChartView('inflow')}
-                    className={`px-3 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
-                      chartView === 'inflow' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                    }`}
+                    className={`px-3 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${chartView === 'inflow' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                      }`}
                   >
                     Inflow
                   </button>
                   <button
                     onClick={() => setChartView('outflow')}
-                    className={`px-3 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
-                      chartView === 'outflow' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                    }`}
+                    className={`px-3 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${chartView === 'outflow' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                      }`}
                   >
                     Outflow
                   </button>
                 </div>
               </div>
-              
+
               <div className="p-6">
                 <AreaChart
                   data={chartView === 'inflow' ? inflowData : outflowData}
@@ -913,6 +935,33 @@ export default function TreasuryPage() {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* Pagination Controls */}
+              {totalPending > 10 && (
+                <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/30">
+                  <span className="text-xs text-slate-500 font-medium">
+                    Menampilkan {((currentPagePending - 1) * 10) + 1} - {Math.min(currentPagePending * 10, totalPending)} dari {totalPending} data
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => setCurrentPagePending(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPagePending === 1 || loading}
+                      variant="outline"
+                      className="h-8 text-xs font-bold px-3 rounded-xl cursor-pointer"
+                    >
+                      Sebelumnya
+                    </Button>
+                    <Button
+                      onClick={() => setCurrentPagePending(prev => Math.min(prev + 1, Math.ceil(totalPending / 10)))}
+                      disabled={currentPagePending * 10 >= totalPending || loading}
+                      variant="outline"
+                      className="h-8 text-xs font-bold px-3 rounded-xl cursor-pointer"
+                    >
+                      Selanjutnya
+                    </Button>
+                  </div>
+                </div>
+              )}
             </GlassCard>
 
             {/* Approved Payments Table Card */}
@@ -922,12 +971,11 @@ export default function TreasuryPage() {
                   <h3 className="text-sm font-bold text-slate-800">Approved Payments Ready for Execution</h3>
                   <p className="text-[11px] text-slate-500 mt-0.5">Select invoices to include in the next payment batch.</p>
                 </div>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={() => setShowFilterOptions(!showFilterOptions)}
-                  className={`flex items-center gap-1.5 border-slate-200 text-slate-700 font-semibold rounded-xl text-xs px-3 py-1.5 h-auto cursor-pointer transition-colors ${
-                    showFilterOptions ? 'bg-slate-100 border-slate-300' : ''
-                  }`}
+                  className={`flex items-center gap-1.5 border-slate-200 text-slate-700 font-semibold rounded-xl text-xs px-3 py-1.5 h-auto cursor-pointer transition-colors ${showFilterOptions ? 'bg-slate-100 border-slate-300' : ''
+                    }`}
                 >
                   <Filter className="w-3.5 h-3.5" /> Filter
                 </Button>
@@ -953,11 +1001,10 @@ export default function TreasuryPage() {
                           key={pr}
                           type="button"
                           onClick={() => setPriorityFilter(pr)}
-                          className={`px-2.5 py-1 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
-                            priorityFilter === pr
-                              ? 'bg-white text-slate-800 shadow-sm'
-                              : 'text-slate-500 hover:text-slate-800'
-                          }`}
+                          className={`px-2.5 py-1 text-[9px] font-bold rounded-md transition-all cursor-pointer ${priorityFilter === pr
+                            ? 'bg-white text-slate-800 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-800'
+                            }`}
                         >
                           {pr === 'ALL' ? 'Semua' : pr}
                         </button>
@@ -1033,9 +1080,8 @@ export default function TreasuryPage() {
                               {formatDueDate(p.created_at)}
                             </TableCell>
                             <TableCell className="px-4 py-4 text-center">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold ${
-                                priority === 'HIGH' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'
-                              }`}>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold ${priority === 'HIGH' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'
+                                }`}>
                                 {priority}
                               </span>
                             </TableCell>
@@ -1066,6 +1112,33 @@ export default function TreasuryPage() {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* Pagination Controls */}
+              {totalApproved > 10 && (
+                <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/30">
+                  <span className="text-xs text-slate-500 font-medium">
+                    Menampilkan {((currentPageApproved - 1) * 10) + 1} - {Math.min(currentPageApproved * 10, totalApproved)} dari {totalApproved} data
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => setCurrentPageApproved(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPageApproved === 1 || loading}
+                      variant="outline"
+                      className="h-8 text-xs font-bold px-3 rounded-xl cursor-pointer"
+                    >
+                      Sebelumnya
+                    </Button>
+                    <Button
+                      onClick={() => setCurrentPageApproved(prev => Math.min(prev + 1, Math.ceil(totalApproved / 10)))}
+                      disabled={currentPageApproved * 10 >= totalApproved || loading}
+                      variant="outline"
+                      className="h-8 text-xs font-bold px-3 rounded-xl cursor-pointer"
+                    >
+                      Selanjutnya
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Batch Processing Footer Summary */}
               {userRole === 'TREASURY' && selectedIds.length > 0 && (
@@ -1108,22 +1181,20 @@ export default function TreasuryPage() {
               <div className="p-4 space-y-3">
                 {recentCashEntries.map((entry) => (
                   <div key={entry.id} className="p-3.5 rounded-2xl border border-slate-100 bg-white shadow-sm flex items-start gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                      entry.isCredit ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
-                    }`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${entry.isCredit ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
+                      }`}>
                       {entry.isCredit ? <ArrowDown className="w-4 h-4" /> : <ArrowUp className="w-4 h-4" />}
                     </div>
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex justify-between items-start">
                         <p className="text-xs font-bold text-slate-800 truncate">{entry.type}</p>
-                        <span className={`font-mono text-xs font-bold ${
-                          entry.isCredit ? 'text-emerald-600' : 'text-slate-800'
-                        }`}>
+                        <span className={`font-mono text-xs font-bold ${entry.isCredit ? 'text-emerald-600' : 'text-slate-800'
+                          }`}>
                           {entry.isCredit ? '+' : '-'} {formatRupiah(Math.abs(entry.amount))}
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-500 truncate">{entry.sender} • Ref: {entry.ref}</p>
-                      
+
                       <div className="pt-1 flex items-center">
                         {entry.verified ? (
                           <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
@@ -1221,7 +1292,7 @@ export default function TreasuryPage() {
               <h3 className="text-base font-bold text-red-600 flex items-center gap-2">
                 <XCircle className="w-5 h-5" /> Tolak Pengajuan Pembayaran
               </h3>
-              <button 
+              <button
                 onClick={() => setRejectingPmt(null)}
                 className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
               >
@@ -1235,12 +1306,12 @@ export default function TreasuryPage() {
                 <p className="font-semibold text-slate-700">Jumlah: {formatCalibrated(rejectingPmt.jumlah_bayar)}</p>
                 <p className="text-slate-500">Supplier: {rejectingPmt.tr_hutang?.supplier_name}</p>
               </div>
-              
+
               <div>
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Alasan Penolakan</label>
-                <textarea 
-                  value={alasanTolak} 
-                  onChange={(e) => setAlasanTolak(e.target.value)} 
+                <textarea
+                  value={alasanTolak}
+                  onChange={(e) => setAlasanTolak(e.target.value)}
                   className="w-full min-h-[80px] p-3 text-xs font-medium border border-slate-200 rounded-xl focus:outline-none focus:border-slate-300 mt-1"
                   placeholder="Masukkan alasan menolak pengajuan pembayaran ini..."
                   required
@@ -1248,19 +1319,24 @@ export default function TreasuryPage() {
               </div>
 
               <div className="flex gap-2 pt-2">
-                <Button 
-                  type="button" 
-                  onClick={() => setRejectingPmt(null)} 
+                <Button
+                  type="button"
+                  onClick={() => setRejectingPmt(null)}
                   variant="ghost"
-                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
+                  disabled={loading}
+                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer disabled:opacity-50"
                 >
                   Batal
                 </Button>
-                <Button 
-                  type="submit" 
-                  className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer"
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer disabled:opacity-75 flex items-center justify-center gap-1.5"
                 >
-                  Tolak Pengajuan
+                  {loading && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {loading ? 'Memproses...' : 'Tolak Pengajuan'}
                 </Button>
               </div>
             </form>
@@ -1276,7 +1352,7 @@ export default function TreasuryPage() {
               <h3 className="text-base font-bold text-emerald-600 flex items-center gap-2">
                 <Play className="w-5 h-5 fill-emerald-600 text-emerald-600" /> Eksekusi Pengeluaran Kas
               </h3>
-              <button 
+              <button
                 onClick={() => setExecutingPmt(null)}
                 className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
               >
@@ -1309,19 +1385,24 @@ export default function TreasuryPage() {
               </div>
 
               <div className="flex gap-2 pt-2">
-                <Button 
-                  type="button" 
-                  onClick={() => setExecutingPmt(null)} 
+                <Button
+                  type="button"
+                  onClick={() => setExecutingPmt(null)}
                   variant="ghost"
-                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
+                  disabled={loading}
+                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer disabled:opacity-50"
                 >
                   Batal
                 </Button>
-                <Button 
-                  type="submit" 
-                  className="flex-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl cursor-pointer shadow-md"
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl cursor-pointer shadow-md disabled:opacity-75 flex items-center justify-center gap-1.5"
                 >
-                  Bayar Sekarang
+                  {loading && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {loading ? 'Memproses...' : 'Bayar Sekarang'}
                 </Button>
               </div>
             </form>
@@ -1337,7 +1418,7 @@ export default function TreasuryPage() {
               <h3 className="text-base font-bold text-emerald-600 flex items-center gap-2">
                 <Play className="w-5 h-5 fill-emerald-600 text-emerald-600" /> Eksekusi Batch Pengeluaran Kas
               </h3>
-              <button 
+              <button
                 onClick={() => setIsBatchExecuting(false)}
                 className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
               >
@@ -1369,19 +1450,24 @@ export default function TreasuryPage() {
               </div>
 
               <div className="flex gap-2 pt-2">
-                <Button 
-                  type="button" 
-                  onClick={() => setIsBatchExecuting(false)} 
+                <Button
+                  type="button"
+                  onClick={() => setIsBatchExecuting(false)}
                   variant="ghost"
-                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
+                  disabled={loading}
+                  className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer disabled:opacity-50"
                 >
                   Batal
                 </Button>
-                <Button 
-                  type="submit" 
-                  className="flex-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl cursor-pointer shadow-md"
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl cursor-pointer shadow-md disabled:opacity-75 flex items-center justify-center gap-1.5"
                 >
-                  Eksekusi Batch
+                  {loading && (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {loading ? 'Memproses...' : 'Eksekusi Batch'}
                 </Button>
               </div>
             </form>
@@ -1397,7 +1483,7 @@ export default function TreasuryPage() {
               <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-red-600 animate-pulse" /> Rekonsiliasi & Verifikasi Aliran Kas
               </h3>
-              <button 
+              <button
                 onClick={() => setReconcilingEntry(null)}
                 className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
               >
@@ -1460,7 +1546,7 @@ export default function TreasuryPage() {
                   </label>
                   <span className="text-[10px] text-red-600 bg-red-50/50 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider text-[8px]">Kecocokan Disorot</span>
                 </div>
-                
+
                 <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[180px] overflow-y-auto">
                   <Table>
                     <TableHeader className="bg-slate-50/50">
@@ -1485,20 +1571,19 @@ export default function TreasuryPage() {
                           const invNum = reconcilingEntry.isCredit ? inv.inv_number : inv.no_invoice;
                           const partnerName = reconcilingEntry.isCredit ? inv.customer_name : inv.supplier_name;
                           const amount = (reconcilingEntry.isCredit ? inv.jumlah : inv.ap_amount) || 0;
-                          
+
                           // Check if exact match by amount
                           const isExactMatch = amount === Math.abs(reconcilingEntry.amount);
-                          const isSelected = selectedReconcileInvoice && (reconcilingEntry.isCredit 
-                            ? selectedReconcileInvoice.id_piutang === inv.id_piutang 
+                          const isSelected = selectedReconcileInvoice && (reconcilingEntry.isCredit
+                            ? selectedReconcileInvoice.id_piutang === inv.id_piutang
                             : selectedReconcileInvoice.ap_id === inv.ap_id);
 
                           return (
-                            <TableRow 
-                              key={invId} 
+                            <TableRow
+                              key={invId}
                               onClick={() => setSelectedReconcileInvoice(inv)}
-                              className={`border-b border-slate-50 hover:bg-slate-50/30 transition-colors cursor-pointer ${
-                                isSelected ? 'bg-red-50/20' : (isExactMatch ? 'bg-emerald-50/20' : '')
-                              }`}
+                              className={`border-b border-slate-50 hover:bg-slate-50/30 transition-colors cursor-pointer ${isSelected ? 'bg-red-50/20' : (isExactMatch ? 'bg-emerald-50/20' : '')
+                                }`}
                             >
                               <TableCell className="text-center py-2.5 px-3">
                                 <input
@@ -1529,16 +1614,16 @@ export default function TreasuryPage() {
 
               {/* Action Buttons */}
               <div className="flex gap-2 pt-2 border-t border-slate-100">
-                <Button 
-                  type="button" 
-                  onClick={() => setReconcilingEntry(null)} 
+                <Button
+                  type="button"
+                  onClick={() => setReconcilingEntry(null)}
                   variant="ghost"
                   className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer"
                 >
                   Batal
                 </Button>
-                <Button 
-                  type="button" 
+                <Button
+                  type="button"
                   disabled={!selectedReconcileInvoice || reconcileBankAccountId === 0 || loading}
                   onClick={() => {
                     if (!selectedReconcileInvoice || !reconcilingEntry) return;

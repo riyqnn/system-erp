@@ -18,8 +18,13 @@ import { getDaftarPiutang, terimaPelunasanPiutang, kirimReminderAR } from '@/lib
 export async function GET(request: NextRequest) {
   try {
     await verifyAuthForRoute(request, ['ADMIN', 'FINANCE', 'ACCOUNT_RECEIVABLE', 'TREASURY']);
-    const data = await getDaftarPiutang();
-    return NextResponse.json({ data });
+    
+    const { searchParams } = new URL(request.url);
+    const page = searchParams.get('page') ? Number(searchParams.get('page')) : undefined;
+    const limit = searchParams.get('limit') ? Number(searchParams.get('limit')) : undefined;
+
+    const result = await getDaftarPiutang(page, limit);
+    return NextResponse.json({ data: result.data, total: result.total });
   } catch (error) {
     const err = error as { statusCode?: number; message?: string };
     console.error('[API Receivable GET Error]', err);
