@@ -130,14 +130,14 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // 4. No shortage -> Insert as IN_PROGRESS
+    // 4. No shortage -> Insert as PENDING (awaiting BOM Verification approval)
     const payload = {
       production_request_id: body.prd_code,
       fg_product_id: fg_id,
       qty_requested: qty_req,
       request_date: body.request_date || new Date().toISOString(),
       requested_by: user.user_id,
-      status: 'IN_PROGRESS', // Automatically ready for production
+      status: 'PENDING', // Awaiting BOM verification approval
       notes: body.notes || null
     }
 
@@ -149,18 +149,18 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error
 
-    // 5. Notify Production
+    // 5. Notify Inventory to verify BOM
     const { createNotification } = await import('@/lib/services/notification.service')
     await createNotification({
-      title: `Production Request Verified: ${body.prd_code}`,
-      message: `System automatically verified BOM. Materials are ready for production.`,
+      title: `Production Request Ready for BOM Verification: ${body.prd_code}`,
+      message: `Materials are available. Awaiting BOM verification and approval.`,
       type: 'INFORMATION',
       priority: 'HIGH',
-      recipientRole: 'PRODUCTION',
+      recipientRole: 'INVENTORY_MANAGER',
       sourceModule: 'INVENTORY',
       sourceRefId: body.prd_code,
       sourceRefType: 'PRODUCTION_REQUEST',
-      actionUrl: `/production/orders`,
+      actionUrl: `/inventory/verifikasi-bom`,
       createdBy: user.user_id,
     }).catch(err => console.error('Failed to send notification', err))
 

@@ -133,11 +133,19 @@ export default function SalesOrderValidationPage() {
       <div className="flex items-end justify-between pt-2">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Sales Order Validation</h1>
-          <p className="text-sm text-slate-500 mt-1">Verify FG stock availability for pending Delivery Orders</p>
+          <p className="text-sm text-slate-500 mt-1">Verify FG stock availability for pending Delivery Orders (Status: Pending → Shipped)</p>
         </div>
         <Button variant="outline" size="icon" onClick={fetchData} className="text-slate-500" disabled={loading}>
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
+      </div>
+
+      {/* Workflow Note */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 flex gap-2">
+        <div className="w-4 h-4 flex-shrink-0 mt-0.5">
+          <span className="text-blue-600 font-bold">ℹ</span>
+        </div>
+        <p><strong>Workflow:</strong> Validate stock here → Approved orders move to Shipment Confirmation as &quot;Shipped&quot; → Confirm shipment there</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

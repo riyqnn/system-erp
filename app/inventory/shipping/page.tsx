@@ -54,7 +54,7 @@ export default function ShipmentConfirmationPage() {
   const [data, setData] = useState<DeliveryOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("Pending"); // Default to pending
+  const [statusFilter, setStatusFilter] = useState("Shipped"); // Default to Shipped (approved from Sales Order Validation)
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -148,7 +148,7 @@ export default function ShipmentConfirmationPage() {
       return 0;
     });
 
-  const pendingCount = data.filter((d) => d.status === "Pending").length;
+  const shippedCount = data.filter((d) => d.status === "Shipped").length;
   const deliveredCount = data.filter((d) => d.status === "Delivered").length;
 
   /* ── Render ───────────────────────────────────────────────────── */
@@ -157,14 +157,14 @@ export default function ShipmentConfirmationPage() {
       <div className="flex items-end justify-between pt-2">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Shipment Confirmation</h1>
-          <p className="text-sm text-slate-500 mt-1">Final verification before goods leave warehouse (UC-INV-010)</p>
+          <p className="text-sm text-slate-500 mt-1">Confirm shipment of approved orders. Workflow: Pending → Shipped (after Sales Order Validation approval) → Delivered (UC-INV-010)</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[
-          { label: "Pending Shipments", value: pendingCount, color: "text-amber-600", bg: "bg-amber-50", icon: PackageOpen },
-          { label: "Total Delivered", value: deliveredCount, color: "text-emerald-600", bg: "bg-emerald-50", icon: Truck },
+          { label: "Ready to Ship (Approved)", value: shippedCount, color: "text-blue-600", bg: "bg-blue-50", icon: PackageOpen },
+          { label: "Already Delivered", value: deliveredCount, color: "text-emerald-600", bg: "bg-emerald-50", icon: Truck },
         ].map((kpi, i) => (
           <Card key={i} className="border-slate-200 shadow-sm">
             <CardContent className="p-5 flex items-center gap-4">
@@ -200,6 +200,17 @@ export default function ShipmentConfirmationPage() {
         <Button variant="outline" size="icon" onClick={fetchData} className="ml-auto h-10 w-10 text-slate-500" disabled={loading}>
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
+      </div>
+
+      {/* Status Workflow Note */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 flex gap-2">
+        <div className="w-4 h-4 flex-shrink-0 mt-0.5">
+          <span className="text-blue-600 font-bold">ℹ</span>
+        </div>
+        <div>
+          <p className="font-medium">Status Workflow:</p>
+          <p><strong>Pending</strong> (in Sales Order Validation) → <strong>Shipped</strong> (approved by Sales Order Validation, ready to confirm) → <strong>Delivered</strong> (confirmed shipped)</p>
+        </div>
       </div>
 
       <Card className="border-slate-200 shadow-sm overflow-hidden">
