@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac'
 import { createRouteHandlerClient } from '@/lib/supabase/server'
+import { convertToCSV } from '@/lib/csv'
 
 export async function GET() {
   try {
@@ -286,6 +287,95 @@ export async function GET() {
       code: error?.code,
       stack: error?.stack
     }));
+    const msg = error instanceof Error ? error.message : 'Internal server error';
+    const status = (error as { statusCode?: number })?.statusCode || 500;
+    return NextResponse.json({ error: msg }, { status });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const user = await requireAuth()
+    requireAnyRole(user, ['ADMIN', 'INVENTORY_MANAGER', 'INVENTORY_STAFF', 'INVENTORY'])
+
+    const body = await request.json()
+    const { section, data } = body
+
+let csvData: Record<string, unknown>[] = []
+      let fileName = 'dashboard'
+
+      if (section === 'criticalStock') {
+        fileName = 'critical-stock'
+        const criticalStockData = (data || []) as Array<{
+          product_id: string
+          product_name: string
+          category: string
+          location: string
+          current: number
+          min: number
+          max: number
+          status: string
+          trend: string
+        }>
+        csvData = criticalStockData.map((item) => ({
+          product_id: item.product_id,
+          product_name: item.product_name,
+          category: item.category,
+          warehouse: item.location,
+          current_qty: item.current,
+          minimum_qty: item.min,
+          maximum_qty: item.max,
+          status: item.status,
+          trend: item.trend
+        }))
+      } else if (section === 'recentActivity') {
+        fileName = 'recent-activity'
+        const recentActivityData = (data || []) as Array<{
+          timestamp: string
+          type: string
+          itemCode: string
+          itemName: string
+          quantity: number
+          uom: string
+          reference: string
+          performer: string
+        }>
+        csvData = recentActivityData.map((item) => ({
+          timestamp: item.timestamp,
+          type: item.type,
+          item_code: item.itemCode,
+          item_name: item.itemName,
+          quantity: item.quantity,
+          uom: item.uom,
+          reference: item.reference,
+          performer: item.performer
+        }))
+      } else if (section === 'inventoryDistribution') {
+        fileName = 'inventory-distribution'
+        const inventoryDistributionData = (data || []) as Array<{
+          label: string
+          value: number
+          color: string
+        }>
+        csvData = inventoryDistributionData.map((item) => ({
+        category: item.label,
+        quantity: item.value,
+        color: item.color
+      }))
+    }
+
+    // Convert to CSV
+    const csv = convertToCSV(csvData)
+
+    // Return CSV as file download
+    return new NextResponse(csv, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv;charset=utf-8',
+        'Content-Disposition': `attachment; filename=${fileName}.csv`,
+      },
+    })
+  } catch (error) {
     const msg = error instanceof Error ? error.message : 'Internal server error';
     const status = (error as { statusCode?: number })?.statusCode || 500;
     return NextResponse.json({ error: msg }, { status });

@@ -2,6 +2,7 @@ import { AnyObject } from '@/lib/any';
 import { NextResponse } from 'next/server'
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac'
 import { createRouteHandlerClient } from '@/lib/supabase/server'
+import { convertToCSV } from '@/lib/csv'
 
 export async function GET() {
   try {
@@ -71,6 +72,32 @@ export async function GET() {
     })
 
     return NextResponse.json({ data: result })
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Internal server error';
+    const status = (error as { statusCode?: number })?.statusCode || 500;
+    return NextResponse.json({ error: msg }, { status });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const user = await requireAuth()
+    requireAnyRole(user, ['ADMIN', 'INVENTORY_MANAGER', 'INVENTORY_STAFF', 'INVENTORY'])
+
+    const body = await request.json()
+    const data = body.data || []
+
+    // Convert to CSV
+    const csv = convertToCSV(data)
+
+    // Return CSV as file download
+    return new NextResponse(csv, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv;charset=utf-8',
+        'Content-Disposition': 'attachment; filename=stock-monitoring.csv',
+      },
+    })
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Internal server error';
     const status = (error as { statusCode?: number })?.statusCode || 500;

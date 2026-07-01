@@ -425,6 +425,39 @@ interface DashboardData {
   recentActivity: RecentActivityItem[];
 }
 
+type CriticalStockExportItem = {
+  product_id: string;
+  product_name: string;
+  category: string;
+  location: string;
+  current: number;
+  min: number;
+  max: number;
+  status: string;
+  trend: string;
+};
+
+type RecentActivityExportItem = {
+  timestamp: string;
+  type: string;
+  itemCode: string;
+  itemName: string;
+  quantity: number;
+  uom: string;
+  reference: string;
+  performer: string;
+};
+
+type InventoryDistributionExportItem = {
+  label: string;
+  value: number;
+  color: string;
+};
+
+type DashboardExportData = CriticalStockItem[] | RecentActivityItem[] | InventoryDistributionItem[];
+
+type DashboardExportPayload = CriticalStockExportItem[] | RecentActivityExportItem[] | InventoryDistributionExportItem[];
+
 export default function InventoryDashboardPage() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -445,6 +478,80 @@ export default function InventoryDashboardPage() {
     };
     fetchDashboard();
   }, []);
+
+  /* ── Export CSV Handler ────────────────────────────────────────── */
+  const handleExportCSV = async (section: 'criticalStock' | 'recentActivity' | 'inventoryDistribution', data: DashboardExportData) => {
+    try {
+      const exportPayload: DashboardExportPayload = (() => {
+        if (section === 'criticalStock') {
+          const criticalData = data as CriticalStockItem[];
+          return criticalData.map((item) => ({
+            product_id: item.code,
+            product_name: item.name,
+            category: item.category,
+            location: item.location,
+            current: item.current,
+            min: item.safety,
+            max: item.max,
+            status: item.status,
+            trend: item.trend,
+          }));
+        }
+
+        if (section === 'recentActivity') {
+          const recentData = data as RecentActivityItem[];
+          return recentData.map((item) => ({
+            timestamp: item.timestamp,
+            type: item.type,
+            itemCode: item.itemCode,
+            itemName: item.itemName,
+            quantity: item.quantity,
+            uom: item.uom,
+            reference: item.reference,
+            performer: item.performer,
+          }));
+        }
+
+        const inventoryData = data as InventoryDistributionItem[];
+        return inventoryData.map((item) => ({
+          label: item.label,
+          value: item.value,
+          color: item.color,
+        }));
+      })();
+
+      const response = await fetch('/api/inventory/dashboard', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ section, data: exportPayload }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to export CSV');
+      }
+
+      // Get the CSV content from response
+      const csvContent = await response.text();
+      
+      // Create blob and download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${section}-${new Date().toISOString().slice(0, 10)}.csv`);
+      link.style.visibility = 'hidden';
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to export CSV:', err);
+    }
+  };
 
   if (!mounted || !dashboardData) {
     return (
@@ -713,12 +820,23 @@ export default function InventoryDashboardPage() {
                   Items requiring immediate attention
                 </p>
               </div>
-              <Link href="/inventory/monitoring-stok">
-                <Button variant="ghost" size="sm" className="h-8 text-xs font-medium">
-                  View All
-                  <ArrowRight className="w-3.5 h-3.5 ml-1" />
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-8 text-xs font-medium"
+                  onClick={() => handleExportCSV('criticalStock', CRITICAL_STOCK)}
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" />
+                  Export
                 </Button>
-              </Link>
+                <Link href="/inventory/monitoring-stok">
+                  <Button variant="ghost" size="sm" className="h-8 text-xs font-medium">
+                    View All
+                    <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                  </Button>
+                </Link>
+              </div>
             </div>
             <div className="divide-y divide-slate-100/60">
               {CRITICAL_STOCK.map((item, i) => (
@@ -748,9 +866,20 @@ export default function InventoryDashboardPage() {
                   Latest inventory transactions
                 </p>
               </div>
-              <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-50/80 border border-emerald-100/50">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] font-medium text-emerald-700">Live</span>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-8 text-xs font-medium"
+                  onClick={() => handleExportCSV('recentActivity', RECENT_ACTIVITY)}
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" />
+                  Export
+                </Button>
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-50/80 border border-emerald-100/50">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-medium text-emerald-700">Live</span>
+                </div>
               </div>
             </div>
             <div className="divide-y divide-slate-100/60 max-h-[380px] overflow-y-auto">

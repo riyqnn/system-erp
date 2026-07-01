@@ -31,19 +31,30 @@ type ProductData = {
 };
 
 const CATEGORIES = ["All", "FG", "RM", "PM"];
+const LIMIT = 10;
 
 export default function ProductsPage() {
   const [data, setData] = useState<ProductData[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Search states (debounced)
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  
   const [category, setCategory] = useState("All");
+  
+  // Pagination states
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const [sortBy, setSortBy] = useState<keyof ProductData | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
+  
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<ProductData | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // New Product Form State
   const [newProduct, setNewProduct] = useState({
     product_code: "",
     product_name: "",
@@ -53,25 +64,46 @@ export default function ProductsPage() {
     expiry_flag: false
   });
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      // Use the stock endpoint to get master data + current stock
-      const res = await fetch("/api/inventory/stock");
-      if (res.ok) {
-        const json = await res.json();
-        setData(json.data || []);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Debounce search input
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1); // Reset to page 1 when search changes
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Reset page when category changes
+  useEffect(() => {
+    setPage(1);
+  }, [category]);
+
+  // Fetch data from API
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        params.set('page', page.toString());
+        params.set('limit', LIMIT.toString());
+        if (search) params.set('search', search);
+        if (category !== 'All') params.set('category', category);
+        
+        const res = await fetch(`/api/inventory/stock?${params.toString()}`);
+        if (res.ok) {
+          const json = await res.json();
+          setData(json.data || []);
+          setTotalPages(json.pagination?.totalPages || 1);
+          setTotalItems(json.pagination?.total || 0);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
     fetchData();
-  }, []);
+  }, [page, search, category, refreshKey]);
 
   const handleDelete = async (id: number) => {
     const result = await Swal.fire({
@@ -83,13 +115,11 @@ export default function ProductsPage() {
       cancelButtonColor: "#64748b",
       confirmButtonText: "Yes, delete it!"
     });
-    
     if (!result.isConfirmed) return;
-    
     try {
       const res = await fetch(`/api/inventory/products?id=${id}`, { method: "DELETE" });
       if (res.ok) {
-        setData(data.filter((p) => p.product_id !== id));
+        setRefreshKey(k => k + 1); // Trigger refetch
         Swal.fire("Deleted!", "Product has been deleted.", "success");
       } else {
         const json = await res.json();
@@ -109,16 +139,18 @@ export default function ProductsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...newProduct,
+          product_id: newProduct.product_code,
+          uom: newProduct.units,
           minimum_stock: Number(newProduct.minimum_stock)
         })
       });
       if (res.ok) {
         setShowAddModal(false);
-        fetchData(); // Refresh list to get new product with stock info
+        setRefreshKey(k => k + 1); // Trigger refetch
         Swal.fire("Success", "Product created successfully", "success");
       } else {
         const json = await res.json();
-        Swal.fire("Error", `Failed to create: ${json.error}`, "error");
+        Swal.fire("Error", "Failed to create: " + json.error, "error");
       }
     } catch {
       Swal.fire("Error", "An error occurred while creating product.", "error");
@@ -132,24 +164,18 @@ export default function ProductsPage() {
     else { setSortBy(col); setSortAsc(true); }
   };
 
-  const filtered = data
-    .filter((p) => {
-      const matchSearch = p.product_code.toLowerCase().includes(search.toLowerCase()) ||
-        p.product_name.toLowerCase().includes(search.toLowerCase());
-      const matchCat = category === "All" || p.category === category;
-      return matchSearch && matchCat;
-    })
-    .sort((a, b) => {
-      if (!sortBy) return 0;
-      const aVal = a[sortBy];
-      const bVal = b[sortBy];
-      if (typeof aVal === "number" && typeof bVal === "number") {
-        return sortAsc ? aVal - bVal : bVal - aVal;
-      }
-      return sortAsc
-        ? String(aVal).localeCompare(String(bVal))
-        : String(bVal).localeCompare(String(aVal));
-    });
+  // Client-side sorting (sorts the current page only)
+  const sortedData = [...data].sort((a, b) => {
+    if (!sortBy) return 0;
+    const aVal = a[sortBy];
+    const bVal = b[sortBy];
+    if (typeof aVal === "number" && typeof bVal === "number") {
+      return sortAsc ? aVal - bVal : bVal - aVal;
+    }
+    return sortAsc
+      ? String(aVal).localeCompare(String(bVal))
+      : String(bVal).localeCompare(String(aVal));
+  });
 
   const getHealthColor = (health: string) => {
     if (health === "Out of Stock" || health === "Below Safety Stock") return "text-red-600 bg-red-50";
@@ -159,7 +185,6 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto px-6 pb-12">
-      
       {/* Header */}
       <div className="flex items-end justify-between pt-2">
         <div>
@@ -175,7 +200,7 @@ export default function ProductsPage() {
           <Plus className="w-4 h-4" /> Add Product
         </Button>
       </div>
-
+      
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[240px] max-w-sm">
@@ -183,16 +208,15 @@ export default function ProductsPage() {
           <Input
             placeholder="Search code or name..."
             className="pl-9 h-10 bg-white"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
-          {search && (
-            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+          {searchInput && (
+            <button onClick={() => setSearchInput("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
               <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
-
         <div className="flex gap-2">
           {CATEGORIES.map((cat) => (
             <button
@@ -208,12 +232,17 @@ export default function ProductsPage() {
             </button>
           ))}
         </div>
-
-        <Button variant="outline" size="icon" onClick={fetchData} className="ml-auto h-10 w-10 text-slate-500" disabled={loading}>
+        <Button 
+          variant="outline" 
+          size="icon" 
+          onClick={() => { setPage(1); setSearchInput(""); setSearch(""); setRefreshKey(k => k + 1); }} 
+          className="ml-auto h-10 w-10 text-slate-500" 
+          disabled={loading}
+        >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
-
+      
       {/* Table */}
       <Card className="border-slate-200 shadow-sm overflow-hidden">
         <CardContent className="p-0">
@@ -250,7 +279,7 @@ export default function ProductsPage() {
                       <p>Loading products...</p>
                     </td>
                   </tr>
-                ) : filtered.length === 0 ? (
+                ) : sortedData.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-16 text-center text-slate-400">
                       <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -258,7 +287,7 @@ export default function ProductsPage() {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((product) => (
+                  sortedData.map((product) => (
                     <tr key={product.product_id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4">
                         <span className="font-mono font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-xs">
@@ -269,12 +298,12 @@ export default function ProductsPage() {
                       <td className="px-6 py-4 text-slate-500">{product.category}</td>
                       <td className="px-6 py-4 text-right">
                         <span className="font-semibold text-slate-900 tabular-nums">
-                          {product.current_stock?.toLocaleString("en-US") || 0}
+                          {(product.current_stock ?? 0).toLocaleString("en-US")}
                         </span>
                         <span className="text-slate-400 text-xs ml-1">{product.units}</span>
                       </td>
                       <td className="px-6 py-4 text-right text-slate-500 tabular-nums">
-                        {product.minimum_stock?.toLocaleString("en-US")}
+                        {(product.minimum_stock ?? 0).toLocaleString("en-US")}
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-2 py-1 rounded text-[10px] font-semibold tracking-wide uppercase ${getHealthColor(product.stock_health)}`}>
@@ -282,17 +311,17 @@ export default function ProductsPage() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right flex justify-end gap-1">
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="h-8 w-8 p-0 text-slate-400 hover:text-blue-600 hover:bg-blue-50"
                           onClick={() => setSelectedProduct(product)}
                         >
                           <Eye className="w-4 h-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50 px-2"
                           onClick={() => handleDelete(product.product_id)}
                         >
@@ -305,6 +334,33 @@ export default function ProductsPage() {
               </tbody>
             </table>
           </div>
+          
+          {/* Pagination Controls */}
+          {totalItems > 0 && (
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50">
+              <p className="text-sm text-slate-500">
+                Showing <span className="font-medium">{(page - 1) * LIMIT + 1}</span> to <span className="font-medium">{Math.min(page * LIMIT, totalItems)}</span> of <span className="font-medium">{totalItems}</span> products
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1 || loading}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages || loading}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -322,12 +378,10 @@ export default function ProductsPage() {
               </div>
               <form onSubmit={handleCreateProduct} className="flex flex-col overflow-hidden">
                 <div className="p-6 space-y-4 overflow-y-auto">
-                  
                   <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-3 flex gap-3 text-sm text-blue-800">
                     <AlertCircle className="w-5 h-5 shrink-0 text-blue-600" />
                     <p>New products will have 0 stock initially. Use <strong>Goods Receipt</strong> to add stock.</p>
                   </div>
-
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">Product Code</label>
                     <Input required placeholder="e.g. RM-006" value={newProduct.product_code} onChange={e => setNewProduct({...newProduct, product_code: e.target.value})} />
@@ -339,7 +393,7 @@ export default function ProductsPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">Category</label>
-                      <select 
+                      <select
                         required
                         className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-slate-300 bg-white"
                         value={newProduct.category}
@@ -352,7 +406,7 @@ export default function ProductsPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">UoM (Unit)</label>
-                      <select 
+                      <select
                         required
                         className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-slate-300 bg-white"
                         value={newProduct.units}
@@ -403,15 +457,14 @@ export default function ProductsPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {/* Product Image & Description */}
               <div className="space-y-4">
                 {PRODUCT_MOCK_DETAILS[selectedProduct.product_code]?.image ? (
                   <div className="w-full h-48 bg-slate-100 rounded-xl overflow-hidden border border-slate-200">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img  
-                      src={PRODUCT_MOCK_DETAILS[selectedProduct.product_code].image} 
+                    <img
+                      src={PRODUCT_MOCK_DETAILS[selectedProduct.product_code].image}
                       alt={selectedProduct.product_name}
                       className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
                     />
@@ -422,13 +475,11 @@ export default function ProductsPage() {
                     <p className="text-xs font-medium">No Image Available</p>
                   </div>
                 )}
-                
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  {PRODUCT_MOCK_DETAILS[selectedProduct.product_code]?.description || 
-                   "No description available for this product. Please update the product master data to include detailed specifications."}
+                  {PRODUCT_MOCK_DETAILS[selectedProduct.product_code]?.description ||
+                    "No description available for this product. Please update the product master data to include detailed specifications."}
                 </p>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                   <p className="text-xs text-slate-400 font-medium">Category</p>
@@ -439,25 +490,24 @@ export default function ProductsPage() {
                   <p className="text-sm font-semibold text-slate-900 mt-1">{selectedProduct.units}</p>
                 </div>
               </div>
-
               <div className="bg-slate-50 rounded-xl p-5 border border-slate-100 space-y-4">
                 <h3 className="text-sm font-semibold text-slate-700">Stock Information</h3>
                 <div>
                   <div className="flex justify-between text-xs text-slate-500 mb-2">
                     <span>Actual Stock</span>
-                    <span className={`font-bold text-sm ${selectedProduct.current_stock < selectedProduct.minimum_stock ? "text-red-600" : "text-emerald-600"}`}>
-                      {selectedProduct.current_stock.toLocaleString("en-US")} {selectedProduct.units}
+                    <span className={`font-bold text-sm ${(selectedProduct.current_stock ?? 0) < (selectedProduct.minimum_stock ?? 0) ? "text-red-600" : "text-emerald-600"}`}>
+                      {(selectedProduct.current_stock ?? 0).toLocaleString("en-US")} {selectedProduct.units}
                     </span>
                   </div>
                   <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all ${selectedProduct.current_stock < selectedProduct.minimum_stock ? "bg-red-500" : "bg-emerald-500"}`}
-                      style={{ width: `${Math.min(100, (selectedProduct.current_stock / (selectedProduct.minimum_stock || 1)) * 100)}%` }}
+                      className={`h-full rounded-full transition-all ${(selectedProduct.current_stock ?? 0) < (selectedProduct.minimum_stock ?? 0) ? "bg-red-500" : "bg-emerald-500"}`}
+                      style={{ width: `${Math.min(100, ((selectedProduct.current_stock ?? 0) / (selectedProduct.minimum_stock || 1)) * 100)}%` }}
                     />
                   </div>
                   <div className="flex justify-between mt-1.5 text-xs text-slate-400">
                     <span>0</span>
-                    <span>Target: {selectedProduct.minimum_stock.toLocaleString("en-US")}</span>
+                    <span>Target: {(selectedProduct.minimum_stock ?? 0).toLocaleString("en-US")}</span>
                   </div>
                 </div>
               </div>
@@ -465,7 +515,6 @@ export default function ProductsPage() {
           </div>
         </>
       )}
-
     </div>
   );
 }

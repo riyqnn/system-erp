@@ -88,6 +88,42 @@ export default function InventoryLedgerPage() {
     setCurrentPage(1);
   }, [search, typeFilter]);
 
+  /* ── Export CSV ────────────────────────────────────────────────── */
+  const handleExportCSV = useCallback(async () => {
+    try {
+      const response = await fetch('/api/inventory/ledger', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to export CSV');
+      }
+
+      // Get the CSV content from response
+      const csvContent = await response.text();
+      
+      // Create blob and download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `ledger-${new Date().toISOString().slice(0, 10)}.csv`);
+      link.style.visibility = 'hidden';
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to export CSV:', err);
+    }
+  }, [data]);
+
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const paginatedData = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
@@ -112,7 +148,7 @@ export default function InventoryLedgerPage() {
             Audit trail of all historical stock movements (IN/OUT)
           </p>
         </div>
-        <Button variant="outline" className="h-10 px-5 gap-2 bg-white rounded-xl hover:shadow-sm transition-shadow">
+        <Button variant="outline" className="h-10 px-5 gap-2 bg-white rounded-xl hover:shadow-sm transition-shadow" onClick={handleExportCSV}>
           <Download className="w-4 h-4" /> Download CSV
         </Button>
       </div>

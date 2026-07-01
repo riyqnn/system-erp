@@ -1,20 +1,44 @@
 import { AnyObject } from '@/lib/any';
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, requireAnyRole } from '@/lib/auth/rbac'
 import { createRouteHandlerClient } from '@/lib/supabase/server'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await requireAuth()
     requireAnyRole(user, ['ADMIN', 'INVENTORY_MANAGER', 'INVENTORY_STAFF', 'INVENTORY'])
 
     const supabase = await createRouteHandlerClient()
 
+    // Parse query parameters
+    const { searchParams } = new URL(request.url)
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '10', 10)))
+    const search = searchParams.get('search') || ''
+    const category = searchParams.get('category') || 'All'
+
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+
+    // Helper to escape special characters for PostgREST ilike/or
+    const escapedSearch = search.replace(/,/g, '\\,').replace(/%/g, '\\%');
+
     // Primary: try the view (fast, pre-aggregated)
-    const { data, error } = await supabase
+    let query = supabase
       .from('vw_stock_summary')
-      .select('*')
+      .select('*', { count: 'exact' })
       .order('product_id', { ascending: true })
+
+    if (search) {
+      query = query.or(`product_id.ilike.%${escapedSearch}%,product_name.ilike.%${escapedSearch}%`)
+    }
+    if (category && category !== 'All') {
+      query = query.eq('category', category)
+    }
+    
+    query = query.range(from, to)
+
+    const { data, error, count } = await query
 
     if (!error && data) {
       // Map view columns to UI-expected shape to avoid client crashes
@@ -29,26 +53,48 @@ export async function GET() {
         stock_health: d.stock_health
       }))
       console.log('[STOCK] returning', mapped.length, 'items (from vw_stock_summary)')
-      return NextResponse.json({ data: mapped })
+      return NextResponse.json({ 
+        data: mapped,
+        pagination: {
+          page,
+          limit,
+          total: count || 0,
+          totalPages: Math.ceil((count || 0) / limit)
+        }
+      })
     }
 
     // If the view is missing or PostgREST returns a schema error, fall back
-    // to computing the stock summary from `ms_product` + `tr_stock_balance`.
     const errMsg = error?.message || ''
     if (error && /vw_stock_summary|could not find the table|PGRST205/i.test(errMsg)) {
       console.warn('[STOCK] vw_stock_summary not in cache, using fallback computation...');
-      // Fetch master products and balances in parallel
-      const [prodRes, balRes] = await Promise.all([
-        supabase.from('ms_product').select('product_id, product_name, category, uom, minimum_stock, status, created_at, updated_at'),
-        supabase.from('tr_stock_balance').select('product_id, quantity, status')
-      ])
+      
+      let prodQuery = supabase.from('ms_product').select('product_id, product_name, category, uom, minimum_stock, status, created_at, updated_at', { count: 'exact' })
+      
+      if (search) {
+        prodQuery = prodQuery.or(`product_id.ilike.%${escapedSearch}%,product_name.ilike.%${escapedSearch}%`)
+      }
+      if (category && category !== 'All') {
+        prodQuery = prodQuery.eq('category', category)
+      }
+      
+      prodQuery = prodQuery.range(from, to)
 
-      if (prodRes.error) console.error('[STOCK] prodRes.error', prodRes.error)
-      if (balRes.error) console.error('[STOCK] balRes.error', balRes.error)
+      const { data: products, error: prodError, count } = await prodQuery
 
-      const products = prodRes.data || []
-      const balances = balRes.data || []
-      console.log('[STOCK] prodRes count', (prodRes.data || []).length, 'balRes count', (balRes.data || []).length)
+      if (prodError) console.error('[STOCK] prodRes.error', prodError)
+
+      const productList = products || []
+      const productIds = productList.map(p => p.product_id)
+
+      let balances: AnyObject[] = []
+      if (productIds.length > 0) {
+        const balRes = await supabase.from('tr_stock_balance').select('product_id, quantity, status').in('product_id', productIds)
+        if (balRes.error) console.error('[STOCK] balRes.error', balRes.error)
+        balances = balRes.data || []
+      }
+
+      console.log('[STOCK] prodRes count', productList.length, 'balRes count', balances.length)
 
       // Aggregate available quantities per product
       const availMap: Record<string, number> = {}
@@ -60,7 +106,7 @@ export async function GET() {
         availMap[pid] = (availMap[pid] || 0) + qty
       }
 
-      const computed = products.map((p: AnyObject) => {
+      const computed = productList.map((p: AnyObject) => {
         const current = Number(availMap[String(p.product_id)] || 0)
         const minStock = Number(p.minimum_stock || 0)
         let stock_health = 'Adequate'
@@ -81,11 +127,22 @@ export async function GET() {
       })
 
       console.log('[STOCK] returning', computed.length, 'items (computed)')
-      return NextResponse.json({ data: computed })
+      return NextResponse.json({ 
+        data: computed,
+        pagination: {
+          page,
+          limit,
+          total: count || 0,
+          totalPages: Math.ceil((count || 0) / limit)
+        }
+      })
     }
 
     // Unknown error from view access
     if (error) throw error
+    
+    return NextResponse.json({ data: [], pagination: { page, limit, total: 0, totalPages: 0 } })
+
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Internal server error';
     const status = (error as { statusCode?: number })?.statusCode || 500;
