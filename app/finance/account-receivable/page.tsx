@@ -85,6 +85,10 @@ export default function AccountReceivablePage() {
   const [notif, setNotif] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [isAgingModalOpen, setIsAgingModalOpen] = useState(false)
 
+  // Pagination States
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPiutang, setTotalPiutang] = useState(0)
+
   // Payment Form States
   const [selectedPiutang, setSelectedPiutang] = useState<Piutang | null>(null)
   const [selectedAkunKas, setSelectedAkunKas] = useState<number>(0)
@@ -98,9 +102,12 @@ export default function AccountReceivablePage() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const arRes = await fetch('/api/finance/receivable')
+      const arRes = await fetch(`/api/finance/receivable?page=${currentPage}&limit=10`)
       const arJson = await arRes.json()
-      if (arJson.data) setPiutangList(arJson.data)
+      if (arJson.data) {
+        setPiutangList(arJson.data)
+        setTotalPiutang(arJson.total || 0)
+      }
 
       const coaRes = await fetch('/api/finance/coa')
       const coaJson = await coaRes.json()
@@ -121,7 +128,7 @@ export default function AccountReceivablePage() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [currentPage])
 
   const showNotif = (type: 'success' | 'error', message: string) => {
     setNotif({ type, message })
@@ -131,6 +138,7 @@ export default function AccountReceivablePage() {
   // Pelunasan Piutang Submit
   const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading) return
     if (!selectedPiutang) return
     if (selectedAkunKas === 0) {
       showNotif('error', 'Harap pilih rekening penampung kas/bank.')
@@ -170,6 +178,7 @@ export default function AccountReceivablePage() {
 
   // Kirim Reminder Pelunasan (Quick Action Toast & API Log)
   const handleSendReminder = async (piutang: Piutang) => {
+    if (loading) return
     try {
       setLoading(true)
       const res = await fetch('/api/finance/receivable', {
@@ -501,6 +510,33 @@ export default function AccountReceivablePage() {
                 </TableBody>
               </Table>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPiutang > 10 && (
+              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/30">
+                <span className="text-xs text-slate-500 font-medium">
+                  Menampilkan {((currentPage - 1) * 10) + 1} - {Math.min(currentPage * 10, totalPiutang)} dari {totalPiutang} data
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1 || loading}
+                    variant="outline"
+                    className="h-8 text-xs font-bold px-3 rounded-xl cursor-pointer"
+                  >
+                    Sebelumnya
+                  </Button>
+                  <Button
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalPiutang / 10)))}
+                    disabled={currentPage * 10 >= totalPiutang || loading}
+                    variant="outline"
+                    className="h-8 text-xs font-bold px-3 rounded-xl cursor-pointer"
+                  >
+                    Selanjutnya
+                  </Button>
+                </div>
+              </div>
+            )}
           </GlassCard>
         </div>
 
@@ -565,15 +601,19 @@ export default function AccountReceivablePage() {
                       type="button"
                       onClick={() => setSelectedPiutang(null)}
                       variant="ghost"
-                      className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50"
+                      disabled={loading}
+                      className="flex-1 text-xs font-semibold border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 disabled:opacity-50"
                     >
                       Batal
                     </Button>
                     <Button
                       type="submit"
                       disabled={loading}
-                      className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer shadow-[0_2px_10px_rgba(220,38,38,0.2)]"
+                      className="flex-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl cursor-pointer shadow-[0_2px_10px_rgba(220,38,38,0.2)] disabled:opacity-75 flex items-center justify-center gap-1.5"
                     >
+                      {loading && (
+                        <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      )}
                       {loading ? 'Memproses...' : 'Catat Pelunasan'}
                     </Button>
                   </div>

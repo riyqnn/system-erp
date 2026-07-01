@@ -98,6 +98,10 @@ export default function GeneralLedgerPage() {
   const [akunList, setAkunList] = useState<Akun[]>([])
   const [jurnalList, setJurnalList] = useState<Jurnal[]>([])
 
+  // Pagination States
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalJurnal, setTotalJurnal] = useState(0)
+
   // State Form Jurnal Baru
   const [tanggalJurnal, setTanggalJurnal] = useState(new Date().toISOString().substring(0, 10))
   const [keteranganJurnal, setKeteranganJurnal] = useState('')
@@ -178,6 +182,7 @@ export default function GeneralLedgerPage() {
   }
 
   const handleResetReport = async () => {
+    if (loading) return
     handleUpdateStatus('DRAFT')
     handleUpdateDecisionNote('')
     try {
@@ -189,6 +194,7 @@ export default function GeneralLedgerPage() {
       })
       if (res.ok) {
         showNotif('success', 'Status laporan berhasil direset. Saldo Neraca kembali seimbang dan entri jurnal uji coba dibersihkan.')
+        setCurrentPage(1)
         loadData()
       } else {
         showNotif('error', 'Gagal mereset jurnal uji coba.')
@@ -211,9 +217,12 @@ export default function GeneralLedgerPage() {
       if (coaJson.data) setAkunList(coaJson.data)
  
       // Fetch Jurnal
-      const jrRes = await fetch(`/api/finance/journal?t=${ts}`, { cache: 'no-store' })
+      const jrRes = await fetch(`/api/finance/journal?page=${currentPage}&limit=10&t=${ts}`, { cache: 'no-store' })
       const jrJson = await jrRes.json()
-      if (jrJson.data) setJurnalList(jrJson.data)
+      if (jrJson.data) {
+        setJurnalList(jrJson.data)
+        setTotalJurnal(jrJson.total || 0)
+      }
     } catch (e) {
       console.error(e)
       showNotif('error', 'Gagal memuat data dari API. Menjalankan mode mock.')
@@ -224,7 +233,7 @@ export default function GeneralLedgerPage() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [currentPage])
 
   const showNotif = (type: 'success' | 'error', message: string) => {
     setNotif({ type, message })
@@ -268,6 +277,7 @@ export default function GeneralLedgerPage() {
   // Post Jurnal
   const handlePostJurnal = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading) return
     if (reportStatus !== 'DRAFT') {
       showNotif('error', 'Tidak dapat memposting jurnal. Laporan keuangan periode berjalan telah difinalisasi atau didistribusikan.')
       return
@@ -919,21 +929,24 @@ const handleGeneratePDF = () => {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={reportStatus !== 'DRAFT'}
+                    disabled={loading || reportStatus !== 'DRAFT'}
                     onClick={() => showNotif('success', 'Draft entri jurnal disimpan.')}
-                    className="h-10 px-4 text-xs font-semibold border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800 rounded-xl cursor-pointer"
+                    className="h-10 px-4 text-xs font-semibold border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800 rounded-xl cursor-pointer disabled:opacity-50"
                   >
                     Save Draft
                   </Button>
                   <Button
                     type="submit"
                     disabled={!isBalance || loading || reportStatus !== 'DRAFT'}
-                    className={`h-10 px-5 text-xs font-semibold text-white rounded-xl shadow-md transition-all cursor-pointer ${
+                    className={`h-10 px-5 text-xs font-semibold text-white rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                       reportStatus === 'DRAFT' && isBalance
                         ? 'bg-red-600 hover:bg-red-700 shadow-red-100'
                         : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
                     }`}
                   >
+                    {loading && (
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    )}
                     {loading ? 'Processing...' : 'Post Journal'}
                   </Button>
                 </div>
@@ -1518,6 +1531,33 @@ const handleGeneratePDF = () => {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* Pagination Controls */}
+              {totalJurnal > 10 && (
+                <div className="mt-4 px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/30 rounded-2xl">
+                  <span className="text-xs text-slate-500 font-medium">
+                    Menampilkan {((currentPage - 1) * 10) + 1} - {Math.min(currentPage * 10, totalJurnal)} dari {totalJurnal} entri
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1 || loading}
+                      variant="outline"
+                      className="h-8 text-xs font-bold px-3 rounded-xl cursor-pointer"
+                    >
+                      Sebelumnya
+                    </Button>
+                    <Button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(totalJurnal / 10)))}
+                      disabled={currentPage * 10 >= totalJurnal || loading}
+                      variant="outline"
+                      className="h-8 text-xs font-bold px-3 rounded-xl cursor-pointer"
+                    >
+                      Selanjutnya
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

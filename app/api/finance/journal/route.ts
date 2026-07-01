@@ -18,8 +18,13 @@ import { getDaftarJurnal, buatJurnalManual } from '@/lib/database/financeService
 export async function GET(request: NextRequest) {
   try {
     await verifyAuthForRoute(request, ['ADMIN', 'FINANCE', 'ACCOUNTING_GL']);
-    const data = await getDaftarJurnal();
-    return NextResponse.json({ data });
+    
+    const { searchParams } = new URL(request.url);
+    const page = searchParams.get('page') ? Number(searchParams.get('page')) : undefined;
+    const limit = searchParams.get('limit') ? Number(searchParams.get('limit')) : undefined;
+
+    const result = await getDaftarJurnal(page, limit);
+    return NextResponse.json({ data: result.data, total: result.total });
   } catch (error) {
     const err = error as { statusCode?: number; message?: string };
     console.error('[API Journal GET Error]', err);
@@ -149,6 +154,26 @@ export async function POST(request: NextRequest) {
 
       if (ppError) {
         console.error('[API Journal Reset ppError]', ppError);
+      }
+
+      // 8. Hapus perintah_pembayaran uji coba (request_id >= 15)
+      const { error: ppDelError } = await supabase
+        .from('perintah_pembayaran')
+        .delete()
+        .gte('request_id', 15);
+
+      if (ppDelError) {
+        console.error('[API Journal Reset ppDelError]', ppDelError);
+      }
+
+      // 9. Hapus permintaan_pembayaran uji coba (request_id >= 15)
+      const { error: pDelError } = await supabase
+        .from('permintaan_pembayaran')
+        .delete()
+        .gte('request_id', 15);
+
+      if (pDelError) {
+        console.error('[API Journal Reset pDelError]', pDelError);
       }
       
       return NextResponse.json({ success: true, message: 'Status laporan berhasil direset. Saldo Neraca kembali seimbang.' });

@@ -27,8 +27,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data });
     }
 
-    const data = await getDaftarHutang();
-    return NextResponse.json({ data });
+    const page = searchParams.get('page') ? Number(searchParams.get('page')) : undefined;
+    const limit = searchParams.get('limit') ? Number(searchParams.get('limit')) : undefined;
+
+    const result = await getDaftarHutang(page, limit);
+    return NextResponse.json({ data: result.data, total: result.total });
   } catch (error) {
     const err = error as { statusCode?: number; message?: string };
     console.error('[API Payable GET Error]', err);
