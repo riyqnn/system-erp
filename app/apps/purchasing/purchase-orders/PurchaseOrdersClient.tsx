@@ -15,7 +15,6 @@ import {
 } from '@phosphor-icons/react'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
-import { TrackingReportModal } from '@/app/purchasing/_components/TrackingReportModal'
 
 type POStatus =
   | 'DRAFT'
@@ -172,7 +171,6 @@ export function PurchaseOrdersClient() {
   const [status, setStatus] = useState('All Status')
   const [supplier, setSupplier] = useState('All Suppliers')
   const [dateRange, setDateRange] = useState('')
-  const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false)
   const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
@@ -417,12 +415,6 @@ export function PurchaseOrdersClient() {
             description="Manage purchase orders and monitor their processing status."
           />
 
-          <Link
-            href="/purchasing/negotiation"
-            className="inline-flex h-10 items-center rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700"
-          >
-            Go to Price Negotiation
-          </Link>
         </div>
 
         {errorMessage && (
@@ -546,13 +538,6 @@ export function PurchaseOrdersClient() {
               />
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsTrackingModalOpen(true)}
-              className="h-10 rounded-lg border border-red-200 px-4 text-sm font-semibold text-red-600 transition hover:bg-red-50"
-            >
-              Input Tracking Report
-            </button>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
@@ -1034,12 +1019,6 @@ export function PurchaseOrdersClient() {
         </div>
       )}
 
-      <TrackingReportModal
-        isOpen={isTrackingModalOpen}
-        onClose={() => setIsTrackingModalOpen(false)}
-        title="Input Tracking Report"
-        contextLabel="Purchase Order Monitoring"
-      />
     </ModuleLayout>
   )
 }

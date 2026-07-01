@@ -19,7 +19,7 @@ type Supplier = {
   estimatedPrice: number
   leadTime: number
   termOfPayment: string
-  status: SupplierStatus
+  status: SupplierStatus | string
 }
 
 type SupplierForm = {
@@ -34,6 +34,8 @@ type SupplierForm = {
   status: SupplierStatus
 }
 
+const ITEMS_PER_PAGE = 15
+
 const initialForm: SupplierForm = {
   supplierCode: '',
   supplierName: '',
@@ -46,16 +48,24 @@ const initialForm: SupplierForm = {
   status: 'ACTIVE',
 }
 
+function normalizeSupplierStatus(value: string): SupplierStatus {
+  const status = String(value || '').toUpperCase()
+
+  return status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE'
+}
+
 function formatCurrency(value: number, unit: string) {
-  return `Rp ${new Intl.NumberFormat('id-ID').format(value)}/${unit}`
+  return `Rp ${new Intl.NumberFormat('id-ID').format(value || 0)}/${unit || '-'}`
 }
 
 function formatPaymentTerm(value: string) {
+  if (!value || value === '-') return '-'
+
   return value.replace('NET_', 'Net ')
 }
 
-function formatStatus(value: SupplierStatus) {
-  return value === 'ACTIVE' ? 'Active' : 'Inactive'
+function formatStatus(value: string) {
+  return normalizeSupplierStatus(value) === 'ACTIVE' ? 'Active' : 'Inactive'
 }
 
 export function SuppliersPageClient() {
@@ -63,25 +73,35 @@ export function SuppliersPageClient() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All Categories')
   const [status, setStatus] = useState('All Status')
+  const [currentPage, setCurrentPage] = useState(1)
+
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [form, setForm] = useState<SupplierForm>(initialForm)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
 
-  const fetchSuppliers = async () => {
+  const fetchSuppliers = async ({ goToLastPage = false } = {}) => {
     try {
       setIsLoading(true)
       setErrorMessage('')
 
-      const response = await fetch('/api/purchasing/suppliers')
+      const response = await fetch('/api/purchasing/suppliers?limit=all')
       const result = await response.json()
 
       if (!response.ok) {
         throw new Error(result.message || 'Failed to fetch suppliers')
       }
 
-      setSuppliers(result.data || [])
+      const rows: Supplier[] = Array.isArray(result.data) ? result.data : []
+
+      setSuppliers(rows)
+
+      if (goToLastPage) {
+        const lastPage = Math.max(Math.ceil(rows.length / ITEMS_PER_PAGE), 1)
+        setCurrentPage(lastPage)
+      }
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Failed to fetch suppliers'
@@ -95,9 +115,17 @@ export function SuppliersPageClient() {
     fetchSuppliers()
   }, [])
 
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [search, category, status])
+
   const categories = useMemo(() => {
     const uniqueCategories = Array.from(
-      new Set(suppliers.map((supplier) => supplier.category))
+      new Set(
+        suppliers
+          .map((supplier) => supplier.category)
+          .filter((item) => item && item !== '-')
+      )
     )
 
     return ['All Categories', ...uniqueCategories]
@@ -105,21 +133,49 @@ export function SuppliersPageClient() {
 
   const filteredSuppliers = useMemo(() => {
     return suppliers.filter((supplier) => {
+      const keyword = search.toLowerCase()
+
       const matchesSearch =
-        supplier.supplierName.toLowerCase().includes(search.toLowerCase()) ||
-        supplier.supplierId.toLowerCase().includes(search.toLowerCase()) ||
-        supplier.product.toLowerCase().includes(search.toLowerCase()) ||
-        supplier.productCode.toLowerCase().includes(search.toLowerCase())
+        supplier.supplierName.toLowerCase().includes(keyword) ||
+        supplier.supplierId.toLowerCase().includes(keyword) ||
+        supplier.product.toLowerCase().includes(keyword) ||
+        supplier.productCode.toLowerCase().includes(keyword) ||
+        supplier.contact.toLowerCase().includes(keyword) ||
+        supplier.address.toLowerCase().includes(keyword)
 
       const matchesCategory =
         category === 'All Categories' || supplier.category === category
 
       const matchesStatus =
-        status === 'All Status' || formatStatus(supplier.status) === status
+        status === 'All Status' || formatStatus(String(supplier.status)) === status
 
       return matchesSearch && matchesCategory && matchesStatus
     })
   }, [suppliers, search, category, status])
+
+  const totalPages = Math.max(
+    Math.ceil(filteredSuppliers.length / ITEMS_PER_PAGE),
+    1
+  )
+
+  const safeCurrentPage = Math.min(currentPage, totalPages)
+
+  const paginatedSuppliers = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * ITEMS_PER_PAGE
+    const endIndex = startIndex + ITEMS_PER_PAGE
+
+    return filteredSuppliers.slice(startIndex, endIndex)
+  }, [filteredSuppliers, safeCurrentPage])
+
+  const showingFrom =
+    filteredSuppliers.length === 0
+      ? 0
+      : (safeCurrentPage - 1) * ITEMS_PER_PAGE + 1
+
+  const showingTo = Math.min(
+    safeCurrentPage * ITEMS_PER_PAGE,
+    filteredSuppliers.length
+  )
 
   const handleChange = (field: keyof SupplierForm, value: string) => {
     setForm((currentForm) => ({
@@ -149,7 +205,7 @@ export function SuppliersPageClient() {
 
       setForm(initialForm)
       setIsAddModalOpen(false)
-      await fetchSuppliers()
+      await fetchSuppliers({ goToLastPage: true })
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Failed to save supplier'
@@ -158,6 +214,54 @@ export function SuppliersPageClient() {
       setIsSaving(false)
     }
   }
+
+  const handleDeleteSupplier = async (supplier: Supplier) => {
+    const confirmed = window.confirm(
+      `Delete supplier ${supplier.supplierName}? This action cannot be undone.`
+    )
+
+    if (!confirmed) return
+
+    try {
+      setIsDeleting(supplier.supplierId)
+      setErrorMessage('')
+
+      const response = await fetch(
+        `/api/purchasing/suppliers?supplierId=${encodeURIComponent(
+          supplier.supplierId
+        )}`,
+        {
+          method: 'DELETE',
+        }
+      )
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to delete supplier')
+      }
+
+      await fetchSuppliers()
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Failed to delete supplier'
+      )
+    } finally {
+      setIsDeleting('')
+    }
+  }
+
+  const goToPreviousPage = () => {
+    setCurrentPage((page) => Math.max(page - 1, 1))
+  }
+
+  const goToNextPage = () => {
+    setCurrentPage((page) => Math.min(page + 1, totalPages))
+  }
+
+  const pageNumbers = useMemo(() => {
+    return Array.from({ length: totalPages }, (_, index) => index + 1)
+  }, [totalPages])
 
   return (
     <ModuleLayout
@@ -254,50 +358,63 @@ export function SuppliersPageClient() {
                       </td>
                     </tr>
                   ) : (
-                    filteredSuppliers.map((supplier) => (
-                      <tr key={supplier.id} className="hover:bg-red-50/30">
-                        <td className="px-4 py-4 text-xs font-medium text-slate-700">
-                          {supplier.supplierId}
-                        </td>
-                        <td className="px-4 py-4 font-semibold text-slate-900">
-                          {supplier.supplierName}
-                        </td>
-                        <td className="px-4 py-4 text-slate-600">
-                          {supplier.category}
-                        </td>
-                        <td className="px-4 py-4 text-slate-600">
-                          {supplier.product}
-                        </td>
-                        <td className="px-4 py-4 text-slate-700">
-                          {formatCurrency(
-                            supplier.estimatedPrice,
-                            supplier.unit
-                          )}
-                        </td>
-                        <td className="px-4 py-4 text-slate-700">
-                          {supplier.leadTime} Days
-                        </td>
-                        <td className="px-4 py-4 text-slate-700">
-                          {formatPaymentTerm(supplier.termOfPayment)}
-                        </td>
-                        <td className="px-4 py-4">
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                              supplier.status === 'ACTIVE'
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-slate-100 text-slate-500'
-                            }`}
-                          >
-                            {formatStatus(supplier.status)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-right">
-                          <button className="text-xl font-bold text-red-700">
-                            ⋮
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                    paginatedSuppliers.map((supplier) => {
+                      const normalizedStatus = normalizeSupplierStatus(
+                        String(supplier.status)
+                      )
+
+                      return (
+                        <tr key={supplier.id} className="hover:bg-red-50/30">
+                          <td className="px-4 py-4 text-xs font-medium text-slate-700">
+                            {supplier.supplierId}
+                          </td>
+                          <td className="px-4 py-4 font-semibold text-slate-900">
+                            {supplier.supplierName}
+                          </td>
+                          <td className="px-4 py-4 text-slate-600">
+                            {supplier.category}
+                          </td>
+                          <td className="px-4 py-4 text-slate-600">
+                            {supplier.product}
+                          </td>
+                          <td className="px-4 py-4 text-slate-700">
+                            {formatCurrency(
+                              supplier.estimatedPrice,
+                              supplier.unit
+                            )}
+                          </td>
+                          <td className="px-4 py-4 text-slate-700">
+                            {supplier.leadTime} Days
+                          </td>
+                          <td className="px-4 py-4 text-slate-700">
+                            {formatPaymentTerm(supplier.termOfPayment)}
+                          </td>
+                          <td className="px-4 py-4">
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                normalizedStatus === 'ACTIVE'
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-slate-100 text-slate-500'
+                              }`}
+                            >
+                              {formatStatus(String(supplier.status))}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSupplier(supplier)}
+                              disabled={isDeleting === supplier.supplierId}
+                              className="rounded-lg px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-red-300"
+                            >
+                              {isDeleting === supplier.supplierId
+                                ? 'Deleting...'
+                                : 'Delete'}
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
 
                   {!isLoading && filteredSuppliers.length === 0 && (
@@ -316,18 +433,41 @@ export function SuppliersPageClient() {
 
             <div className="flex flex-col gap-3 border-t border-red-50 px-4 py-3 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
               <p>
-                Showing {filteredSuppliers.length} of {suppliers.length} supplier
-                data
+                Showing {showingFrom}-{showingTo} of {filteredSuppliers.length}{' '}
+                supplier data
               </p>
 
-              <div className="flex items-center gap-2">
-                <button className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={goToPreviousPage}
+                  disabled={safeCurrentPage === 1}
+                  className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300"
+                >
                   ‹
                 </button>
-                <button className="rounded-lg bg-red-700 px-3 py-1 text-white">
-                  1
-                </button>
-                <button className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
+
+                {pageNumbers.map((pageNumber) => (
+                  <button
+                    key={pageNumber}
+                    type="button"
+                    onClick={() => setCurrentPage(pageNumber)}
+                    className={`rounded-lg px-3 py-1 ${
+                      pageNumber === safeCurrentPage
+                        ? 'bg-red-700 text-white'
+                        : 'text-slate-500 hover:bg-slate-100'
+                    }`}
+                  >
+                    {pageNumber}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={goToNextPage}
+                  disabled={safeCurrentPage === totalPages}
+                  className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300"
+                >
                   ›
                 </button>
               </div>
