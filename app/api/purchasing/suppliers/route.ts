@@ -12,6 +12,59 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+interface SupplierRow {
+  supplier_id: string
+  supplier_name: string
+  contact: string | null
+  address: string | null
+  lead_time: number | null
+  top: string | null
+  status: string | null
+}
+
+interface ProductRow {
+  product_id: string
+  product_name: string | null
+  category: string | null
+  uom: string | null
+}
+
+interface SupplierPriceRow {
+  supplier_id: string
+  product_id: string
+  unit_price_estimate?: number | null
+  estimated_price?: number | null
+  price?: number | null
+  unit_price?: number | null
+  uom?: string | null
+}
+
+interface PriceProfile {
+  supplierId: string
+  productCode: string
+  product: string
+  category: string
+  unit: string
+  estimatedPrice: number
+}
+
+interface SupplierListItem {
+  id: string
+  supplierId: string
+  supplierName: string
+  contact: string
+  address: string
+  productCode: string
+  product: string
+  category: string
+  unit: string
+  estimatedPrice: number
+  leadTime: number
+  termOfPayment: string
+  status: string
+  priceProfiles: PriceProfile[]
+}
+
 function getString(value: unknown, fallback = '') {
   if (value === null || value === undefined) return fallback
 
@@ -69,6 +122,18 @@ function matchesSearch(value: string, search: string) {
   return value.toLowerCase().includes(search.toLowerCase())
 }
 
+function getEstimatedPrice(price: SupplierPriceRow | null | undefined) {
+  if (!price) return 0
+
+  return getNumber(
+    price.unit_price_estimate ??
+      price.estimated_price ??
+      price.price ??
+      price.unit_price,
+    0
+  )
+}
+
 export async function GET(request: Request) {
   try {
     const [supplierPriceResult, supplierResult, productResult] =
@@ -105,22 +170,19 @@ export async function GET(request: Request) {
       )
     }
 
-    const supplierPrices = supplierPriceResult.data || []
-    const supplierRows = supplierResult.data || []
-    const products = productResult.data || []
+    const supplierPrices = (supplierPriceResult.data || []) as SupplierPriceRow[]
+    const supplierRows = (supplierResult.data || []) as SupplierRow[]
+    const products = (productResult.data || []) as ProductRow[]
 
-    const productMap = new Map<string, any>()
-
-    products.forEach((product: any) => {
+    const productMap = new Map<string, ProductRow>()
+    products.forEach((product) => {
       productMap.set(String(product.product_id || ''), product)
     })
 
-    const priceMap = new Map<string, any[]>()
-
-    supplierPrices.forEach((supplierPrice: any) => {
+    const priceMap = new Map<string, SupplierPriceRow[]>()
+    supplierPrices.forEach((supplierPrice) => {
       const supplierId = String(supplierPrice.supplier_id || '')
       const currentPrices = priceMap.get(supplierId) || []
-
       currentPrices.push(supplierPrice)
       priceMap.set(supplierId, currentPrices)
     })
@@ -147,20 +209,14 @@ export async function GET(request: Request) {
         ? 1000
         : Math.max(parseInt(limitParam || '1000', 10) || 1000, 1)
 
-    const suppliers = supplierRows.map((item: any) => {
+    const suppliers: SupplierListItem[] = supplierRows.map((item) => {
       const prices = priceMap.get(String(item.supplier_id || '')) || []
       const supplierPrice = prices[0] || null
       const product = supplierPrice
         ? productMap.get(String(supplierPrice.product_id || ''))
         : null
 
-      const estimatedPrice = getNumber(
-        supplierPrice?.unit_price_estimate ||
-          supplierPrice?.estimated_price ||
-          supplierPrice?.price ||
-          supplierPrice?.unit_price,
-        0
-      )
+      const estimatedPrice = getEstimatedPrice(supplierPrice)
 
       return {
         id: item.supplier_id,
@@ -168,18 +224,16 @@ export async function GET(request: Request) {
         supplierName: item.supplier_name || '-',
         contact: item.contact || '-',
         address: item.address || '-',
-
         productCode: product?.product_id || supplierPrice?.product_id || '-',
         product: product?.product_name || '-',
         category: product?.category || '-',
         unit: product?.uom || supplierPrice?.uom || '-',
-
         estimatedPrice,
         leadTime: getNumber(item.lead_time, 0),
         termOfPayment: item.top || '-',
-        status: item.status || 'ACTIVE',
+        status: item.status || 'Active',
 
-        priceProfiles: prices.map((price: any) => {
+        priceProfiles: prices.map((price) => {
           const priceProduct = productMap.get(String(price.product_id || ''))
 
           return {
@@ -188,13 +242,7 @@ export async function GET(request: Request) {
             product: priceProduct?.product_name || '-',
             category: priceProduct?.category || '-',
             unit: priceProduct?.uom || price.uom || '-',
-            estimatedPrice: getNumber(
-              price.unit_price_estimate ||
-                price.estimated_price ||
-                price.price ||
-                price.unit_price,
-              0
-            ),
+            estimatedPrice: getEstimatedPrice(price),
           }
         }),
       }
@@ -314,7 +362,7 @@ export async function POST(request: Request) {
       .from('ms_product')
       .select('product_id, product_name, category, uom')
       .eq('product_id', productSku)
-      .maybeSingle()
+      .maybeSingle<ProductRow>()
 
     if (productError) {
       return NextResponse.json(
@@ -366,7 +414,7 @@ export async function POST(request: Request) {
       .select('*')
       .eq('supplier_id', supplierCode)
       .eq('product_id', productData.product_id)
-      .maybeSingle()
+      .maybeSingle<SupplierPriceRow>()
 
     if (existingPriceError) {
       return NextResponse.json(
@@ -378,7 +426,7 @@ export async function POST(request: Request) {
       )
     }
 
-    let supplierPriceData = null
+    let supplierPriceData: SupplierPriceRow | null = null
 
     if (existingPrice) {
       const { data, error } = await supabase
@@ -390,7 +438,7 @@ export async function POST(request: Request) {
         .eq('supplier_id', supplierCode)
         .eq('product_id', productData.product_id)
         .select()
-        .single()
+        .single<SupplierPriceRow>()
 
       if (error) {
         return NextResponse.json(
@@ -413,7 +461,7 @@ export async function POST(request: Request) {
           uom: productData.uom || null,
         })
         .select()
-        .single()
+        .single<SupplierPriceRow>()
 
       if (error) {
         return NextResponse.json(
