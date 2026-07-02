@@ -18,10 +18,10 @@ import { getDaftarHutang, verifikasiDanBuatHutang, buatPermintaanPembayaran, get
 export async function GET(request: NextRequest) {
   try {
     await verifyAuthForRoute(request, ['ADMIN', 'FINANCE', 'ACCOUNT_PAYABLE', 'PURCHASING']);
-    
+
     const { searchParams } = new URL(request.url);
     const mode = searchParams.get('mode'); // 'matching_data' untuk mengambil PO & GR
-    
+
     if (mode === 'matching_data') {
       const data = await getPoAndGrList();
       return NextResponse.json({ data });

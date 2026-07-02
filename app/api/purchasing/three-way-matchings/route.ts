@@ -822,7 +822,7 @@ export async function PATCH(request: Request) {
     if (receivedQty < orderedQty) {
       await createOrUpdateAccountPayable({
         po, supplierId: po.supplier_id || null, poTotal: poTotalValue,
-        invoiceNo, invoiceDate, dueDate, apStatus: 'Partial Receipt - Pending Decision'
+        invoiceNo, invoiceDate, dueDate, apStatus: 'PARTIAL_RECEIPT'
       })
       return NextResponse.json(
         {
@@ -836,7 +836,7 @@ export async function PATCH(request: Request) {
     if (existingAP && !isAmountWithinTolerance(existingAPAmount, poTotalValue)) {
       await createOrUpdateAccountPayable({
         po, supplierId: po.supplier_id || null, poTotal: existingAPAmount,
-        invoiceNo, invoiceDate, dueDate, apStatus: 'Price Mismatch - Pending Clarification'
+        invoiceNo, invoiceDate, dueDate, apStatus: 'PRICE_MISMATCH'
       })
       await createNotification({
         title: 'Price Mismatch in Invoice',
@@ -876,7 +876,7 @@ export async function PATCH(request: Request) {
       invoiceNo,
       invoiceDate,
       dueDate,
-      apStatus: 'Approved',
+      apStatus: 'APPROVED',
     })
 
     await supabase.from('sys_audit_trail').insert({

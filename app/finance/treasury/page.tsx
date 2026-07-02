@@ -35,7 +35,7 @@ interface PermintaanPembayaran {
   jumlah_bayar: number;
   metode_pembayaran: 'TRANSFER' | 'KAS_KECIL' | 'GIRO';
   keterangan: string;
-  status: 'MENUNGGU_PERSETUJUAN' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI';
+  status: 'MENUNGGU_AP_LEAD' | 'MENUNGGU_TREASURY_LEAD' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI';
   created_at: string;
   rejection_reason?: string;
   tr_hutang?: {
@@ -124,8 +124,8 @@ function GlassCard({
 export default function TreasuryPage() {
   const [activeTab, setActiveTab] = useState<'approvals' | 'history'>('approvals')
 
-  // Mock Role Switcher for evaluation: MANAGEMENT vs TREASURY
-  const [userRole, setUserRole] = useState<'MANAGEMENT' | 'TREASURY'>('TREASURY')
+  // Mock Role Switcher for evaluation: TREASURY_LEAD vs TREASURY
+  const [userRole, setUserRole] = useState<'TREASURY_LEAD' | 'TREASURY'>('TREASURY')
 
   const [pendingList, setPendingList] = useState<PermintaanPembayaran[]>([])
   const [approvedList, setApprovedList] = useState<PermintaanPembayaran[]>([])
@@ -214,7 +214,7 @@ export default function TreasuryPage() {
       }
 
       // Fetch pending approvals for Management role
-      const pendingRes = await fetch(`/api/finance/treasury?status=PENDING_APPROVAL&page=${currentPagePending}&limit=10&mock_role=${userRole}&t=${ts}`)
+      const pendingRes = await fetch(`/api/finance/treasury?status=PENDING_TREASURY&page=${currentPagePending}&limit=10&mock_role=${userRole}&t=${ts}`)
       const pendingJson = await pendingRes.json()
       if (pendingJson.data) {
         setPendingList(pendingJson.data)
@@ -302,7 +302,8 @@ export default function TreasuryPage() {
         body: JSON.stringify({
           action: 'approve',
           permintaan_id: pmtId,
-          status: 'DISETUJUI'
+          status: 'DISETUJUI',
+          approval_level: 'TREASURY'
         })
       })
       const json = await res.json()
@@ -338,7 +339,8 @@ export default function TreasuryPage() {
           action: 'approve',
           permintaan_id: rejectingPmt.id_permintaan,
           status: 'DITOLAK',
-          alasan: alasanTolak
+          alasan: alasanTolak,
+          approval_level: 'TREASURY'
         })
       })
       const json = await res.json()
@@ -528,7 +530,7 @@ export default function TreasuryPage() {
 
   // Filter pending approvals (status: MENUNGGU_PERSETUJUAN)
   const pendingPayments = pendingList
-    .filter(p => p.status === 'MENUNGGU_PERSETUJUAN')
+    .filter(p => p.status === 'MENUNGGU_TREASURY_LEAD')
     .filter(p => {
       const supplierMatch = (p.tr_hutang?.supplier_name || '').toLowerCase().includes(searchQuery.toLowerCase())
       const invoiceMatch = (p.tr_hutang?.no_invoice || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -627,13 +629,13 @@ export default function TreasuryPage() {
               <ShieldCheck className="w-3 h-3 text-blue-600" /> Role:
             </span>
             <button
-              onClick={() => setUserRole('MANAGEMENT')}
-              className={`px-2 py-1 text-[10px] font-semibold rounded-xl transition-all cursor-pointer ${userRole === 'MANAGEMENT'
+              onClick={() => setUserRole('TREASURY_LEAD')}
+              className={`px-2 py-1 text-[10px] font-semibold rounded-xl transition-all cursor-pointer ${userRole === 'TREASURY_LEAD'
                 ? 'bg-white text-slate-800 shadow-sm'
                 : 'text-slate-500 hover:text-slate-800'
                 }`}
             >
-              Management
+              Manajer Treasury
             </button>
             <button
               onClick={() => setUserRole('TREASURY')}
@@ -642,7 +644,7 @@ export default function TreasuryPage() {
                 : 'text-slate-500 hover:text-slate-800'
                 }`}
             >
-              Treasury
+              Staf Treasury
             </button>
           </div>
         </div>
@@ -908,7 +910,7 @@ export default function TreasuryPage() {
                             {formatCalibrated(p.jumlah_bayar)}
                           </TableCell>
                           <TableCell className="px-4 py-4 text-right">
-                            {userRole === 'MANAGEMENT' ? (
+                            {userRole === 'TREASURY_LEAD' ? (
                               <div className="flex justify-end gap-3">
                                 <button
                                   onClick={() => handleApprove(p.id_permintaan)}

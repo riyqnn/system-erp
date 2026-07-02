@@ -68,7 +68,7 @@ export function ProgressChart({
     }
   }, [isVisible, value])
 
-  const percentage = (animatedValue / max) * 100
+  const percentage = (animatedValue / (max || 1)) * 100
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
   const strokeDashoffset = circumference - (percentage / 100) * circumference
