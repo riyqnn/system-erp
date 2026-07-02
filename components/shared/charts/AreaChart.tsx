@@ -53,7 +53,7 @@ export function AreaChart({
   const chartHeight = height - padding.top - padding.bottom
 
   const getX = (index: number) => padding.left + (index / (data.length - 1)) * (chartWidth - padding.left - padding.right)
-  const getY = (value: number) => padding.top + chartHeight - (value / maxValue) * chartHeight
+  const getY = (value: number) => padding.top + chartHeight - (value / (maxValue || 1)) * chartHeight
 
   // Generate smooth curve points
   const generateSmoothPath = (values: number[]) => {

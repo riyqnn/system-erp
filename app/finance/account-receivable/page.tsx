@@ -255,7 +255,7 @@ export default function AccountReceivablePage() {
     return matchesSearch && matchesStatus
   })
 
-// Export to CSV Function
+  // Export to CSV Function
   const handleExportCSV = () => {
     if (filteredPiutang.length === 0) {
       showNotif('error', 'Tidak ada data untuk diexport.')
@@ -368,7 +368,7 @@ export default function AccountReceivablePage() {
                 <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
                   <Clock className="w-4.5 h-4.5" />
                 </div>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Awaiting Verification</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Outstanding AR</span>
               </div>
               <p className="text-2xl font-bold tracking-tight text-slate-800 mt-2">
                 Rp {awaitingAR.toLocaleString('id-ID')}
@@ -460,7 +460,7 @@ export default function AccountReceivablePage() {
                       const statusMap = {
                         LUNAS: { label: "Paid", bg: "bg-emerald-50 text-emerald-700 border-emerald-100", dot: "bg-emerald-500" },
                         OVERDUE: { label: "Overdue", bg: "bg-red-50 text-red-700 border-red-100", dot: "bg-red-500" },
-                        BELUM_LUNAS: { label: "Verify", bg: "bg-slate-100 text-slate-600 border-slate-200", dot: "bg-slate-400" }
+                        BELUM_LUNAS: { label: "Outstanding", bg: "bg-slate-100 text-slate-600 border-slate-200", dot: "bg-slate-400" }
                       };
                       const s = statusMap[p.status] || { label: p.status, bg: "bg-blue-50 text-blue-700 border-blue-100", dot: "bg-blue-500" };
 
@@ -804,7 +804,7 @@ export default function AccountReceivablePage() {
                             const dueDate = new Date(p.due_date)
                             const diffTime = today.getTime() - dueDate.getTime()
                             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-                            
+
                             let category = "Current"
                             let badgeClass = "text-emerald-600 bg-emerald-50 border-emerald-100"
                             if (diffDays > 0 && diffDays <= 30) {
@@ -817,7 +817,7 @@ export default function AccountReceivablePage() {
                               category = ">60 Days"
                               badgeClass = "text-red-600 bg-red-50 border-red-200"
                             }
-                            
+
                             return (
                               <TableRow key={p.id_piutang} className="border-b border-slate-100 hover:bg-slate-50/20">
                                 <TableCell className="font-mono font-bold text-slate-800 px-4 py-3">{p.inv_number}</TableCell>

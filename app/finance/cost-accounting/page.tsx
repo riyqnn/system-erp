@@ -132,7 +132,7 @@ export default function CostAccountingPage() {
   const [keteranganBiaya, setKeteranganBiaya] = useState('')
 
   // Form HPP Calculator States
-  const [selectedProductId, setSelectedProductId] = useState<number>(0)
+  const [selectedProductId, setSelectedProductId] = useState<string>('')
   const [periodeHpp, setPeriodeHpp] = useState('2026-06')
   const [openingQty, setOpeningQty] = useState<number>(0)
   const [openingValue, setOpeningValue] = useState<number>(0)
@@ -230,7 +230,7 @@ export default function CostAccountingPage() {
   // Submit HPP Calculation
   const handleHppSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (selectedProductId === 0 || !periodeHpp) {
+    if (!selectedProductId || !periodeHpp) {
       showNotif('error', 'Pilih produk dan periode kalkulasi.')
       return
     }
@@ -255,7 +255,7 @@ export default function CostAccountingPage() {
       const json = await res.json()
       if (res.ok) {
         showNotif('success', `Kalkulasi HPP periode ${periodeHpp} sukses disimpan. HPP Per Unit: Rp ${calculatedHpp.toLocaleString('id-ID')}`)
-        setSelectedProductId(0)
+        setSelectedProductId('')
         setOpeningQty(0)
         setOpeningValue(0)
         setIncomingQty(0)
@@ -622,7 +622,9 @@ export default function CostAccountingPage() {
                           <TableCell className="font-medium text-slate-500 px-6 py-4">
                             {biaya.nama_biaya}
                             {biaya.status === 'RETURNED' && <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">RETURNED</span>}
-                            {biaya.status === 'RECEIVED' && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">RECEIVED</span>}
+                            {(biaya.status === 'RECEIVED' || biaya.status === 'SUBMITTED') && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{biaya.status}</span>}
+                            {biaya.status?.toLowerCase() === 'settled' && <span className="ml-2 text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">SETTLED</span>}
+                            {biaya.status === 'JOURNALED' && <span className="ml-2 text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">JOURNALED</span>}
                           </TableCell>
                           <TableCell className="text-right font-bold text-slate-800 px-6 py-4">Rp {biaya.jumlah.toLocaleString()}</TableCell>
                           <TableCell className="text-center px-6 py-4">
@@ -982,13 +984,13 @@ export default function CostAccountingPage() {
                 <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pilih Produk</label>
                 <select
                   value={selectedProductId}
-                  onChange={(e) => setSelectedProductId(Number(e.target.value))}
+                  onChange={(e) => setSelectedProductId(e.target.value)}
                   className="w-full text-xs font-bold p-2.5 border border-slate-200 rounded-xl mt-1 focus:outline-none focus:border-slate-300 bg-white"
                   required
                 >
-                  <option value={0}>-- PILIH PRODUK JADI --</option>
+                  <option value="">-- PILIH PRODUK JADI --</option>
                   {productsMock.map((p) => (
-                    <option key={p.id} value={p.id}>{p.code} - {p.name}</option>
+                    <option key={p.id} value={p.code}>{p.code} - {p.name}</option>
                   ))}
                 </select>
               </div>

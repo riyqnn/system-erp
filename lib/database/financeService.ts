@@ -86,7 +86,7 @@ export interface PermintaanPembayaranUI {
   ap_id: string | number;
   jumlah_bayar: number;
   amount: number;
-  status: 'MENUNGGU_PERSETUJUAN' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI';
+  status: 'MENUNGGU_AP_LEAD' | 'MENUNGGU_TREASURY_LEAD' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI';
   metode_pembayaran: 'TRANSFER' | 'KAS_KECIL' | 'GIRO';
   keterangan: string;
   created_at: string;
@@ -1349,10 +1349,10 @@ export async function buatPermintaanPembayaran(
 export async function getDaftarPermintaanPembayaran(
   page?: number,
   limit?: number,
-  statusFilter?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED'
+  statusFilter?: 'PENDING_APPROVAL' | 'PENDING_TREASURY' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED'
 ): Promise<{ data: PermintaanPembayaranUI[]; total: number }> {
   const supabase = await createRouteHandlerClient();
-  const useInner = statusFilter === 'PENDING_APPROVAL' || statusFilter === 'APPROVED';
+  const useInner = statusFilter === 'PENDING_APPROVAL' || statusFilter === 'APPROVED' || statusFilter === 'PENDING_TREASURY';
 
   let query = supabase
     .from('permintaan_pembayaran')
@@ -1368,13 +1368,14 @@ export async function getDaftarPermintaanPembayaran(
     `, { count: 'exact' });
 
   if (statusFilter) {
-    if (statusFilter === 'EXECUTED') {
+    if (statusFilter === 'PENDING_APPROVAL') {
+      query = query.eq('status', 'PENDING_APPROVAL');
+    } else if (statusFilter === 'PENDING_TREASURY' || statusFilter === 'APPROVED') {
+      query = query.eq('status', 'APPROVED').neq('tr_account_payable.ap_status', 'PAID');
+    } else if (statusFilter === 'EXECUTED') {
       query = query.eq('status', 'APPROVED').eq('tr_account_payable.ap_status', 'PAID');
     } else {
       query = query.eq('status', statusFilter);
-      if (statusFilter === 'APPROVED') {
-        query = query.neq('tr_account_payable.ap_status', 'PAID');
-      }
     }
   }
 
@@ -1384,19 +1385,33 @@ export async function getDaftarPermintaanPembayaran(
     query = query.range(from, to);
   }
 
-  const { data, error, count } = await query.order('created_at', { ascending: false });
+  const { data, error } = await query.order('created_at', { ascending: false });
   if (error) throw error;
 
   const mappedData = (data || []).map((p: PermintaanPembayaranDbRow) => {
-    const isExecuted = p.status === 'EXECUTED' || (p.perintah_pembayaran && (
-      Array.isArray(p.perintah_pembayaran)
-        ? p.perintah_pembayaran.some((pp: { status: string }) => pp.status === 'EXECUTED')
-        : (p.perintah_pembayaran as { status: string }).status === 'EXECUTED'
-    ));
+    const order = p.perintah_pembayaran && (
+      Array.isArray(p.perintah_pembayaran) ? p.perintah_pembayaran[0] : p.perintah_pembayaran
+    );
+    const orderStatus = order?.status || null;
+    const isExecuted = p.status === 'EXECUTED' || orderStatus === 'EXECUTED';
 
-    const mappedStatus = isExecuted
-      ? 'TEREKSEKUSI'
-      : (p.status === 'PENDING_APPROVAL' ? 'MENUNGGU_PERSETUJUAN' : (p.status === 'APPROVED' ? 'DISETUJUI' : (p.status === 'REJECTED' ? 'DITOLAK' : 'TEREKSEKUSI')));
+    let mappedStatus: 'MENUNGGU_AP_LEAD' | 'MENUNGGU_TREASURY_LEAD' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI';
+
+    if (isExecuted) {
+      mappedStatus = 'TEREKSEKUSI';
+    } else if (p.status === 'PENDING_APPROVAL') {
+      mappedStatus = 'MENUNGGU_AP_LEAD';
+    } else if (p.status === 'REJECTED') {
+      mappedStatus = 'DITOLAK';
+    } else if (p.status === 'APPROVED') {
+      if (!orderStatus || orderStatus === 'DRAFT') {
+        mappedStatus = 'MENUNGGU_TREASURY_LEAD';
+      } else {
+        mappedStatus = 'DISETUJUI';
+      }
+    } else {
+      mappedStatus = 'TEREKSEKUSI';
+    }
 
     return {
       id_permintaan: p.request_id,
@@ -1406,7 +1421,7 @@ export async function getDaftarPermintaanPembayaran(
       ap_id: p.ap_id,
       jumlah_bayar: Number(p.amount),
       amount: Number(p.amount),
-      status: mappedStatus as 'MENUNGGU_PERSETUJUAN' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI',
+      status: mappedStatus as 'MENUNGGU_AP_LEAD' | 'MENUNGGU_TREASURY_LEAD' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI',
       metode_pembayaran: 'TRANSFER' as 'TRANSFER' | 'KAS_KECIL' | 'GIRO',
       keterangan: p.rejection_note || 'Pengajuan pembayaran supplier',
       created_at: p.created_at,
@@ -1417,7 +1432,15 @@ export async function getDaftarPermintaanPembayaran(
     };
   });
 
-  return { data: mappedData, total: count || 0 };
+  // Post-filtering for PENDING_TREASURY vs APPROVED
+  let finalData = mappedData;
+  if (statusFilter === 'PENDING_TREASURY') {
+    finalData = mappedData.filter(d => d.status === 'MENUNGGU_TREASURY_LEAD');
+  } else if (statusFilter === 'APPROVED') {
+    finalData = mappedData.filter(d => d.status === 'DISETUJUI');
+  }
+
+  return { data: finalData, total: finalData.length };
 }
 
 /**
@@ -1428,7 +1451,8 @@ export async function approvePermintaanPembayaran(
   permintaanId: number,
   status: 'DISETUJUI' | 'DITOLAK',
   alasan: string,
-  userId: string
+  userId: string,
+  approvalLevel?: 'AP' | 'TREASURY'
 ): Promise<PermintaanPembayaran> {
   const dbStatus = status === 'DISETUJUI' ? 'APPROVED' : 'REJECTED';
   const supabase = await createRouteHandlerClient();
@@ -1446,24 +1470,59 @@ export async function approvePermintaanPembayaran(
 
   if (error) throw error;
 
-  // 2. Jika disetujui, buat perintah_pembayaran (Payment Order)
+  // 2. Multi-stage Approval logic (Option B)
   if (dbStatus === 'APPROVED') {
+    // If approved by AP Lead, we create a DRAFT payment order.
+    // If approved by Treasury Lead, we update it to SENT (or insert as SENT if missing).
+    if (approvalLevel === 'AP') {
+      await supabase
+        .from('perintah_pembayaran')
+        .insert([{
+          request_id: permintaanId,
+          amount: pmt.amount,
+          supplier_account: 'Bank Transfer - Vendor Account',
+          order_date: new Date().toISOString().substring(0, 10),
+          status: 'DRAFT',
+          confirmed_by: Number(userId)
+        }]);
+    } else {
+      // Treasury approval (approvalLevel === 'TREASURY' or default)
+      const { data: existingOrder } = await supabase
+        .from('perintah_pembayaran')
+        .select('order_id')
+        .eq('request_id', permintaanId)
+        .maybeSingle();
+
+      if (existingOrder) {
+        await supabase
+          .from('perintah_pembayaran')
+          .update({ status: 'SENT', confirmed_by: Number(userId) })
+          .eq('order_id', existingOrder.order_id);
+      } else {
+        await supabase
+          .from('perintah_pembayaran')
+          .insert([{
+            request_id: permintaanId,
+            amount: pmt.amount,
+            supplier_account: 'Bank Transfer - Vendor Account',
+            order_date: new Date().toISOString().substring(0, 10),
+            status: 'SENT',
+            confirmed_by: Number(userId)
+          }]);
+      }
+    }
+  } else if (dbStatus === 'REJECTED') {
+    // Cancel the payment order if it exists
     await supabase
       .from('perintah_pembayaran')
-      .insert([{
-        request_id: permintaanId,
-        amount: pmt.amount,
-        supplier_account: 'Bank Transfer - Vendor Account',
-        order_date: new Date().toISOString().substring(0, 10),
-        status: 'SENT',
-        confirmed_by: Number(userId)
-      }]);
+      .update({ status: 'CANCELLED' })
+      .eq('request_id', permintaanId);
   }
 
   // UC-05: Notifikasi ke ACCOUNT_PAYABLE (Account Payable)
   notifyNonBlocking({
     title: 'Pengajuan Pembayaran ' + (status === 'DISETUJUI' ? 'Disetujui' : 'Ditolak'),
-    message: 'Pengajuan pembayaran #' + permintaanId + ' telah ' + status + ' oleh Management.' + (status === 'DITOLAK' && alasan ? ' Alasan: ' + alasan : ''),
+    message: 'Pengajuan pembayaran #' + permintaanId + ' telah ' + status + ' oleh ' + (approvalLevel === 'AP' ? 'Pimpinan AP' : 'Management Treasury') + '.' + (status === 'DITOLAK' && alasan ? ' Alasan: ' + alasan : ''),
     type: status === 'DISETUJUI' ? 'INFORMATION' : 'WARNING',
     priority: status === 'DITOLAK' ? 'HIGH' : 'MEDIUM',
     recipientRole: 'Account Payable',
@@ -1541,12 +1600,6 @@ export async function eksekusiPembayaranTreasury(
   // 1. Update status perintah_pembayaran
   await supabase
     .from('perintah_pembayaran')
-    .update({ status: 'EXECUTED' })
-    .eq('request_id', permintaanId);
-
-  // 1b. Update status permintaan_pembayaran
-  await supabase
-    .from('permintaan_pembayaran')
     .update({ status: 'EXECUTED' })
     .eq('request_id', permintaanId);
 
@@ -1781,10 +1834,25 @@ export async function hitungHppValuation(
 
   const supabase = await createRouteHandlerClient();
 
+  const { data: settle } = await supabase
+    .from('tr_order_settlement')
+    .select(`
+      settlement_id,
+      tr_production_order!inner (
+        product_id
+      )
+    `)
+    .eq('period', periode)
+    .eq('tr_production_order.product_id', productId)
+    .limit(1)
+    .maybeSingle();
+
+  const targetSettlementId = (settle as { settlement_id: string } | null)?.settlement_id || null;
+
   const { data, error } = await supabase
     .from('harga_pokok_produksi')
     .insert([{
-      settlement_id: `SETTLE-HPP-${periode}`,
+      settlement_id: targetSettlementId,
       product_id: String(productId),
       period: periode,
       material_cost: openingValue * 0.5,

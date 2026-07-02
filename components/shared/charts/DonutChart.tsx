@@ -103,7 +103,7 @@ export function DonutChart({
         </defs>
 
         {segments.map((segment, i) => {
-          const percentage = segment.value / total
+          const percentage = segment.value / (total || 1)
           const angle = percentage * 2 * Math.PI
           const startAngle = currentAngle
           const endAngle = startAngle + angle
@@ -192,7 +192,7 @@ export function DonutChart({
         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-2 px-3 py-2 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-slate-100 animate-in fade-in slide-in-from-top-2 duration-200">
           <p className="text-sm font-semibold text-slate-900">{segments[hoveredIndex].label}</p>
           <p className="text-xs text-slate-500">
-            {segments[hoveredIndex].value.toLocaleString()} ({Math.round((segments[hoveredIndex].value / total) * 100)}%)
+            {segments[hoveredIndex].value.toLocaleString()} ({Math.round((segments[hoveredIndex].value / (total || 1)) * 100)}%)
           </p>
         </div>
       )}
