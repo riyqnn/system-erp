@@ -71,7 +71,7 @@ interface PermintaanPembayaran {
   jumlah_bayar: number;
   metode_pembayaran: 'TRANSFER' | 'KAS_KECIL' | 'GIRO';
   keterangan: string;
-  status: 'MENUNGGU_PERSETUJUAN' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI';
+  status: 'MENUNGGU_AP_LEAD' | 'MENUNGGU_TREASURY_LEAD' | 'DISETUJUI' | 'DITOLAK' | 'TEREKSEKUSI';
   created_at: string;
   tr_hutang?: {
     no_invoice: string;
@@ -112,7 +112,7 @@ function GlassCard({
 }
 
 export default function AccountPayablePage() {
-  const [userRole, setUserRole] = useState<'AP_STAFF' | 'MANAGEMENT'>('AP_STAFF')
+  const [userRole, setUserRole] = useState<'AP_STAFF' | 'AP_LEAD'>('AP_STAFF')
   const [hutangList, setHutangList] = useState<Hutang[]>([])
   const [poList, setPoList] = useState<PurchaseOrder[]>([])
   const [grList, setGrList] = useState<GoodsReceipt[]>([])
@@ -130,12 +130,12 @@ export default function AccountPayablePage() {
 
   useEffect(() => {
     const savedRole = localStorage.getItem('ap_user_role')
-    if (savedRole === 'AP_STAFF' || savedRole === 'MANAGEMENT') {
+    if (savedRole === 'AP_STAFF' || savedRole === 'AP_LEAD') {
       setUserRole(savedRole)
     }
   }, [])
 
-  const handleUpdateRole = (role: 'AP_STAFF' | 'MANAGEMENT') => {
+  const handleUpdateRole = (role: 'AP_STAFF' | 'AP_LEAD') => {
     setUserRole(role)
     localStorage.setItem('ap_user_role', role)
   }
@@ -311,14 +311,15 @@ export default function AccountPayablePage() {
   const handleReviewAction = async (pmtId: number, status: 'DISETUJUI' | 'DITOLAK') => {
     try {
       setLoading(true)
-      const res = await fetch('/api/finance/treasury?mock_role=MANAGEMENT', {
+      const res = await fetch('/api/finance/treasury?mock_role=AP_LEAD', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'approve',
           permintaan_id: pmtId,
           status,
-          alasan: status === 'DITOLAK' ? 'Ditolak via Dashboard AP' : ''
+          alasan: status === 'DITOLAK' ? 'Ditolak via Dashboard AP' : '',
+          approval_level: 'AP'
         })
       })
       const json = await res.json()
@@ -346,7 +347,7 @@ export default function AccountPayablePage() {
     h.supplier_name.toLowerCase().includes(searchSup.toLowerCase()) || h.no_invoice.includes(searchSup)
   )
 
-  const pendingReviews = permintaanList.filter(p => p.status === 'MENUNGGU_PERSETUJUAN')
+  const pendingReviews = permintaanList.filter(p => p.status === 'MENUNGGU_AP_LEAD')
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto px-6 pb-12">
@@ -383,13 +384,13 @@ export default function AccountPayablePage() {
               Staf AP
             </button>
             <button
-              onClick={() => handleUpdateRole('MANAGEMENT')}
-              className={`px-3 py-1.5 text-[11px] font-bold rounded-xl transition-all cursor-pointer ${userRole === 'MANAGEMENT'
+              onClick={() => handleUpdateRole('AP_LEAD')}
+              className={`px-3 py-1.5 text-[11px] font-bold rounded-xl transition-all cursor-pointer ${userRole === 'AP_LEAD'
                 ? 'bg-white text-slate-800 shadow-sm border border-slate-200/30'
                 : 'text-slate-500 hover:text-slate-800'
                 }`}
             >
-              Pimpinan
+              Pimpinan AP
             </button>
           </div>
         </div>
@@ -472,7 +473,7 @@ export default function AccountPayablePage() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
         {/* Left Columns: Invoice Verification Table and Action Card */}
-        <div className={`${userRole === 'MANAGEMENT' ? 'xl:col-span-2' : 'xl:col-span-3'} space-y-6`}>
+        <div className={`${userRole === 'AP_LEAD' ? 'xl:col-span-2' : 'xl:col-span-3'} space-y-6`}>
 
           {/* Invoice Verification Table Card */}
           <GlassCard>
@@ -682,7 +683,7 @@ export default function AccountPayablePage() {
         </div>
 
         {/* Right Side: Payment Review (UC-AP-04) Sidebar */}
-        {userRole === 'MANAGEMENT' && (
+        {userRole === 'AP_LEAD' && (
           <div className="xl:col-span-1">
             <GlassCard className="h-full flex flex-col">
               <div className="px-6 py-5 border-b border-slate-100">

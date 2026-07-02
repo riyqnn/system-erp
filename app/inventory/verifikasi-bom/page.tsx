@@ -69,7 +69,7 @@ export default function BOMVerificationPage() {
     try {
       const [reqRes, stockRes] = await Promise.all([
         fetch("/api/inventory/production-requests"),
-        fetch("/api/inventory/stock"),
+        fetch("/api/inventory/stock?limit=5000"),
       ]);
       
       if (reqRes.ok) {
@@ -81,8 +81,14 @@ export default function BOMVerificationPage() {
       if (stockRes.ok) {
         const json = await stockRes.json();
         const smap: Record<string | number, number> = {};
-        json.data?.forEach((s: ProductStock) => { smap[s.product_id] = s.current_stock; });
+        const products = Array.isArray(json) ? json : (json.data || []);
+        products.forEach((s: ProductStock) => {
+          if (s.product_id !== undefined && s.product_id !== null) {
+            smap[String(s.product_id)] = Number(s.current_stock || 0);
+          }
+        });
         setStockMap(smap);
+        console.log('[BOM-VERIFY] Loaded stock map for', Object.keys(smap).length, 'products');
       }
     } catch (err) {
       console.error("Failed to fetch data:", err);
@@ -236,7 +242,7 @@ export default function BOMVerificationPage() {
                       <tbody className="divide-y divide-slate-100">
                         {bomData.map((item, idx) => {
                           const reqQty = item.qty_required * selectedReq.qty_requested;
-                          const availQty = stockMap[item.rm_product_id] || 0;
+                          const availQty = stockMap[String(item.rm_product_id)] || 0;
                           const isShort = availQty < reqQty;
                           if (isShort) hasShortage = true;
 

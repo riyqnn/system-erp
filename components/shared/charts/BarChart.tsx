@@ -36,8 +36,8 @@ export function BarChart({ data, color = '#dc2626', height = 200, showTarget = f
     <div ref={chartRef} style={{ height }} className="w-full">
       <div className="flex items-end justify-between h-full gap-2">
         {data.map((item, index) => {
-          const valueHeight = (item.value / maxValue) * 100
-          const targetHeight = showTarget && item.target ? (item.target / maxValue) * 100 : 0
+          const valueHeight = (item.value / (maxValue || 1)) * 100
+          const targetHeight = showTarget && item.target ? (item.target / (maxValue || 1)) * 100 : 0
 
           return (
             <div key={index} className="flex-1 flex flex-col items-center gap-2">

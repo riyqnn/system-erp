@@ -60,7 +60,7 @@ export function MultiBarChart({
   const getBarX = (categoryIndex: number, valueIndex: number) =>
     padding.left + categoryIndex * barGroupWidth + barSpacing + valueIndex * barWidth
 
-  const getBarHeight = (value: number) => (value / maxValue) * chartHeight
+  const getBarHeight = (value: number) => (value / (maxValue || 1)) * chartHeight
 
   const getBarY = (value: number) => padding.top + chartHeight - getBarHeight(value)
 

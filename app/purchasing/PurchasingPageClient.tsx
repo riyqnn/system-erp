@@ -79,12 +79,21 @@ const emptySummary: DashboardSummary = {
 
 const poStatusClassMap: Record<string, string> = {
   Draft: 'bg-slate-400',
+  Pending: 'bg-orange-400',
   'Pending Approval': 'bg-orange-500',
   Approved: 'bg-blue-500',
   Released: 'bg-green-500',
   'Revision Required': 'bg-yellow-500',
   Completed: 'bg-emerald-500',
   Cancelled: 'bg-red-500',
+  Rejected: 'bg-red-500',
+}
+
+const supplierStatusClassMap: Record<string, string> = {
+  Active: 'bg-red-600',
+  Inactive: 'bg-slate-400',
+  Suspended: 'bg-orange-500',
+  Unknown: 'bg-slate-300',
 }
 
 function formatNumber(value: number) {
@@ -97,10 +106,11 @@ function getPercentage(value: number, total: number) {
   return Math.round((value / total) * 100)
 }
 
-function getMonthlyHeight(value: number) {
-  if (value <= 0) return 16
+function getMonthlyBarHeight(value: number, maxValue: number) {
+  if (value <= 0) return 18
+  if (maxValue <= 0) return 18
 
-  return Math.max(value * 20, 32)
+  return Math.max((value / maxValue) * 155, 34)
 }
 
 function getSafeKey(...values: Array<string | number | null | undefined>) {
@@ -160,6 +170,11 @@ export function PurchasingPageClient({
   const poStatusOverview = dashboardData?.poStatusOverview || []
   const supplierStatusOverview = dashboardData?.supplierStatusOverview || []
   const alerts = dashboardData?.alerts || []
+
+  const maxMonthlyPO = Math.max(
+    ...monthlyPOTrend.map((item) => item.count || 0),
+    1
+  )
 
   const quickActions = useMemo(
     () => [
@@ -308,32 +323,47 @@ export function PurchasingPageClient({
                     </p>
                   </div>
 
-                  <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
-                    {summary.totalPurchaseOrders} total PO
+                  <span className="shrink-0 rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
+                    {formatNumber(summary.totalPurchaseOrders)} total PO
                   </span>
                 </div>
 
-                <div className="mt-8 flex h-56 items-end gap-5">
+                <div className="mt-6 rounded-2xl bg-slate-50 px-5 pb-5 pt-6">
                   {monthlyPOTrend.length > 0 ? (
-                    monthlyPOTrend.map((item, index) => (
-                      <div
-                        key={getSafeKey('monthly-po', item.month, index)}
-                        className="flex flex-1 flex-col items-center justify-end"
-                      >
-                        <div
-                          className="w-full rounded-t-xl bg-red-600 transition hover:bg-red-700"
-                          style={{ height: `${getMonthlyHeight(item.count)}px` }}
-                        />
-                        <p className="mt-3 text-xs font-medium text-slate-500">
-                          {item.month || '-'}
-                        </p>
-                        <p className="mt-1 text-xs font-bold text-slate-900">
-                          {item.count}
-                        </p>
-                      </div>
-                    ))
+                    <div className="flex h-[255px] items-end gap-5">
+                      {monthlyPOTrend.map((item, index) => {
+                        const barHeight = getMonthlyBarHeight(
+                          item.count,
+                          maxMonthlyPO
+                        )
+
+                        return (
+                          <div
+                            key={getSafeKey('monthly-po', item.month, index)}
+                            className="flex h-full flex-1 flex-col justify-end"
+                          >
+                            <div className="flex h-[175px] items-end justify-center">
+                              <div
+                                className="w-full max-w-[150px] rounded-t-2xl bg-red-600 transition hover:bg-red-700"
+                                style={{ height: `${barHeight}px` }}
+                                title={`${item.month}: ${item.count} PO`}
+                              />
+                            </div>
+
+                            <div className="mt-4 text-center">
+                              <p className="truncate text-xs font-medium text-slate-500">
+                                {item.month || '-'}
+                              </p>
+                              <p className="mt-1 text-sm font-bold text-slate-900">
+                                {formatNumber(item.count)}
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">
+                    <div className="flex h-[255px] w-full items-center justify-center text-sm text-slate-500">
                       No monthly purchase order data available.
                     </div>
                   )}
@@ -355,12 +385,12 @@ export function PurchasingPageClient({
 
                       return (
                         <div key={getSafeKey('po-status', item.label, index)}>
-                          <div className="mb-2 flex items-center justify-between text-sm">
+                          <div className="mb-2 flex items-center justify-between gap-3 text-sm">
                             <span className="font-medium text-slate-700">
                               {item.label || '-'}
                             </span>
-                            <span className="font-semibold text-slate-900">
-                              {item.value} PO
+                            <span className="shrink-0 font-semibold text-slate-900">
+                              {formatNumber(item.value)} PO
                             </span>
                           </div>
 
@@ -405,18 +435,21 @@ export function PurchasingPageClient({
                         <div
                           key={getSafeKey('supplier-status', item.label, index)}
                         >
-                          <div className="mb-2 flex items-center justify-between text-sm">
+                          <div className="mb-2 flex items-center justify-between gap-3 text-sm">
                             <span className="font-medium text-slate-700">
                               {item.label || '-'}
                             </span>
-                            <span className="font-semibold text-slate-900">
-                              {item.value} suppliers
+                            <span className="shrink-0 font-semibold text-slate-900">
+                              {formatNumber(item.value)} suppliers
                             </span>
                           </div>
 
                           <div className="h-3 overflow-hidden rounded-full bg-slate-100">
                             <div
-                              className="h-full rounded-full bg-red-600"
+                              className={`h-full rounded-full ${
+                                supplierStatusClassMap[item.label] ||
+                                'bg-red-600'
+                              }`}
                               style={{ width: `${percentage}%` }}
                             />
                           </div>
@@ -432,7 +465,7 @@ export function PurchasingPageClient({
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="mb-5 flex items-center justify-between">
+                <div className="mb-5 flex items-center justify-between gap-4">
                   <div>
                     <h3 className="text-lg font-semibold text-slate-900">
                       Purchasing Alerts
@@ -442,7 +475,7 @@ export function PurchasingPageClient({
                     </p>
                   </div>
 
-                  <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">
+                  <span className="shrink-0 rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">
                     {alerts.length} alerts
                   </span>
                 </div>
@@ -469,7 +502,7 @@ export function PurchasingPageClient({
 
                           <div>
                             <p className="text-sm font-semibold text-slate-900">
-                              {alert.value} {alert.title}
+                              {formatNumber(alert.value)} {alert.title}
                             </p>
                             <p className="mt-1 text-xs text-slate-500">
                               {alert.description}

@@ -101,13 +101,35 @@ export default function PurchaseRequisitionPage() {
     }
   }, []);
 
+  const isMaterialCategory = (category?: string) => {
+    const normalized = String(category ?? "").trim().toUpperCase();
+    if (!normalized) return false;
+    if (["RM", "RAW MATERIAL", "RAW_MATERIAL", "RAWMATERIAL"].includes(normalized)) return true;
+    if (["PM", "PACKAGING", "PACKAGING MATERIAL", "PACKAGING_MATERIAL", "PACKAGINGMATERIAL"].includes(normalized)) return true;
+    return false;
+  };
+
   /* ── Fetch Products for dropdown ──────────────────────────────── */
   const fetchProducts = useCallback(async () => {
     try {
-      const res = await fetch("/api/inventory/stock");
+      const res = await fetch("/api/inventory/stock?limit=1000");
       if (res.ok) {
         const json = await res.json();
-        setProducts(json.data || []);
+        const rawProducts = Array.isArray(json) ? json : (json.data || []);
+        setProducts(rawProducts || []);
+      } else {
+        const fallbackRes = await fetch("/api/inventory/products");
+        if (fallbackRes.ok) {
+          const fallbackJson = await fallbackRes.json();
+          const rawProducts = Array.isArray(fallbackJson) ? fallbackJson : (fallbackJson.data || []);
+          setProducts(rawProducts.map((item: Record<string, unknown>) => ({
+            ...item,
+            current_stock: Number(item.current_stock ?? 0),
+            minimum_stock: Number(item.minimum_stock ?? 0),
+            stock_health: String(item.stock_health ?? "Adequate"),
+            units: String(item.units ?? item.uom ?? item.unit ?? "pcs"),
+          })) || []);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch products:", err);
@@ -410,11 +432,11 @@ export default function PurchaseRequisitionPage() {
                       >
                         <option value="">— Select product —</option>
                         {products
-                          .filter((p) => p.category === "RM" || p.category === "PM")
+                          .filter((p) => isMaterialCategory(p.category))
                           .map((p) => (
                             <option key={p.product_id} value={p.product_id}>
-                              [{p.product_code}] {p.product_name} — Stock: {p.current_stock.toLocaleString()} {p.units}
-                              {p.stock_health !== "Adequate" ? ` ⚠ ${p.stock_health}` : ""}
+                              [{p.product_code ?? p.product_id}] {p.product_name} — Stock: {Number(p.current_stock ?? 0).toLocaleString()} {p.units}
+                              {p.stock_health && p.stock_health !== "Adequate" ? ` ⚠ ${p.stock_health}` : ""}
                             </option>
                           ))}
                       </select>

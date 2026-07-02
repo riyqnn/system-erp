@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables')
@@ -11,14 +12,76 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+function getString(value: unknown, fallback = '') {
+  if (value === null || value === undefined) return fallback
+
+  const parsed = String(value).trim()
+
+  return parsed || fallback
+}
+
+function getNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value)
+
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+function normalizeStatus(value: unknown) {
+  const status = getString(value, 'ACTIVE').toUpperCase()
+
+  if (status === 'INACTIVE') return 'INACTIVE'
+  if (status === 'SUSPENDED') return 'SUSPENDED'
+
+  return 'ACTIVE'
+}
+
+function normalizePaymentTerm(value: unknown) {
+  const term = getString(value, 'Net 30')
+  const normalized = term.replace('_', ' ').toLowerCase()
+
+  if (normalized === 'net 14') return 'Net 14'
+  if (normalized === 'net 30') return 'Net 30'
+  if (normalized === 'net 45') return 'Net 45'
+  if (normalized === 'cash') return 'Cash'
+  if (normalized === 'cod') return 'COD'
+
+  return term
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message?: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message
+  }
+
+  return String(error || 'Unknown error')
+}
+
+function matchesSearch(value: string, search: string) {
+  if (!search) return true
+
+  return value.toLowerCase().includes(search.toLowerCase())
+}
+
 export async function GET(request: Request) {
   try {
     const [supplierPriceResult, supplierResult, productResult] =
       await Promise.all([
         supabase.from('ms_supplier_price').select('*'),
+
         supabase
           .from('ms_supplier')
-          .select('supplier_id, supplier_name, contact, address, lead_time, top, status'),
+          .select(
+            'supplier_id, supplier_name, contact, address, lead_time, top, status'
+          )
+          .order('supplier_id', { ascending: true }),
+
         supabase
           .from('ms_product')
           .select('product_id, product_name, category, uom'),
@@ -31,29 +94,73 @@ export async function GET(request: Request) {
     ].filter(Boolean)
 
     if (errors.length > 0) {
+      const firstError = errors[0]
+
       return NextResponse.json(
         {
           message: 'Failed to fetch suppliers',
-          error: errors[0] instanceof Error ? errors[0].message : String(errors[0]),
+          error: firstError?.message || 'Unknown database error',
         },
         { status: 500 }
       )
     }
 
     const supplierPrices = supplierPriceResult.data || []
+    const supplierRows = supplierResult.data || []
     const products = productResult.data || []
-    
-    const priceMap = new Map()
-    supplierPrices.forEach((sp: { supplier_id: string; product_id: string; unit_price_estimate: number; uom: string; [key: string]: unknown }) => {
-      if (!priceMap.has(sp.supplier_id)) priceMap.set(sp.supplier_id, sp)
-    })
-    
-    const productMap = new Map()
-    products.forEach((p: { product_id: string; product_name: string; category: string; uom: string; [key: string]: unknown }) => productMap.set(p.product_id, p))
 
-    const suppliers = (supplierResult.data || []).map((item: { supplier_id: string; supplier_name: string; contact: string; address: string; lead_time: string; top: string; status: string; [key: string]: unknown }) => {
-      const sp = priceMap.get(item.supplier_id)
-      const p = sp ? productMap.get(sp.product_id) : null
+    const productMap = new Map<string, any>()
+
+    products.forEach((product: any) => {
+      productMap.set(String(product.product_id || ''), product)
+    })
+
+    const priceMap = new Map<string, any[]>()
+
+    supplierPrices.forEach((supplierPrice: any) => {
+      const supplierId = String(supplierPrice.supplier_id || '')
+      const currentPrices = priceMap.get(supplierId) || []
+
+      currentPrices.push(supplierPrice)
+      priceMap.set(supplierId, currentPrices)
+    })
+
+    const url = new URL(request.url)
+
+    const search = getString(
+      url.searchParams.get('search') ||
+        url.searchParams.get('q') ||
+        url.searchParams.get('keyword')
+    )
+
+    const categoryFilter = getString(url.searchParams.get('category'))
+    const statusFilter = getString(url.searchParams.get('status'))
+
+    const page = Math.max(
+      parseInt(url.searchParams.get('page') || '1', 10) || 1,
+      1
+    )
+
+    const limitParam = url.searchParams.get('limit')
+    const limit =
+      limitParam === 'all'
+        ? 1000
+        : Math.max(parseInt(limitParam || '1000', 10) || 1000, 1)
+
+    const suppliers = supplierRows.map((item: any) => {
+      const prices = priceMap.get(String(item.supplier_id || '')) || []
+      const supplierPrice = prices[0] || null
+      const product = supplierPrice
+        ? productMap.get(String(supplierPrice.product_id || ''))
+        : null
+
+      const estimatedPrice = getNumber(
+        supplierPrice?.unit_price_estimate ||
+          supplierPrice?.estimated_price ||
+          supplierPrice?.price ||
+          supplierPrice?.unit_price,
+        0
+      )
 
       return {
         id: item.supplier_id,
@@ -61,39 +168,95 @@ export async function GET(request: Request) {
         supplierName: item.supplier_name || '-',
         contact: item.contact || '-',
         address: item.address || '-',
-        productCode: p?.product_id || '-',
-        product: p?.product_name || '-',
-        category: p?.category || '-',
-        unit: p?.uom || sp?.uom || '-',
-        estimatedPrice: sp?.unit_price_estimate || 0,
-        leadTime: item.lead_time || 0,
+
+        productCode: product?.product_id || supplierPrice?.product_id || '-',
+        product: product?.product_name || '-',
+        category: product?.category || '-',
+        unit: product?.uom || supplierPrice?.uom || '-',
+
+        estimatedPrice,
+        leadTime: getNumber(item.lead_time, 0),
         termOfPayment: item.top || '-',
         status: item.status || 'ACTIVE',
+
+        priceProfiles: prices.map((price: any) => {
+          const priceProduct = productMap.get(String(price.product_id || ''))
+
+          return {
+            supplierId: price.supplier_id,
+            productCode: priceProduct?.product_id || price.product_id || '-',
+            product: priceProduct?.product_name || '-',
+            category: priceProduct?.category || '-',
+            unit: priceProduct?.uom || price.uom || '-',
+            estimatedPrice: getNumber(
+              price.unit_price_estimate ||
+                price.estimated_price ||
+                price.price ||
+                price.unit_price,
+              0
+            ),
+          }
+        }),
       }
     })
 
-    const url = new URL(request.url)
-    const page = parseInt(url.searchParams.get('page') || '1', 10)
-    const limit = parseInt(url.searchParams.get('limit') || '10', 10)
-    
-    const total = suppliers.length
-    const paginatedData = suppliers.slice((page - 1) * limit, page * limit)
+    const filteredSuppliers = suppliers.filter((supplier) => {
+      const supplierText = [
+        supplier.supplierId,
+        supplier.supplierName,
+        supplier.contact,
+        supplier.address,
+        supplier.product,
+        supplier.category,
+      ]
+        .join(' ')
+        .toLowerCase()
+
+      const matchSearch = matchesSearch(supplierText, search)
+
+      const matchCategory =
+        !categoryFilter ||
+        categoryFilter === 'All Categories' ||
+        categoryFilter.toLowerCase() === 'all' ||
+        String(supplier.category || '').toLowerCase() ===
+          categoryFilter.toLowerCase()
+
+      const matchStatus =
+        !statusFilter ||
+        statusFilter === 'All Status' ||
+        statusFilter.toLowerCase() === 'all' ||
+        String(supplier.status || '').toLowerCase() ===
+          statusFilter.toLowerCase()
+
+      return matchSearch && matchCategory && matchStatus
+    })
+
+    const total = filteredSuppliers.length
+    const totalPages = Math.max(Math.ceil(total / limit), 1)
+    const safePage = Math.min(page, totalPages)
+
+    const paginatedData =
+      limitParam === 'all'
+        ? filteredSuppliers
+        : filteredSuppliers.slice((safePage - 1) * limit, safePage * limit)
 
     return NextResponse.json({
       message: 'Suppliers fetched successfully',
       data: paginatedData,
       meta: {
         total,
-        page,
+        page: safePage,
         limit,
-        totalPages: Math.ceil(total / limit)
-      }
+        totalPages,
+        hasNextPage: safePage < totalPages,
+        hasPreviousPage: safePage > 1,
+      },
     })
   } catch (error) {
     return NextResponse.json(
       {
         message: 'Unexpected error while fetching suppliers',
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: getErrorMessage(error),
       },
       { status: 500 }
     )
@@ -104,17 +267,39 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
 
-    const {
-      supplierCode,
-      supplierName,
-      contact,
-      address,
-      productSku,
-      estimatedPrice,
-      leadTimeDays,
-      paymentTerm,
-      status,
-    } = body
+    const supplierCode = getString(
+      body.supplierCode || body.supplierId || body.supplier_id || body.id
+    )
+
+    const supplierName = getString(
+      body.supplierName || body.supplier_name || body.name
+    )
+
+    const contact = getString(body.contact || body.pic || body.phone, '')
+    const address = getString(body.address, '')
+
+    const productSku = getString(
+      body.productSku || body.productCode || body.product_id || body.productId
+    )
+
+    const estimatedPrice = getNumber(
+      body.estimatedPrice ||
+        body.unitPriceEstimate ||
+        body.unit_price_estimate ||
+        body.price,
+      0
+    )
+
+    const leadTimeDays = getNumber(
+      body.leadTimeDays || body.leadTime || body.lead_time,
+      0
+    )
+
+    const paymentTerm = normalizePaymentTerm(
+      body.paymentTerm || body.termOfPayment || body.top
+    )
+
+    const status = normalizeStatus(body.status)
 
     if (!supplierCode || !supplierName || !productSku) {
       return NextResponse.json(
@@ -125,22 +310,46 @@ export async function POST(request: Request) {
       )
     }
 
-    const { error: supplierError } = await supabase
-      .from('ms_supplier')
-      .upsert(
+    const { data: productData, error: productError } = await supabase
+      .from('ms_product')
+      .select('product_id, product_name, category, uom')
+      .eq('product_id', productSku)
+      .maybeSingle()
+
+    if (productError) {
+      return NextResponse.json(
         {
-          supplier_id: supplierCode,
-          supplier_name: supplierName,
-          contact: contact || null,
-          address: address || null,
-          lead_time: Number(leadTimeDays || 0),
-          top: paymentTerm || 'NET_30',
-          status: status || 'ACTIVE',
+          message: 'Failed to validate product SKU',
+          error: productError.message,
         },
-        {
-          onConflict: 'supplier_id',
-        }
+        { status: 500 }
       )
+    }
+
+    if (!productData) {
+      return NextResponse.json(
+        {
+          message: 'Product SKU not found',
+          error: `Product ${productSku} does not exist`,
+        },
+        { status: 404 }
+      )
+    }
+
+    const { error: supplierError } = await supabase.from('ms_supplier').upsert(
+      {
+        supplier_id: supplierCode,
+        supplier_name: supplierName,
+        contact: contact || null,
+        address: address || null,
+        lead_time: leadTimeDays,
+        top: paymentTerm,
+        status,
+      },
+      {
+        onConflict: 'supplier_id',
+      }
+    )
 
     if (supplierError) {
       return NextResponse.json(
@@ -152,61 +361,169 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: productData, error: productError } = await supabase
-      .from('ms_product')
-      .select('product_id')
-      .eq('product_id', productSku)
+    const { data: existingPrice, error: existingPriceError } = await supabase
+      .from('ms_supplier_price')
+      .select('*')
+      .eq('supplier_id', supplierCode)
+      .eq('product_id', productData.product_id)
       .maybeSingle()
 
-    if (productError || !productData) {
+    if (existingPriceError) {
       return NextResponse.json(
         {
-          message: 'Product SKU not found',
-          error:
-            productError?.message || `Product ${productSku} does not exist`,
+          message: 'Failed to check existing supplier price profile',
+          error: existingPriceError.message,
         },
-        { status: 404 }
+        { status: 500 }
       )
     }
 
-    const { data: supplierPriceData, error: supplierPriceError } =
-      await supabase
+    let supplierPriceData = null
+
+    if (existingPrice) {
+      const { data, error } = await supabase
         .from('ms_supplier_price')
-        .upsert(
-          {
-            supplier_id: supplierCode,
-            product_id: productData.product_id,
-            estimated_price: Number(estimatedPrice || 0),
-            lead_time_days: Number(leadTimeDays || 0),
-            payment_term: paymentTerm || 'NET_30',
-            status: status || 'ACTIVE',
-          },
-          {
-            onConflict: 'supplier_id,product_id',
-          }
-        )
+        .update({
+          unit_price_estimate: estimatedPrice,
+          uom: productData.uom || null,
+        })
+        .eq('supplier_id', supplierCode)
+        .eq('product_id', productData.product_id)
         .select()
         .single()
+
+      if (error) {
+        return NextResponse.json(
+          {
+            message: 'Failed to update supplier price profile',
+            error: error.message,
+          },
+          { status: 500 }
+        )
+      }
+
+      supplierPriceData = data
+    } else {
+      const { data, error } = await supabase
+        .from('ms_supplier_price')
+        .insert({
+          supplier_id: supplierCode,
+          product_id: productData.product_id,
+          unit_price_estimate: estimatedPrice,
+          uom: productData.uom || null,
+        })
+        .select()
+        .single()
+
+      if (error) {
+        return NextResponse.json(
+          {
+            message: 'Failed to save supplier price profile',
+            error: error.message,
+          },
+          { status: 500 }
+        )
+      }
+
+      supplierPriceData = data
+    }
+
+    return NextResponse.json({
+      message: 'Supplier saved successfully',
+      data: {
+        id: supplierCode,
+        supplierId: supplierCode,
+        supplierName,
+        contact: contact || '-',
+        address: address || '-',
+        productCode: productData.product_id,
+        product: productData.product_name || '-',
+        category: productData.category || '-',
+        unit: productData.uom || '-',
+        estimatedPrice,
+        leadTime: leadTimeDays,
+        termOfPayment: paymentTerm,
+        status,
+        supplierPrice: supplierPriceData,
+      },
+    })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        message: 'Unexpected error while saving supplier',
+        error: getErrorMessage(error),
+      },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const url = new URL(request.url)
+
+    let supplierId = getString(
+      url.searchParams.get('supplierId') ||
+        url.searchParams.get('supplier_id') ||
+        url.searchParams.get('id')
+    )
+
+    if (!supplierId) {
+      const body = await request.json().catch(() => null)
+
+      supplierId = getString(body?.supplierId || body?.supplier_id || body?.id)
+    }
+
+    if (!supplierId) {
+      return NextResponse.json(
+        {
+          message: 'Supplier ID is required',
+        },
+        { status: 400 }
+      )
+    }
+
+    const { error: supplierPriceError } = await supabase
+      .from('ms_supplier_price')
+      .delete()
+      .eq('supplier_id', supplierId)
 
     if (supplierPriceError) {
       return NextResponse.json(
         {
-          message: 'Failed to save supplier price profile',
+          message: 'Failed to delete supplier price profile',
           error: supplierPriceError.message,
         },
         { status: 500 }
       )
     }
 
+    const { error: supplierError } = await supabase
+      .from('ms_supplier')
+      .delete()
+      .eq('supplier_id', supplierId)
+
+    if (supplierError) {
+      return NextResponse.json(
+        {
+          message: 'Failed to delete supplier',
+          error: supplierError.message,
+        },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json({
-      message: 'Supplier saved successfully',
-      data: supplierPriceData,
+      message: 'Supplier deleted successfully',
+      data: {
+        supplierId,
+      },
     })
   } catch (error) {
     return NextResponse.json(
       {
-        message: 'Unexpected error while saving supplier',
-        error: error instanceof Error ? error.message : 'Unknown error',
+        message: 'Unexpected error while deleting supplier',
+        error: getErrorMessage(error),
       },
       { status: 500 }
     )

@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
     const limit = searchParams.get('limit') ? Number(searchParams.get('limit')) : undefined;
     const statusVal = searchParams.get('status') || undefined;
 
-    const result = await getDaftarPermintaanPembayaran(page, limit, statusVal as 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED');
+    const result = await getDaftarPermintaanPembayaran(page, limit, statusVal as 'PENDING_APPROVAL' | 'PENDING_TREASURY' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXECUTED');
     return NextResponse.json({ data: result.data, total: result.total });
   } catch (error) {
     const err = error as { statusCode?: number; message?: string };
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     // 1. Aksi: Persetujuan Pengajuan Pembayaran oleh Management
     if (action === 'approve') {
       const user = await verifyAuthForRoute(request, ['ADMIN', 'MANAGEMENT', 'FINANCE']);
-      const { permintaan_id, status, alasan } = await request.json();
+      const { permintaan_id, status, alasan, approval_level } = await request.json();
 
       if (!permintaan_id || !status || !['DISETUJUI', 'DITOLAK'].includes(status)) {
         return NextResponse.json(
@@ -115,7 +115,8 @@ export async function POST(request: NextRequest) {
         Number(permintaan_id),
         status,
         alasan || '',
-        String(user.user_id)
+        String(user.user_id),
+        approval_level as 'AP' | 'TREASURY'
       );
 
       return NextResponse.json({

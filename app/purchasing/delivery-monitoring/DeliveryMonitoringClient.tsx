@@ -11,7 +11,6 @@ import {
   Package,
   MapPin,
   ChartBar,
-  DotsThreeVertical,
 } from '@phosphor-icons/react'
 import { ModuleLayout } from '@/components/layout/ModuleLayout'
 import { ModuleHeader } from '@/components/shared'
@@ -22,13 +21,15 @@ type TrackingReport = {
   entityType: string
   entityId: string | null
   trackingStatus: string
+  manualTrackingStatus: string | null
   estimatedArrivalDate: string | null
   supplierNotes: string
   reportedBy: string
-  reportedAt: string
+  reportedAt: string | null
 
   poNo: string
   poDate: string | null
+  poReleaseDate: string | null
   expectedDeliveryDate: string | null
   poStatus: string
   totalValue: number
@@ -42,10 +43,16 @@ type TrackingReport = {
   productName: string
   category: string
   qty: number
+  receivedQty: number
   unit: string
+
+  receiptId: string | null
+  receiptDate: string | null
+  hasGoodsReceipt: boolean
 }
 
 type MonitoringStatus = 'On Track' | 'Due Today' | 'Overdue'
+type TimelineStatus = 'done' | 'current' | 'warning' | 'pending'
 
 function formatDate(value?: string | null) {
   if (!value) return '-'
@@ -60,6 +67,7 @@ function formatDate(value?: string | null) {
     year: 'numeric',
   }).format(date)
 }
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat('id-ID').format(value || 0)
 }
@@ -82,18 +90,44 @@ function getDaysLeft(dateValue?: string | null) {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24))
 }
 
+function normalizeStatus(value?: string | null) {
+  return String(value || '').toUpperCase()
+}
+
+function formatTrackingStatus(value?: string | null) {
+  const status = normalizeStatus(value)
+
+  if (status === 'SENT_TO_SUPPLIER') return 'Sent to Supplier'
+  if (status === 'IN_PROCESS') return 'In Process'
+  if (status === 'IN_DELIVERY') return 'In Delivery'
+  if (status === 'DELAYED') return 'Delayed'
+  if (status === 'DELIVERED') return 'Delivered'
+  if (status === 'COMPLETED') return 'Completed'
+  if (status === 'CANCELLED') return 'Cancelled'
+
+  return 'Pending'
+}
+
 function getMonitoringStatus(item: TrackingReport): MonitoringStatus {
+  const trackingStatus = normalizeStatus(item.trackingStatus)
   const deliveryDate = item.estimatedArrivalDate || item.expectedDeliveryDate
   const daysLeft = getDaysLeft(deliveryDate)
 
-  if (item.trackingStatus === 'DELAYED') return 'Overdue'
-  if (daysLeft !== null && daysLeft < 0) return 'Overdue'
-  if (daysLeft === 0) return 'Due Today'
+  if (trackingStatus === 'DELAYED') return 'Overdue'
+  if (daysLeft !== null && daysLeft < 0 && trackingStatus !== 'COMPLETED') {
+    return 'Overdue'
+  }
+
+  if (daysLeft === 0 && trackingStatus !== 'COMPLETED') return 'Due Today'
 
   return 'On Track'
 }
 
 function getRemainingDays(item: TrackingReport) {
+  const trackingStatus = normalizeStatus(item.trackingStatus)
+
+  if (trackingStatus === 'COMPLETED') return '-'
+
   const deliveryDate = item.estimatedArrivalDate || item.expectedDeliveryDate
   const daysLeft = getDaysLeft(deliveryDate)
 
@@ -111,14 +145,66 @@ function getStatusClass(status: MonitoringStatus) {
   return 'bg-emerald-100 text-emerald-700'
 }
 
-function getTimelineStatus(step: number, item: TrackingReport) {
-  const status = getMonitoringStatus(item)
+function getTimelineSteps(item: TrackingReport) {
+  const poStatus = normalizeStatus(item.poStatus)
+  const trackingStatus = normalizeStatus(item.trackingStatus)
+  const manualTrackingStatus = normalizeStatus(item.manualTrackingStatus)
 
-  if (step <= 2) return 'done'
-  if (step === 3 && status !== 'Overdue') return 'current'
-  if (step === 3 && status === 'Overdue') return 'warning'
+  const isReleased =
+    Boolean(item.poReleaseDate) || ['RELEASED', 'COMPLETED'].includes(poStatus)
 
-  return 'pending'
+  const hasManualTracking = Boolean(item.manualTrackingStatus)
+  const hasGoodsReceipt =
+    Boolean(item.receiptDate) ||
+    item.hasGoodsReceipt ||
+    trackingStatus === 'COMPLETED'
+
+  const inDeliveryIsActive =
+    ['IN_PROCESS', 'IN_DELIVERY', 'DELAYED', 'DELIVERED'].includes(
+      manualTrackingStatus
+    ) || hasGoodsReceipt
+
+  const inDeliveryStatus: TimelineStatus =
+    trackingStatus === 'DELAYED'
+      ? 'warning'
+      : ['IN_DELIVERY', 'DELIVERED', 'COMPLETED'].includes(trackingStatus) ||
+          hasGoodsReceipt
+        ? 'done'
+        : inDeliveryIsActive
+          ? 'current'
+          : 'pending'
+
+  return [
+    {
+      label: 'PO Created',
+      date: formatDate(item.poDate),
+      status: item.poDate ? 'done' : 'pending',
+    },
+    {
+      label: 'PO Released',
+      date: item.poReleaseDate ? formatDate(item.poReleaseDate) : '-',
+      status: isReleased ? 'done' : 'pending',
+    },
+    {
+      label: 'Sent to Supplier',
+      date: isReleased ? formatDate(item.poReleaseDate || item.poDate) : '-',
+      status: isReleased ? 'done' : 'pending',
+    },
+    {
+      label: 'In Delivery',
+      date: hasManualTracking ? formatDate(item.reportedAt) : 'Waiting update',
+      status: inDeliveryStatus,
+    },
+    {
+      label: 'Goods Receipt',
+      date: hasGoodsReceipt ? formatDate(item.receiptDate) : 'Pending',
+      status: hasGoodsReceipt ? 'done' : 'pending',
+    },
+  ] as Array<{
+    label: string
+    date: string
+    status: TimelineStatus
+  }>
 }
 
 export function DeliveryMonitoringClient() {
@@ -128,6 +214,9 @@ export function DeliveryMonitoringClient() {
   const [supplier, setSupplier] = useState('All Suppliers')
   const [dateRange, setDateRange] = useState('')
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false)
+  const [selectedTracking, setSelectedTracking] =
+    useState<TrackingReport | null>(null)
+  const [expandedPoId, setExpandedPoId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
 
@@ -151,6 +240,10 @@ export function DeliveryMonitoringClient() {
       )
 
       setTrackingReports(deliveryData)
+
+      if (!expandedPoId && deliveryData.length > 0) {
+        setExpandedPoId(deliveryData[0].id)
+      }
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Failed to fetch tracking reports'
@@ -162,6 +255,7 @@ export function DeliveryMonitoringClient() {
 
   useEffect(() => {
     fetchTrackingReports()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const supplierOptions = useMemo(() => {
@@ -230,6 +324,12 @@ export function DeliveryMonitoringClient() {
           : Math.round((value.onTrack / value.total) * 100),
     }))
   }, [trackingReports])
+
+  const openTrackingModal = (item: TrackingReport) => {
+    setSelectedTracking(item)
+    setIsTrackingModalOpen(true)
+    setExpandedPoId(item.id)
+  }
 
   return (
     <ModuleLayout
@@ -409,39 +509,13 @@ export function DeliveryMonitoringClient() {
                       </td>
                     </tr>
                   ) : (
-                    filteredData.map((item, index) => {
+                    filteredData.map((item) => {
                       const monitoringStatus = getMonitoringStatus(item)
                       const remainingDays = getRemainingDays(item)
                       const deliveryDate =
                         item.estimatedArrivalDate || item.expectedDeliveryDate
-
-                      const timelineSteps = [
-                        {
-                          label: 'PO Created',
-                          date: formatDate(item.poDate),
-                          status: getTimelineStatus(1, item),
-                        },
-                        {
-                          label: 'PO Approved',
-                          date: formatDate(item.poDate),
-                          status: getTimelineStatus(2, item),
-                        },
-                        {
-                          label: 'Sent to Supplier',
-                          date: formatDate(item.reportedAt),
-                          status: getTimelineStatus(3, item),
-                        },
-                        {
-                          label: 'In Delivery',
-                          date: formatDate(item.reportedAt),
-                          status: getTimelineStatus(4, item),
-                        },
-                        {
-                          label: 'Goods Receipt',
-                          date: 'Pending',
-                          status: getTimelineStatus(5, item),
-                        },
-                      ]
+                      const timelineSteps = getTimelineSteps(item)
+                      const isExpanded = expandedPoId === item.id
 
                       return (
                         <Fragment key={item.id}>
@@ -465,7 +539,7 @@ export function DeliveryMonitoringClient() {
                               {formatNumber(item.qty)} {item.unit}
                             </td>
                             <td className="px-4 py-4 text-slate-700">
-                              {formatDate(item.poDate)}
+                              {formatDate(item.poReleaseDate)}
                             </td>
                             <td
                               className={`px-4 py-4 font-semibold ${
@@ -477,13 +551,18 @@ export function DeliveryMonitoringClient() {
                               {formatDate(deliveryDate)}
                             </td>
                             <td className="px-4 py-4">
-                              <span
-                                className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
-                                  monitoringStatus
-                                )}`}
-                              >
-                                {monitoringStatus}
-                              </span>
+                              <div className="flex flex-col gap-1">
+                                <span
+                                  className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
+                                    monitoringStatus
+                                  )}`}
+                                >
+                                  {monitoringStatus}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {formatTrackingStatus(item.trackingStatus)}
+                                </span>
+                              </div>
                             </td>
                             <td
                               className={`px-4 py-4 font-bold ${
@@ -495,13 +574,27 @@ export function DeliveryMonitoringClient() {
                               {remainingDays}
                             </td>
                             <td className="px-4 py-4 text-right">
-                              <button className="text-slate-500 hover:text-red-600">
-                                <DotsThreeVertical size={22} weight="bold" />
-                              </button>
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedPoId(item.id)}
+                                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                                >
+                                  View Timeline
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openTrackingModal(item)}
+                                  disabled={item.hasGoodsReceipt}
+                                  className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                                >
+                                  Input Tracking
+                                </button>
+                              </div>
                             </td>
                           </tr>
 
-                          {index === 0 && (
+                          {isExpanded && (
                             <tr>
                               <td colSpan={9} className="bg-white px-6 py-5">
                                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
@@ -626,28 +719,28 @@ export function DeliveryMonitoringClient() {
             </div>
 
             <p className="mt-4 text-sm leading-relaxed text-slate-600">
-              Delivery monitoring is connected with purchase orders and supplier
-              tracking reports from the purchasing database.
+              Delivery monitoring is connected with purchase orders, manual
+              supplier tracking updates, and goods receipt records.
             </p>
           </div>
-        </div>
-
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setIsTrackingModalOpen(true)}
-            className="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
-          >
-            Input Tracking Report
-          </button>
         </div>
       </div>
 
       <TrackingReportModal
         isOpen={isTrackingModalOpen}
         onClose={() => setIsTrackingModalOpen(false)}
-        title="Input Tracking Report"
-        contextLabel="Delivery monitoring status update from supplier"
+        onSaved={fetchTrackingReports}
+        trackingContext={
+          selectedTracking
+            ? {
+                poNo: selectedTracking.poNo,
+                supplierName: selectedTracking.supplierName,
+                productName: selectedTracking.productName,
+                qty: selectedTracking.qty,
+                unit: selectedTracking.unit,
+              }
+            : null
+        }
       />
     </ModuleLayout>
   )

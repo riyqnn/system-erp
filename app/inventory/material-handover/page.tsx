@@ -67,6 +67,14 @@ interface BatchOption {
   quantity: number;
 }
 
+const isMaterialCategory = (category?: string) => {
+  const normalized = String(category ?? "").trim().toUpperCase();
+  if (!normalized) return false;
+  if (["RM", "RAW MATERIAL", "RAW_MATERIAL", "RAWMATERIAL"].includes(normalized)) return true;
+  if (["PM", "PACKAGING", "PACKAGING MATERIAL", "PACKAGING_MATERIAL", "PACKAGINGMATERIAL"].includes(normalized)) return true;
+  return false;
+};
+
 /* ------------------------------------------------------------------ */
 /*  Page Component                                                     */
 /* ------------------------------------------------------------------ */
@@ -115,15 +123,27 @@ export default function MaterialHandoverPage() {
   const fetchMaster = useCallback(async () => {
     try {
       const [pRes, wRes, poRes] = await Promise.all([
-        fetch("/api/inventory/stock"),
+        fetch("/api/inventory/products"),
         fetch("/api/inventory/warehouses"),
         fetch("/api/production/orders"),
       ]);
-      if (pRes.ok) { const j = await pRes.json(); setProducts(j.data || []); }
+
+      if (pRes.ok) {
+        const j = await pRes.json();
+        const rawProducts = Array.isArray(j) ? j : (j.data || []);
+        setProducts(rawProducts || []);
+      } else {
+        const fallbackRes = await fetch("/api/inventory/stock?limit=1000");
+        if (fallbackRes.ok) {
+          const fallbackJson = await fallbackRes.json();
+          setProducts(fallbackJson.data || []);
+        }
+      }
+
       if (wRes.ok) { const j = await wRes.json(); setWarehouses(j.data || []); }
-      if (poRes.ok) { 
-        const j = await poRes.json(); 
-        setProdOrders(Array.isArray(j) ? j : (j.data || [])); 
+      if (poRes.ok) {
+        const j = await poRes.json();
+        setProdOrders(Array.isArray(j) ? j : (j.data || []));
       }
     } catch (err) {
       console.error("Failed to fetch master data:", err);
@@ -375,8 +395,8 @@ export default function MaterialHandoverPage() {
                         <select required className="w-full h-10 px-3 border border-slate-200 rounded-md text-sm bg-white"
                           value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })}>
                           <option value="">— Select —</option>
-                          {products.filter((p) => p.category === "RM" || p.category === "PM").map((p) => (
-                            <option key={p.product_id} value={p.product_id}>[{p.product_code}] {p.product_name}</option>
+                          {products.filter((p) => isMaterialCategory(p.category)).map((p) => (
+                            <option key={p.product_id} value={p.product_id}>[{p.product_code ?? p.product_id}] {p.product_name}</option>
                           ))}
                         </select>
                       </div>
@@ -403,8 +423,8 @@ export default function MaterialHandoverPage() {
                             onChange={(e) => setForm({ ...form, batch_number: e.target.value })}
                           >
                             <option value="">— Select Batch —</option>
-                            {batches.map((b) => (
-                              <option key={b.batch_number} value={b.batch_number}>
+                            {batches.map((b, idx) => (
+                              <option key={`${form.product_id}-${form.warehouse_id}-${b.batch_number}-${idx}`} value={b.batch_number}>
                                 {b.batch_number} (Qty: {b.quantity})
                               </option>
                             ))}
