@@ -210,6 +210,7 @@ interface HutangDbRow {
   due_date: string;
   created_at?: string;
   ms_supplier?: { supplier_name?: string } | null;
+  permintaan_pembayaran?: { amount: number; status: string }[] | null;
 }
 
 interface PermintaanPembayaranDbRow {
@@ -1016,7 +1017,11 @@ export async function getDaftarHutang(page?: number, limit?: number): Promise<{ 
     .from('tr_account_payable')
     .select(`
       *,
-      ms_supplier (supplier_name)
+      ms_supplier (supplier_name),
+      permintaan_pembayaran (
+        amount,
+        status
+      )
     `, { count: 'exact' });
 
   if (page && limit) {
@@ -1029,23 +1034,32 @@ export async function getDaftarHutang(page?: number, limit?: number): Promise<{ 
 
   if (error) throw error;
 
-  const mappedData = (data || []).map((h: HutangDbRow) => ({
-    ap_id: h.ap_id,
-    id_hutang: h.ap_id,
-    po_id: h.po_id,
-    supplier_id: h.supplier_id,
-    supplier_name: h.ms_supplier?.supplier_name || 'Supplier Mayora',
-    inv_supp_no: h.inv_supp_no,
-    no_invoice: h.inv_supp_no,
-    invoice_date: h.invoice_date,
-    ap_amount: Number(h.ap_amount),
-    jumlah: Number(h.ap_amount),
-    sisa_pembayaran: h.ap_status === 'PAID' ? 0 : Number(h.ap_amount),
-    due_date: h.due_date,
-    ap_status: h.ap_status,
-    status: (h.ap_status === 'PAID' ? 'LUNAS' : (h.ap_status === 'OVERDUE' ? 'OVERDUE' : 'BELUM_LUNAS')) as 'LUNAS' | 'OVERDUE' | 'BELUM_LUNAS',
-    created_at: h.created_at || new Date().toISOString()
-  }));
+  const mappedData = (data || []).map((h: HutangDbRow) => {
+    const reqs = h.permintaan_pembayaran || [];
+    const activeReqs = Array.isArray(reqs) ? reqs : [reqs];
+    const totalRequested = activeReqs
+      .filter((r: { status: string; amount: number | string }) => r.status === 'PENDING_APPROVAL' || r.status === 'APPROVED')
+      .reduce((sum: number, r: { status: string; amount: number | string }) => sum + Number(r.amount), 0);
+    const sisaPembayaran = h.ap_status === 'PAID' ? 0 : Math.max(0, Number(h.ap_amount) - totalRequested);
+
+    return {
+      ap_id: h.ap_id,
+      id_hutang: h.ap_id,
+      po_id: h.po_id,
+      supplier_id: h.supplier_id,
+      supplier_name: h.ms_supplier?.supplier_name || 'Supplier Mayora',
+      inv_supp_no: h.inv_supp_no,
+      no_invoice: h.inv_supp_no,
+      invoice_date: h.invoice_date,
+      ap_amount: Number(h.ap_amount),
+      jumlah: Number(h.ap_amount),
+      sisa_pembayaran: sisaPembayaran,
+      due_date: h.due_date,
+      ap_status: h.ap_status,
+      status: (h.ap_status === 'PAID' ? 'LUNAS' : (h.ap_status === 'OVERDUE' ? 'OVERDUE' : 'BELUM_LUNAS')) as 'LUNAS' | 'OVERDUE' | 'BELUM_LUNAS',
+      created_at: h.created_at || new Date().toISOString()
+    };
+  });
 
   return { data: mappedData, total: count || 0 };
 }

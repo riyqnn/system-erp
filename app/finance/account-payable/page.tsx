@@ -555,14 +555,24 @@ export default function AccountPayablePage() {
                                     Swal.fire('Info', 'Invoice ini sedang dikembalikan ke Purchasing untuk koreksi.', 'info');
                                     return;
                                   }
+                                  if (h.sisa_pembayaran <= 0) {
+                                    Swal.fire('Info', 'Invoice ini sudah diajukan untuk pembayaran sepenuhnya.', 'info');
+                                    return;
+                                  }
                                   setSelectedHutang(h);
                                   setJumlahBayarPengajuan(h.sisa_pembayaran);
                                   setIsRequestOpen(true);
                                 }}
-                                disabled={h.ap_status === 'PRICE_MISMATCH'}
-                                className={`px-2 py-1 rounded-lg text-white font-bold transition-colors cursor-pointer text-[10px] ${h.ap_status === 'PRICE_MISMATCH' ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                                disabled={h.ap_status === 'PRICE_MISMATCH' || h.sisa_pembayaran <= 0}
+                                className={`px-2 py-1 rounded-lg text-white font-bold transition-colors cursor-pointer text-[10px] ${
+                                  h.ap_status === 'PRICE_MISMATCH'
+                                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                    : h.sisa_pembayaran <= 0
+                                    ? 'bg-slate-400 text-slate-100 cursor-not-allowed'
+                                    : 'bg-emerald-600 hover:bg-emerald-700'
+                                }`}
                               >
-                                Verify
+                                {h.sisa_pembayaran <= 0 ? 'Requested' : 'Verify'}
                               </button>
                               <button
                                 onClick={async () => {
