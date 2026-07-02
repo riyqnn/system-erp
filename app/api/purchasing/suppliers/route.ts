@@ -27,17 +27,16 @@ function getNumber(value: unknown, fallback = 0) {
 }
 
 function normalizeStatus(value: unknown) {
-  const status = getString(value, 'Active').toUpperCase()
+  const status = getString(value, 'ACTIVE').toUpperCase()
 
-  if (status === 'INACTIVE') return 'Inactive'
-  if (status === 'SUSPENDED') return 'Suspended'
+  if (status === 'INACTIVE') return 'INACTIVE'
+  if (status === 'SUSPENDED') return 'SUSPENDED'
 
-  return 'Active'
+  return 'ACTIVE'
 }
 
 function normalizePaymentTerm(value: unknown) {
   const term = getString(value, 'Net 30')
-
   const normalized = term.replace('_', ' ').toLowerCase()
 
   if (normalized === 'net 14') return 'Net 14'
@@ -111,11 +110,13 @@ export async function GET(request: Request) {
     const products = productResult.data || []
 
     const productMap = new Map<string, any>()
+
     products.forEach((product: any) => {
       productMap.set(String(product.product_id || ''), product)
     })
 
     const priceMap = new Map<string, any[]>()
+
     supplierPrices.forEach((supplierPrice: any) => {
       const supplierId = String(supplierPrice.supplier_id || '')
       const currentPrices = priceMap.get(supplierId) || []
@@ -140,12 +141,6 @@ export async function GET(request: Request) {
       1
     )
 
-    /**
-     * Default limit dibuat 1000 dulu supaya kalau client belum kirim pagination,
-     * semua supplier tetap tampil dan data baru tidak terlihat seperti "hilang".
-     * Nanti saat client pagination sudah dibetulkan, client bisa fetch:
-     * /api/purchasing/suppliers?page=1&limit=10
-     */
     const limitParam = url.searchParams.get('limit')
     const limit =
       limitParam === 'all'
@@ -182,7 +177,7 @@ export async function GET(request: Request) {
         estimatedPrice,
         leadTime: getNumber(item.lead_time, 0),
         termOfPayment: item.top || '-',
-        status: item.status || 'Active',
+        status: item.status || 'ACTIVE',
 
         priceProfiles: prices.map((price: any) => {
           const priceProduct = productMap.get(String(price.product_id || ''))
@@ -273,26 +268,18 @@ export async function POST(request: Request) {
     const body = await request.json()
 
     const supplierCode = getString(
-      body.supplierCode ||
-        body.supplierId ||
-        body.supplier_id ||
-        body.id
+      body.supplierCode || body.supplierId || body.supplier_id || body.id
     )
 
     const supplierName = getString(
-      body.supplierName ||
-        body.supplier_name ||
-        body.name
+      body.supplierName || body.supplier_name || body.name
     )
 
     const contact = getString(body.contact || body.pic || body.phone, '')
     const address = getString(body.address, '')
 
     const productSku = getString(
-      body.productSku ||
-        body.productCode ||
-        body.product_id ||
-        body.productId
+      body.productSku || body.productCode || body.product_id || body.productId
     )
 
     const estimatedPrice = getNumber(
@@ -304,16 +291,12 @@ export async function POST(request: Request) {
     )
 
     const leadTimeDays = getNumber(
-      body.leadTimeDays ||
-        body.leadTime ||
-        body.lead_time,
+      body.leadTimeDays || body.leadTime || body.lead_time,
       0
     )
 
     const paymentTerm = normalizePaymentTerm(
-      body.paymentTerm ||
-        body.termOfPayment ||
-        body.top
+      body.paymentTerm || body.termOfPayment || body.top
     )
 
     const status = normalizeStatus(body.status)
@@ -478,6 +461,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const url = new URL(request.url)
+
     let supplierId = getString(
       url.searchParams.get('supplierId') ||
         url.searchParams.get('supplier_id') ||
@@ -487,11 +471,7 @@ export async function DELETE(request: Request) {
     if (!supplierId) {
       const body = await request.json().catch(() => null)
 
-      supplierId = getString(
-        body?.supplierId ||
-          body?.supplier_id ||
-          body?.id
-      )
+      supplierId = getString(body?.supplierId || body?.supplier_id || body?.id)
     }
 
     if (!supplierId) {
