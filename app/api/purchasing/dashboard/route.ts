@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-type AnyObject = Record<string, any>
+// Record<string, unknown> instead of AnyObject/any usage
+type AnyObject = Record<string, unknown>
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey =
@@ -81,7 +82,7 @@ function buildStatusOverview(rows: AnyObject[], statusKey: string) {
   const statusMap = new Map<string, number>()
 
   rows.forEach((row) => {
-    const label = formatStatusLabel(row?.[statusKey])
+    const label = formatStatusLabel(String(row?.[statusKey] ?? ''))
     statusMap.set(label, (statusMap.get(label) || 0) + 1)
   })
 
@@ -156,12 +157,12 @@ export async function GET() {
 
     const negotiations = quotations.filter((quotation: AnyObject) =>
       ['NEGOTIATION', 'COUNTERED', 'AGREED', 'ACCEPTED', 'APPROVED'].includes(
-        normalizeStatus(quotation.status)
+        normalizeStatus(String(quotation.status ?? ''))
       )
     )
 
     const agreedNegotiations = quotations.filter((quotation: AnyObject) =>
-      ['AGREED', 'ACCEPTED', 'APPROVED'].includes(normalizeStatus(quotation.status))
+      ['AGREED', 'ACCEPTED', 'APPROVED'].includes(normalizeStatus(String(quotation.status ?? '')))
     ).length
 
     const receiptPOSet = new Set(
@@ -186,7 +187,7 @@ export async function GET() {
 
     const trackingReports = purchaseOrders.filter((po: AnyObject) =>
       ['APPROVED', 'RELEASED', 'SENT', 'ISSUED', 'COMPLETED'].includes(
-        normalizeStatus(po.status)
+        normalizeStatus(String(po.status ?? ''))
       )
     )
 
@@ -200,9 +201,10 @@ export async function GET() {
     >()
 
     purchaseOrders.forEach((po: AnyObject) => {
-      const sourceDate = po.created_at || po.po_release_date
-      const monthKey = getMonthKey(sourceDate)
-      const monthLabel = getMonthLabel(sourceDate)
+      const sourceDate = po.created_at ?? po.po_release_date
+      const castedSourceDate = typeof sourceDate === 'string' ? sourceDate : String(sourceDate ?? '')
+      const monthKey = getMonthKey(castedSourceDate)
+      const monthLabel = getMonthLabel(castedSourceDate)
 
       const current = monthlyPOMap.get(monthKey) || {
         month: monthLabel,
@@ -221,19 +223,19 @@ export async function GET() {
       .map(([, value]) => value)
 
     const pendingPR = purchaseRequisitions.filter((pr: AnyObject) =>
-      ['PENDING', 'DRAFT', 'REQUESTED'].includes(normalizeStatus(pr.status))
+      ['PENDING', 'DRAFT', 'REQUESTED'].includes(normalizeStatus(String(pr.status ?? '')))
     ).length
 
     const pendingApprovalPO = purchaseOrders.filter((po: AnyObject) =>
-      ['PENDING_APPROVAL', 'PENDING', 'DRAFT'].includes(normalizeStatus(po.status))
+      ['PENDING_APPROVAL', 'PENDING', 'DRAFT'].includes(normalizeStatus(String(po.status ?? '')))
     ).length
 
     const releasedPO = purchaseOrders.filter((po: AnyObject) =>
-      ['RELEASED', 'COMPLETED'].includes(normalizeStatus(po.status))
+      ['RELEASED', 'COMPLETED'].includes(normalizeStatus(String(po.status ?? '')))
     ).length
 
     const delayedPO = purchaseOrders.filter((po: AnyObject) =>
-      ['DELAYED', 'OVERDUE'].includes(normalizeStatus(po.status))
+      ['DELAYED', 'OVERDUE'].includes(normalizeStatus(String(po.status ?? '')))
     ).length
 
     const alerts = [

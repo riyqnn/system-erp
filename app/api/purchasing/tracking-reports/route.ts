@@ -12,10 +12,10 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-type AnyObject = Record<string, any>
+type AnyObject = Record<string, unknown>
 
-function normalizeStatus(value?: string | null) {
-  return String(value || '').toUpperCase()
+function normalizeStatus(value?: unknown) {
+  return String(value ?? '').toUpperCase()
 }
 
 function getString(value: unknown, fallback = '') {
@@ -78,7 +78,7 @@ function normalizeManualTrackingStatus(value?: string | null) {
 }
 
 function getReceivedQty(receipt: AnyObject) {
-  const status = normalizeStatus(receipt.status)
+  const status = normalizeStatus(String(receipt.status ?? ''))
   const quantity = getNumber(receipt.quantity || receipt.received_qty, 0)
   const rejectQty = getNumber(receipt.reject_qty, 0)
 
@@ -92,7 +92,7 @@ function getTrackingStatus({
   latestTracking,
   hasReceipt,
 }: {
-  poStatus?: string | null
+  poStatus?: unknown
   latestTracking?: AnyObject | null
   hasReceipt: boolean
 }) {
@@ -101,7 +101,7 @@ function getTrackingStatus({
   if (hasReceipt || status === 'COMPLETED') return 'COMPLETED'
 
   if (latestTracking?.status) {
-    return normalizeManualTrackingStatus(latestTracking.status)
+    return normalizeManualTrackingStatus(String(latestTracking.status))
   }
 
   if (['RELEASED', 'SENT', 'ISSUED'].includes(status)) {
@@ -210,7 +210,7 @@ export async function GET() {
     const trackingByPO = new Map<string, AnyObject>()
     manualTrackingRows.forEach((tracking: AnyObject) => {
       const poId = String(tracking.entity_id || tracking.po_id || '')
-      const entityType = normalizeStatus(tracking.entity_type)
+      const entityType = normalizeStatus(String(tracking.entity_type ?? ''))
 
       if (!poId || entityType !== 'PURCHASE_ORDER') return
       if (!trackingByPO.has(poId)) trackingByPO.set(poId, tracking)
@@ -218,7 +218,7 @@ export async function GET() {
 
     const trackingReports = (poResult.data || [])
       .filter((item: AnyObject) => {
-        const status = normalizeStatus(item.status)
+        const status = normalizeStatus(String(item.status ?? ''))
 
         return ['RELEASED', 'COMPLETED'].includes(status)
       })
@@ -240,7 +240,11 @@ export async function GET() {
 
         const estimatedArrivalDate =
           latestTracking?.estimated_arrival_date ||
-          addDays(item.po_release_date || item.created_at, 7)
+          addDays(
+            typeof item.po_release_date === 'string' ? item.po_release_date : String(item.po_release_date ?? '') ||
+            (typeof item.created_at === 'string' ? item.created_at : String(item.created_at ?? '')),
+            7
+          )
 
         const trackingStatus = getTrackingStatus({
           poStatus: item.status,
